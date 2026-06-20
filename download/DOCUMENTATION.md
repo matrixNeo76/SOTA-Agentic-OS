@@ -1,8 +1,8 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
-> **Versione:** 0.4.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io
+> **Versione:** 0.5.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow
 
-Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **14 micro-fasi** operative: stato/memoria, orchestrazione DAG, steering ACTS, LTL, ERL, context engineering, dominator trees, Lean4, artificial retainer, grounded inference, affect subsystem, agent objective BFS, ESR + quorum, TimeRouter.
+Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **18 micro-fasi** operative: stato/memoria, orchestrazione DAG, steering ACTS, LTL, ERL, context engineering, dominator trees, Lean4, artificial retainer, grounded inference, affect subsystem, agent objective BFS, ESR + quorum, TimeRouter, **Cockpit (Artificial Retainer UI)**, **Topological Observability (React Flow)**, **Sovereign Validator**, **Tool Ecosystem**.
 
 ---
 
@@ -11,7 +11,7 @@ Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" c
 1. [Stack Tecnologico](#1-stack-tecnologico)
 2. [Avvio Rapido](#2-avvio-rapido)
 3. [Architettura Generale](#3-architettura-generale)
-4. [Le 14 Micro-Fasi](#4-le-14-micro-fasi)
+4. [Le 18 Micro-Fasi](#4-le-18-micro-fasi)
 5. [Schema Database](#5-schema-database)
 6. [API Reference](#6-api-reference)
 7. [Moduli Kernel](#7-moduli-kernel)
@@ -140,7 +140,7 @@ bun run db:generate   # Rigenera Prisma Client
 
 ---
 
-## 4. Le 5 Micro-Fasi
+## 4. Le 18 Micro-Fasi
 
 ### Fase 1 — Stato e Memoria Persistente
 
@@ -361,6 +361,120 @@ Routing adattivo per massimizzare performance e ridurre costi.
 - **6 modelli default:** GLM-4.6 (general/code/reason/math/logic) + GLM-4.5 Flash
 - Test verificato: code prompt → glm-4.6-code; simple prompt → glm-4.5-flash
 
+### Fase 15 — Cockpit (Plancia di comando Artificial Retainer)
+
+**Componenti:** `cockpit.tsx`, `cockpit/route.ts` (API), `sovereign-translator.ts` (recordNarrative)
+
+Abbandona il paradigma "chat-centrico" in favore di una Web GUI multi-pannello a 5 tab.
+
+- **Tab Narrative**: timeline ad alto livello delle azioni dell'agente (modello `CockpitNarrative`)
+- **Tab Log**: traccia tecnica completa con filtri per fase/agente/livello (AgentLog)
+- **Tab Scheduler**: task `PlanTask` in background con stato (pending/ready/running/done/failed)
+- **Tab Cycles**: dettaglio cicli cognitivi (SensoriumSnapshot + SteeringEvent)
+- **Tab Safety**: azioni bloccate `BlockedAction` pending da risolvere come Sovereign Validator
+
+**Widget persistente Sensorium** (sempre in cima al Cockpit):
+- Ciclo corrente, queue depth, active threads, system load
+- Aggiornato via WebSocket (`useSensoriumLive` hook)
+
+**Affect Gauge** (cruscotto telemetria affettiva):
+- Barra orizzontale animata per Disperazione e Frustrazione
+- Soglie colorate: verde < 0.4, ambra < 0.7, rosso ≥ 0.7
+- Bordo rosso della card quando stato critico
+
+**Accesso**: sidebar categoria CORE, voce "Cockpit" (icona Gauge)
+
+### Fase 16 — Topological Observability (React Flow)
+
+**Componente:** `dag-visualizers.tsx`
+
+Visualizzazione grafi interattiva per i 3 tipi di DAG del sistema. Installato `reactflow@11.11.4`.
+
+- **`DynAMODagVisualizer`** (per Fase 2 - Planner):
+  - Task come nodi con archi di dipendenza
+  - Colore per stato: done=verde, running=blu, failed=rosso, pending=grigio
+  - Batch paralleli raggruppati orizzontalmente
+  - Archi animati per task in esecuzione
+  - MiniMap con colorazione per stato
+
+- **`ObjectiveTreeVisualizer`** (per Fase 12 - Objective Builder):
+  - Layout gerarchico con nodi colorati per contextTier
+    - strategic = sky, methodological = violet, implementation = emerald
+  - Status: pass=verde, fail=rosso, skipped=grigio, pending=indaco
+  - Badge peso (w=0.333) e livello (L0, L1, …)
+
+- **`LeanWorkflowVisualizer`** (per Fase 8 - Formal Verifier):
+  - Nodi con pre/post-conditions count come badge
+  - Colore verde se verified, rosso se failed
+  - Archi animati per task non verificati
+  - Layout orizzontale basato su ordine topologico
+
+Tutti i visualizzatori hanno: Background dots, Controls, MiniMap, fitView automatico, attribution nascosto.
+
+### Fase 17 — Sovereign Validator
+
+**Moduli:** `sovereign-translator.ts` (kernel), `sovereign-modal.tsx` (UI), `blocked-actions/route.ts` (API)
+
+L'utente è **Sovereign Validator**: risolve le azioni bloccate dai cancelli di sicurezza con override strutturato.
+
+- **`registerBlockedAction(input)`**: registra azione bloccata con Axiom Trail
+  - Sorgenti: `ltl` | `taint` | `normative` | `hitl_gate`
+  - Auto-genera spiegazione in italiano via `generateExplanation()`
+  - Pubblica evento WebSocket `action_blocked`
+
+- **`resolveBlockedAction(blockedId, choice, resolvedBy, details)`**: 4 opzioni di risoluzione
+  - `approved`: approva assumendo responsabilità
+  - `modified`: modifica parametri strumento
+  - `downgraded`: declassa task
+  - `rejected`: rifiuta definitivamente
+
+- **Modale Sovereign** (`SovereignModalContainer`):
+  - Dialog che si auto-apre quando ci sono `BlockedAction` pending
+  - Polling su `/api/blocked-actions?action=pending` ogni 5s
+  - Si apre anche su evento WebSocket `action_blocked`
+  - Mostra: azione tentata, spiegazione in linguaggio naturale, Axiom Trail esplicito (step × rule × result), nota di risoluzione opzionale
+  - 4 bottoni di risoluzione con icone distinte
+  - Navigazione tra multiple azioni pending ("1 di N")
+
+- **Traduttore LTL → italiano**: converte `G(high_risk -> X human_approval)` in "Ogni azione ad alto rischio richiede approvazione umana nel passo successivo"
+
+### Fase 18 — Tool Ecosystem (Package Manager Agentico)
+
+**Moduli:** `tool-registry.ts` (kernel), `tool-manager.tsx` (UI), `tools/route.ts` (API)
+
+I tool non vengono scelti per similarità semantica (anti-Hallucination Squatting), ma risolti tramite signature crittografica.
+
+- **`installTool(spec, installedBy)`**: installa tool con signature SHA-256
+  - Signature = `sha256:` + hash(toolId:name:version:publisher)
+  - Crea tutti i 10 permessi predefiniti come negati (principio minimo privilegio)
+
+- **`revokeTool(toolId, reason)`**: revoca tool (disattiva, non elimina per audit)
+- **`setPermission(toolId, scope, granted, constraint)`**: permessi a grana fine
+- **`checkToolPermission(toolId, scope)`**: verifica a runtime prima di eseguire il tool
+
+- **10 scope predefiniti:**
+  - `filesystem:read` / `filesystem:write`
+  - `network:get` / `network:post`
+  - `tool:exec`
+  - `db:read` / `db:write`
+  - `process:spawn`
+  - `env:read`
+  - `secret:access`
+
+- **3 Tool predefiniti (BUILTIN_TOOLS):**
+  - `github-integration` v1.2.0 (sota-os-official)
+  - `filesystem-browser` v0.9.1 (sota-os-official)
+  - `web-search` v2.0.0 (sota-os-official)
+
+- **UI Tool Manager** (3 tab):
+  - **Installati**: lista tool + dettaglio con pannello permessi a grana fine (Switch per ogni scope)
+  - **Installa**: form per tool custom con signature auto-generata
+  - **Predefiniti**: BUILTIN_TOOLS con badge "Installato" se già presenti
+
+- **Integrazione con Fase 8 (Lean4)**: i permessi concessi alimentano direttamente le pre/post-conditions dei contratti formali
+
+**Accesso**: sidebar categoria GOVERNANCE, voce "Tool Manager" (icona Package)
+
 ---
 
 ## 5. Schema Database
@@ -449,6 +563,15 @@ Routing adattivo per massimizzare performance e ridurre costi.
 | `ApprovalGate`       | Gates HITL pending/approved/rejected               |
 | `NormativeResolution`| Risoluzioni conflitti prompt utente vs policy      |
 | `AuditLedgerEntry`   | Voci del registro di delega comprensibili all'umano|
+
+### Fasi 15-18 — Cockpit, Sovereign, Tool Ecosystem
+
+| Modello              | Descrizione                                        |
+|----------------------|----------------------------------------------------|
+| `CockpitNarrative`   | Voci narrative ad alto livello per il tab Narrative|
+| `BlockedAction`      | Azioni bloccate in attesa di risoluzione umana     |
+| `Tool`               | Tool installati con signature crittografica SHA-256|
+| `ToolPermission`     | Permessi a grana fine per ogni tool (10 scope)     |
 
 ### Modifica schema
 
@@ -545,6 +668,28 @@ Inizializza il DB con dati di esempio per tutte le 5 fasi. **Attenzione:** in ca
   - `grant_delegation` / `revoke_delegation`: CRUD deleghe
   - `request_approval` / `resolve_approval`: HITL gates (NB: usare `gateAction` non `action` per il nome dell'azione del gate, per evitare collisione con il campo `action` del body)
   - `resolve_normative`: calcolo normativo su conflitto prompt utente vs policy
+
+### `/api/cockpit` (GET) — Fase 15
+- `?tab=narrative`: voci narrative ad alto livello (CockpitNarrative)
+- `?tab=log`: traccia tecnica (AgentLog, ultimi 100)
+- `?tab=scheduler`: task in background (PlanTask con plan)
+- `?tab=cycles`: snapshot Sensorium + steering events
+- `?tab=safety`: LTL rules + pending gates + taint records + blocked actions
+- Default: aggrega tutti i tab (compatto)
+
+### `/api/blocked-actions` (GET, POST) — Fase 17
+- GET `?action=pending|recent|stats`: azioni bloccate
+- POST `{action, ...}`:
+  - `register`: registra nuova azione bloccata con Axiom Trail
+  - `resolve`: risolvi con choice (approved|modified|downgraded|rejected)
+
+### `/api/tools` (GET, POST) — Fase 18
+- GET `?action=list|stats|builtin`: elenca tool, statistiche, tool predefiniti
+- POST `{action, ...}`:
+  - `install`: installa nuovo tool con signature auto-generata
+  - `revoke`: revoca tool (disattiva)
+  - `set_permission`: toggle permesso scope
+  - `check_permission`: verifica autorizzazione a runtime
 
 ---
 
@@ -657,6 +802,29 @@ Tutti in `src/lib/kernel/`.
 - `listDelegations / listPendingGates / listRecentGates / listAuditLedger / listNormativeResolutions`: elenchi per UI
 - `retainerStats()`: metriche per dashboard
 
+### `sovereign-translator.ts` — Fase 17
+- `registerBlockedAction(input)`: registra azione bloccata con Axiom Trail
+  - Sorgenti: ltl | taint | normative | hitl_gate
+  - Auto-genera spiegazione in italiano via `generateExplanation()`
+  - Pubblica evento WebSocket `action_blocked`
+- `resolveBlockedAction(blockedId, choice, resolvedBy, details?)`: 4 opzioni (approved|modified|downgraded|rejected)
+- `listPendingBlocked(limit) / listRecentBlocked(limit)`: elenchi per UI
+- `blockedStats()`: metriche per dashboard
+- `recordNarrative(agentId, narrative, level, cycleId?, relatedPhase?)`: registra voce per tab Narrative del Cockpit
+- `listNarratives(limit, level?)`: recupera narratives
+
+### `tool-registry.ts` — Fase 18
+- `installTool(spec, installedBy)`: installa tool con signature SHA-256
+  - Signature = `sha256:` + hash(toolId:name:version:publisher)
+  - Crea 10 permessi predefiniti come negati (minimo privilegio)
+- `revokeTool(toolId, reason)`: revoca tool (disattiva per audit)
+- `setPermission(toolId, scope, granted, grantedBy, constraint?)`: permessi a grana fine
+- `checkToolPermission(toolId, scope)`: verifica a runtime
+- `listTools(includeRevoked)`: elenca tool con permessi
+- `toolStats()`: metriche per dashboard
+- `AVAILABLE_SCOPES`: 10 scope predefiniti (filesystem:read/write, network:get/post, tool:exec, db:read/write, process:spawn, env:read, secret:access)
+- `BUILTIN_TOOLS`: 3 tool ufficiali (github-integration, filesystem-browser, web-search)
+
 ### `embeddings.ts` — Embeddings Semantic v2
 - `embed(text)`: 256-dim TF-IDF con alias dizionario + bigrammi + trigrammi
 - `tokenize(text)`: normalizzazione con 80+ alias it/en + stopwords removal
@@ -688,7 +856,8 @@ Tutti in `src/components/agentic/`.
 
 | File         | Componente  | Tab presenti                                            |
 |--------------|-------------|----------------------------------------------------------|
-| `overview.tsx` | `Overview` | Dashboard 9 fasi + LiveFeed + Kernel Audit Log           |
+| `overview.tsx` | `Overview` | Dashboard 14 fasi + ArchitectureMap + CategoryKpis + QuickActions + LiveFeed + Branding |
+| `cockpit.tsx` | `Cockpit`  | Narrative · Log · Scheduler · Cycles · Safety + Sensorium widget + Affect gauge |
 | `phase1.tsx`  | `Phase1`    | Memoria · PatchBoard · Sensorium · DAG Logico            |
 | `phase2.tsx`  | `Phase2`    | DynAMO Planner · Compiled AI                             |
 | `phase3.tsx`  | `Phase3`    | Controller ACTS con step manuale + auto-run              |
@@ -698,6 +867,9 @@ Tutti in `src/components/agentic/`.
 | `phase7.tsx`  | `Phase7`    | Cattura Tracce · PTA + Dominators · Validazione · Storico|
 | `phase8.tsx`  | `Phase8`    | Verifica · Sorgente Lean4 · LeanEvolve · Storico         |
 | `phase9.tsx`  | `Phase9`    | Delegation · HITL Gates · Normative · Audit Ledger       |
+| `phase10-14.tsx` | `Phase10-14` | (Fasi 10-14, vedi sezione 4 per dettagli)             |
+| `tool-manager.tsx` | `ToolManager` | Installati · Installa · Predefiniti + pannello permessi |
+| `sovereign-modal.tsx` | `SovereignModalContainer` | Modale auto-apertura per azioni bloccate |
 
 ### Componenti live
 
@@ -705,6 +877,13 @@ Tutti in `src/components/agentic/`.
 |-----------------------|----------------|--------------------------------------------------------|
 | `live-feed.tsx`       | `LiveFeed`     | Pannello real-time: Sensorium + eventi + state diff   |
 | `ltl-normative-editor.tsx` | `LTLNormativeEditor` | Editor visuale LTL con preview FSM + editor assiomi |
+| `architecture-map.tsx`| `ArchitectureMap` | Mappa architetturale 14 fasi cliccabile con flussi   |
+| `category-kpis.tsx`   | `CategoryKpis` + `QuickActions` | 7 card KPI per categoria + 4 bottoni one-click |
+| `dag-visualizers.tsx` | `DynAMODagVisualizer` + `ObjectiveTreeVisualizer` + `LeanWorkflowVisualizer` | 3 visualizzatori React Flow |
+| `sovereign-modal.tsx` | `SovereignModalContainer` | Modale auto-apertura per azioni bloccate con Axiom Trail |
+| `phase-header.tsx`    | `PhaseHeader` + `PhaseKpi` + `PhaseKpiGrid` | Header uniforme per tutte le pagine di fase |
+| `related-phases.tsx`  | `RelatedPhases` + `link` + `ARCHITECTURE_FLOWS` | Cross-linking tra fasi con transfer state |
+| `branding-showcase.tsx` | `BrandingShowcase` | Pannello branding kit con palette e asset |
 
 ---
 
@@ -790,6 +969,30 @@ Risolve 5 vulnerabilità critiche per deployment industriali:
 
 5. **Fase 14 — TimeRouter** — Router classificatore con feature extraction, Gate Selettivo su τm (margine) e τd (diversità), Ensemble Fallback. 6 modelli Foundation default (GLM-4.6 family + Flash).
 
+### v0.4.1 — Ridisegno UI/UX
+
+Ridisegno completo dell'interfaccia utente:
+- **Sidebar raggruppata** in 7 categorie tematiche (CORE, FOUNDATION, ORCHESTRATION, COGNITIVE, TRUST, LEARNING, GOVERNANCE, INFRASTRUCTURE)
+- **Rinominazione descrittiva** di tutte le 14 fasi (es. "Fase 1" → "Memory & State")
+- **ArchitectureMap**: mappa visuale cliccabile delle 14 fasi con 6 flussi architetturali
+- **CategoryKpis**: 7 card compatte per categoria con 4 metriche ciascuna
+- **QuickActions**: 4 bottoni one-click per flussi comuni
+- **PhaseHeader uniforme**: icona grande + nome + badge categoria + sottotitolo
+- **RelatedPhases**: cross-linking tra fasi con transfer state via sessionStorage
+- **Badge live** nella sidebar per fasi con stati critici
+
+### v0.5.0 — Blueprint integrativo 4 (Fasi 15-18)
+
+Completa l'OS con il livello di Presentazione, Governance e Interazione Umana:
+
+1. **Fase 15 — Cockpit (Artificial Retainer UI)** — Plancia di comando a 5 tab (Narrative, Log, Scheduler, Cycles, Safety) che abbandona il paradigma chat-centrico. Widget persistente Sensorium + Affect Gauge animato con soglie colorate.
+
+2. **Fase 16 — Topological Observability (React Flow)** — 3 visualizzatori grafi interattivi: DynAMODagVisualizer (piani), ObjectiveTreeVisualizer (rubriche), LeanWorkflowVisualizer (workflow formali). MiniMap, Controls, fitView automatico.
+
+3. **Fase 17 — Sovereign Validator** — Modale auto-apertura per azioni bloccate dai cancelli di sicurezza. Axiom Trail esplicito in linguaggio naturale. 4 opzioni di override: Approva, Modifica, Declassa, Rifiuta. Traduttore LTL → italiano.
+
+4. **Fase 18 — Tool Ecosystem** — Package manager agentico con signature crittografica SHA-256. 10 scope permessi a grana fine. 3 tool predefiniti (github-integration, filesystem-browser, web-search). Integrazione con Lean4: i permessi alimentano le pre/post-conditions.
+
 ### Problemi noti risolti
 
 - **Import ZAI**: `z-ai-web-dev-sdk` usa `export default`, non named export. Sintassi corretta: `import ZAI from 'z-ai-web-dev-sdk'`
@@ -798,15 +1001,18 @@ Risolve 5 vulnerabilità critiche per deployment industriali:
 - **LTL monitor reset**: ogni `verifyEvent` chiamava `initMonitor()` che ricaricava le FSM da capo, perdendo lo stato. Soluzione: `initMonitor` idempotente, ricarica solo se il numero di regole è cambiato; `reloadMonitor` esplicito dopo add/delete
 - **Prisma client schema mismatch**: dopo aver aggiunto nuovi modelli allo schema Prisma, il client cached del dev server non li riconosce (`Cannot read properties of undefined`). Soluzione: killare i processi next-server, cancellare `.next/`, riavviare `bun run dev`
 - **Collisione campo `action`**: nella route `/api/retainer`, il campo `action` del body è usato per il dispatch, ma `request_approval` aveva anche `action` per il nome del gate (duplicazione JSON). Soluzione: rinominato in `gateAction`. Stesso problema in `/api/esr` con `propose_quorum`: rinominato in `quorumAction`.
+- **Icon components during render**: la regola ESLint `react-hooks/static-components` blocca l'assegnazione `const Icon = getIcon(name)` durante il render. Soluzione: usare una `ICON_MAP` statica a livello modulo invece di una funzione `getIcon` chiamata nel corpo del componente.
 
 ---
 
 ## 11. Note per Sviluppo Futuro
 
-### Aree di estensione自然
+### Aree di estensione
 
 - **WebSocket service auto-start**: attualmente il mini-service WS deve essere avviato manualmente. Potrebbe essere integrato in `.zscripts/dev.sh`
-- **Editor DAG visuale**: la Fase 2 mostra il DAG topologico come lista di batch. Un vero grafico interattivo (es. react-flow) migliorerebbe la UX
+- **Integrazione DAG Visualizer nelle pagine**: i 3 visualizzatori React Flow (`DynAMODagVisualizer`, `ObjectiveTreeVisualizer`, `LeanWorkflowVisualizer`) sono pronti ma non ancora integrati nelle pagine F2/F8/F12 (sostituirebbero le liste testuali attuali)
+- **Time-Slider Audit Ledger**: componente per riavvolgere l'esecuzione cronologicamente (Fase 16)
+- **Indicatori cromatici Tainted**: bordo rosso tratteggiato per dati non fidati in tutto l'app (Fase 17, da integrare)
 - **Persistenza FSM LTL**: gli stati FSM sono in-memory e si perdono al riavvio. Per produzione, persistere su DB
 - **Taint tracking TTL**: i taint flows attivi non scadono mai. Aggiungere un TTL con cleanup automatico
 - **Embeddings esterni**: integrazione con API embeddings reali (OpenAI, Cohere) come fallback del TF-IDF locale
@@ -814,7 +1020,10 @@ Risolve 5 vulnerabilità critiche per deployment industriali:
 - **Editor regole logiche DAG**: la Fase 1 mostra il DAG come lista. Un editor visuale con drag-and-drop dei nodi sarebbe utile
 - **Multi-tenant**: l'OS attualmente è single-tenant. Per multi-tenant, aggiungere `tenantId` a tutte le tabelle e scoping nei moduli kernel
 - **Audit trail export**: esportare AgentLog in formato JSONL per analisi esterne
-- **Test suite**: non ci sono test automatici. Aggiungere test unitari per i moduli kernel (especially LTL parser, patchboard transactions, ERL supervisor)
+- **Test suite**: non ci sono test automatici. Aggiungere test unitari per i moduli kernel (especially LTL parser, patchboard transactions, ERL supervisor, sovereign-translator)
+- **Real LLM integration**: i moduli GroundedInference (F10), TimeRouter (F14) e SovereignTranslator (F17) usano stub deterministici. Integrare chiamate reali a ZAI SDK
+- **Tool signing reale**: la signature crittografica dei tool (F18) è simulata con SHA-256. Per produzione, implementare signing con chiave privata del publisher
+- **Cockpit narrative auto-generation**: le voci CockpitNarrative sono registrate manualmente. Auto-generarle dagli eventi AgentLog tramite traduttore LLM
 
 ### Convenzioni di codifica
 
@@ -836,17 +1045,33 @@ Risolve 5 vulnerabilità critiche per deployment industriali:
 | WS non si connette                    | Verifica `curl http://localhost:3004/health`         |
 | LTL formula non valida                | Controlla il messaggio di errore del parser          |
 | LiveFeed vuoto                        | Genera un evento da una qualsiasi fase (es. steering step) |
+| SovereignModal non si apre            | Verifica `curl http://localhost:3000/api/blocked-actions?action=pending` per azioni pending |
+| Cockpit tab vuoto                     | Genera eventi nella fase corrispondente (es. PlanTask per Scheduler) |
+| Tool non installabile                 | Verifica che toolId sia univoco (non già installato) |
+| React Flow non renderizza             | Verifica che `import 'reactflow/dist/style.css'` sia presente |
 
 ---
 
 ## Riferimenti
 
 - **Blueprint originale**: 5 micro-fasi SOTA Agentic OS (convenzione con l'utente)
+- **Blueprint integrativo 2**: Fasi 6-9 (Context Engineering, Dominator Trees, Lean4, Artificial Retainer)
+- **Blueprint integrativo 3**: Fasi 10-14 (Grounded Inference, Affect, Objective, ESR, TimeRouter)
+- **Blueprint integrativo 4**: Fasi 15-18 (Cockpit, Topological Observability, Sovereign Validator, Tool Ecosystem)
 - **RFC 6902**: JSON Patch (subset implementato in `patchboard.ts`)
 - **LTL**: Linear Temporal Logic — operatori G/F/X/U
 - **FSM**: Finite State Machine (monitor runtime per LTL)
 - **EMA**: Exponential Moving Average (anti-drift su NS-Mem)
 - **DAG**: Directed Acyclic Graph (schedulazione topologica in `scheduler.ts`)
+- **PTA**: Prefix Tree Automaton (Fase 7, fusion tracce)
+- **Dominator Tree**: teoria dei compilatori per identificare nodi essenziali (Fase 7)
+- **Lean4**: linguaggio formale a tipi dipendenti (Fase 8, emulato)
+- **Belief Lineage**: tracciamento versioni convinzioni agenti (Fase 13)
+- **Semantic Quorum**: consensus distribuito per Join DAG (Fase 13)
+- **Artificial Retainer**: paradigma UI dove l'utente è mandante, non interlocutore (Fasi 9, 15)
+- **Sovereign Validator**: ruolo umano di validazione con Axiom Trail (Fase 17)
+- **React Flow**: libreria visualizzazione grafi interattivi (Fase 16)
+- **Axiom Trail**: catena logica auditabile delle decisioni di sicurezza (Fasi 9, 17)
 
 ---
 
