@@ -17,6 +17,7 @@ import { routerStats } from '@/lib/kernel/time-router'
 import { toolStats } from '@/lib/kernel/tool-registry'
 import { blockedStats } from '@/lib/kernel/sovereign-translator'
 import { errorStats, traceStats, backupStats, metricStats } from '@/lib/kernel/observability'
+import { scalabilityStats } from '@/lib/kernel/scalability'
 
 export async function GET() {
   const [
@@ -33,6 +34,7 @@ export async function GET() {
     phase10Stats, phase11Stats, phase12Stats, phase13Stats, phase14Stats,
     toolStatsData, blockedStatsData,
     errorStatsData, traceStatsData, backupStatsData, metricStatsData,
+    scalabilityStatsData,
   ] = await Promise.all([
     db.episodicMemory.count(),
     db.semanticEntity.count(),
@@ -69,6 +71,7 @@ export async function GET() {
     traceStats(),
     backupStats(),
     Promise.resolve(metricStats()),
+    scalabilityStats(),
   ])
 
   const recentLogs = await db.agentLog.findMany({
@@ -98,6 +101,7 @@ export async function GET() {
       backups: backupStatsData,
       metrics: metricStatsData,
     },
+    scalability: scalabilityStatsData,
     recentLogs,
     agentLogsTotal: agentLogs,
     memoryStats: await memoryStats(),

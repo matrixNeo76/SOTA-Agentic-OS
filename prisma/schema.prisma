@@ -775,4 +775,47 @@ model BackupRecord {
   verifiedAt    DateTime?
 }
 
+// =====================================================
+// FASE 23: Scalability & Persistence
+// =====================================================
+
+// Job queue per background processing
+model JobRecord {
+  id            String   @id @default(cuid())
+  jobType       String   // embeddings_recompute|summarize|backup|fsm_checkpoint|taint_cleanup
+  status        String   @default("queued") // queued|running|completed|failed|retry
+  priority      Int      @default(0) // 0=normal, 1=high, 2=critical
+  payload       String   // JSON: parametri del job
+  result        String?  // JSON: risultato
+  error         String?
+  retryCount    Int      @default(0)
+  maxRetries    Int      @default(3)
+  queuedAt      DateTime @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  durationMs    Int      @default(0)
+}
+
+// FSM LTL persistence: snapshot periodici dello stato FSM
+model FSMSnapshot {
+  id            String   @id @default(cuid())
+  ruleId        String   // LTL rule ID
+  state         String   // stato corrente della FSM
+  historyJson   String   // JSON: ultimi N eventi
+  eventCount    Int      @default(0) // totale eventi processati
+  snapshotAt    DateTime @default(now())
+}
+
+// Taint flow con TTL per scadenza automatica
+model TaintFlow {
+  id            String   @id @default(cuid())
+  taintRecordId String
+  source        String
+  flowTraceJson String   // JSON array di step
+  expiresAt     DateTime // TTL: scadenza automatica
+  expired       Boolean  @default(false)
+  blockedSink   String?  // sink che ha bloccato il flow
+  createdAt     DateTime @default(now())
+}
+
 

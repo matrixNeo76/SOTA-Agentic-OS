@@ -1,8 +1,8 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
-> **Versione:** 0.5.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow
+> **Versione:** 0.6.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest
 
-Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **18 micro-fasi** operative: stato/memoria, orchestrazione DAG, steering ACTS, LTL, ERL, context engineering, dominator trees, Lean4, artificial retainer, grounded inference, affect subsystem, agent objective BFS, ESR + quorum, TimeRouter, **Cockpit (Artificial Retainer UI)**, **Topological Observability (React Flow)**, **Sovereign Validator**, **Tool Ecosystem**.
+Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **23 micro-fasi + 3 trasversali** operative: 18 fasi cognitive + Quality Infrastructure, Auth & RBAC, Cryptographic Trust, Observability Stack, Scalability & Persistence, DAG Visualizer Integration, i18n IT/EN, Developer Workflow Hardening.
 
 ---
 
@@ -11,7 +11,7 @@ Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" c
 1. [Stack Tecnologico](#1-stack-tecnologico)
 2. [Avvio Rapido](#2-avvio-rapido)
 3. [Architettura Generale](#3-architettura-generale)
-4. [Le 18 Micro-Fasi](#4-le-18-micro-fasi)
+4. [Le 23 Micro-Fasi + 3 Trasversali](#4-le-23-micro-fasi--3-trasversali)
 5. [Schema Database](#5-schema-database)
 6. [API Reference](#6-api-reference)
 7. [Moduli Kernel](#7-moduli-kernel)
@@ -992,6 +992,29 @@ Completa l'OS con il livello di Presentazione, Governance e Interazione Umana:
 3. **Fase 17 — Sovereign Validator** — Modale auto-apertura per azioni bloccate dai cancelli di sicurezza. Axiom Trail esplicito in linguaggio naturale. 4 opzioni di override: Approva, Modifica, Declassa, Rifiuta. Traduttore LTL → italiano.
 
 4. **Fase 18 — Tool Ecosystem** — Package manager agentico con signature crittografica SHA-256. 10 scope permessi a grana fine. 3 tool predefiniti (github-integration, filesystem-browser, web-search). Integrazione con Lean4: i permessi alimentano le pre/post-conditions.
+
+### v0.6.0 — Production Hardening (Fasi 19-23 + T1-T3)
+
+Trasforma il prototipo in sistema production-ready con 5 release incrementali:
+
+**Release 0.6.0-alpha** — Quality Infrastructure + Dev Workflow:
+- **Fase 19** — 146 test unitari (Vitest) per LTL Monitor, Patchboard, Normative, Taint, ERL, Embeddings. Coverage 52%+ sui moduli testabili. Fixtures deterministici.
+- **T3** — Script `dev:clean`, `dev:full`, `db:backup`, `db:restore`. UUID v7 time-sortable per cycleId. Auto-start WS service.
+
+**Release 0.6.0-beta** — Auth + DAG Integration + i18n:
+- **Fase 20** — Authentication & RBAC: 4 ruoli (Admin/Operator/Sovereign/Viewer), session management con cookie HttpOnly, login page dedicata, default admin auto-creato.
+- **T1** — DAG Visualizer Integration: 3 visualizzatori React Flow integrati in Phase2 (Grafo DAG), Phase8 (Grafo workflow), Phase12 (Grafo albero).
+- **T2** — i18n base IT/EN: 60+ chiavi traduzione, hook `useI18n`, language switcher in topbar, auto-detect browser, persistenza localStorage.
+
+**Release 0.6.0-rc** — Crypto + Observability:
+- **Fase 21** — Cryptographic Trust: ECDSA P-256 signing reale (crypto nativo Node), PublisherKey registry, `installSignedTool` con firma asimmetrica, `verifyInstalledTool` con chiave pubblica. API `/api/publishers`.
+- **Fase 22** — Observability Stack: Error tracking con dedup fingerprint, Metrics exporter formato Prometheus, Distributed tracing con `traced()` helper, Backup scheduler con checksum SHA-256 + retention 7 backup. API `/api/errors`, `/api/metrics`, `/api/traces`, `/api/backup`.
+
+**Release 0.6.0-stable** — Scalability & Persistence:
+- **Fase 23.1** — DB Adapter: `getDatabaseProvider()` rileva SQLite vs PostgreSQL, `getDatabaseInfo()` per dashboard. Adapter pattern pronto per migrazione PostgreSQL (cambiare DATABASE_URL).
+- **Fase 23.2** — WS Pub/Sub Adapter: interfaccia in-memory (dev) + Redis-ready (prod). `getWSPubSubStats()` per monitoring cluster.
+- **Fase 23.3** — Job Queue: `enqueueJob()` con priorità (0=normal, 1=high, 2=critical), `processNextJob()` con retry esponenziale (max 3 retry), worker pool con `startWorker()`/`stopWorker()`. 6 job types: embeddings_recompute, summarize, backup, fsm_checkpoint, taint_cleanup, session_cleanup.
+- **Fase 23.4** — FSM & Taint Persistence: `checkpointFSMStates()` salva snapshot FSM su DB, `restoreFSMStates()` ripristina all'avvio, `cleanupExpiredTaints()` con TTL configurabile (default 60 min), `createTaintFlowWithTTL()` per taint con scadenza automatica.
 
 ### Problemi noti risolti
 
