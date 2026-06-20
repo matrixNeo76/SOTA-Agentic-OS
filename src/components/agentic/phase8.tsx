@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import { PhaseHeader } from './phase-header'
 import { RelatedPhases, link } from './related-phases'
+import { LeanWorkflowVisualizer } from './dag-visualizers'
 
 type Plan = { id: string; taskGoal: string; status: string; agentCount: number }
 type Workflow = {
@@ -183,8 +184,9 @@ export function Phase8() {
       </Card>
 
       <Tabs defaultValue="verify" className="w-full">
-        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full">
+        <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full">
           <TabsTrigger value="verify"><CheckCircle2 className="size-3.5 mr-1.5" /> Verifica</TabsTrigger>
+          <TabsTrigger value="graph">Grafo</TabsTrigger>
           <TabsTrigger value="lean"><FileCode className="size-3.5 mr-1.5" /> Sorgente Lean4</TabsTrigger>
           <TabsTrigger value="evolve"><Sparkles className="size-3.5 mr-1.5" /> LeanEvolve</TabsTrigger>
           <TabsTrigger value="history"><History className="size-3.5 mr-1.5" /> Storico</TabsTrigger>
@@ -267,6 +269,32 @@ export function Phase8() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="graph" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Grafo Workflow Formale</CardTitle>
+              <CardDescription>Visualizzazione React Flow dei contratti Lean4 con pre/post conditions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {verification?.results ? (
+                <LeanWorkflowVisualizer
+                  contracts={verification.results.map((r: any) => ({
+                    taskId: r.taskId,
+                    verified: r.verified,
+                    preconditions: r.warnings || [],
+                    postconditions: r.errors || [],
+                  }))}
+                  dependencies={{}}
+                />
+              ) : (
+                <div className="text-xs text-muted-foreground italic p-8 text-center border rounded-md">
+                  Esegui la verifica formale nel tab "Verifica" per visualizzare il grafo del workflow.
                 </div>
               )}
             </CardContent>

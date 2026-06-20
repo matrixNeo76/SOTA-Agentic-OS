@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils'
 import { PhaseHeader } from './phase-header'
 import { RelatedPhases, link } from './related-phases'
+import { ObjectiveTreeVisualizer } from './dag-visualizers'
 
 type TreeNode = {
   id: string; treeId: string; parentId: string | null;
@@ -108,8 +109,9 @@ export function Phase12() {
       )}
 
       <Tabs defaultValue="create" className="w-full">
-        <TabsList className="grid grid-cols-2 w-full">
+        <TabsList className="grid grid-cols-3 w-full">
           <TabsTrigger value="create"><Plus className="size-3.5 mr-1.5" /> Crea Albero</TabsTrigger>
+          <TabsTrigger value="graph">Grafo Albero</TabsTrigger>
           <TabsTrigger value="explore">Esplora Alberi</TabsTrigger>
         </TabsList>
 
@@ -175,6 +177,24 @@ export function Phase12() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="graph" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Grafo Albero Obiettivi</CardTitle>
+              <CardDescription>Visualizzazione React Flow gerarchica con context tier e status Pass/Fail</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedTree ? (
+                <ObjectiveTreeVisualizer nodes={selectedTree.nodes} />
+              ) : (
+                <div className="text-xs text-muted-foreground italic p-8 text-center border rounded-md">
+                  Crea o seleziona un albero per visualizzare il grafo gerarchico interattivo.
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="explore" className="space-y-4 mt-4">

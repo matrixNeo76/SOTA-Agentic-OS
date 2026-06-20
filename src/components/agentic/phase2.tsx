@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils'
 import { PhaseHeader } from './phase-header'
 import { RelatedPhases, link } from './related-phases'
+import { DynAMODagVisualizer } from './dag-visualizers'
 
 type TaskSpec = { taskId: string; agentId: string; description: string; dependencies: string[] }
 type Plan = { goal: string; tasks: TaskSpec[] }
@@ -110,8 +111,9 @@ export function Phase2() {
       <PhaseHeader phaseId="phase2" action={<Button variant="outline" size="sm" onClick={refreshAll}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       <Tabs defaultValue="plan" className="w-full">
-        <TabsList className="grid grid-cols-2 w-full">
+        <TabsList className="grid grid-cols-3 w-full">
           <TabsTrigger value="plan"><GitBranch className="size-3.5 mr-1.5" /> DynAMO Planner</TabsTrigger>
+          <TabsTrigger value="graph">Grafo DAG</TabsTrigger>
           <TabsTrigger value="compiled"><Code2 className="size-3.5 mr-1.5" /> Compiled AI</TabsTrigger>
         </TabsList>
 
@@ -224,6 +226,24 @@ export function Phase2() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="graph" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Grafo DAG Interattivo</CardTitle>
+              <CardDescription>Visualizzazione React Flow del piano generato · batch paralleli, dipendenze, stati task</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {plan ? (
+                <DynAMODagVisualizer tasks={plan.tasks} batches={batches} />
+              ) : (
+                <div className="text-xs text-muted-foreground italic p-8 text-center border rounded-md">
+                  Genera un piano nel tab "DynAMO Planner" per visualizzare il grafo DAG interattivo.
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="compiled" className="space-y-4 mt-4">
