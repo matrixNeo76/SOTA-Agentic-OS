@@ -27,12 +27,16 @@ export function Sidebar() {
     <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="p-4 border-b">
         <div className="flex items-center gap-2">
-          <div className="size-8 rounded-md bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm">
-            SOTA
-          </div>
+          <img
+            src="/logo-sota.png"
+            alt="SOTA Agentic OS"
+            className="size-10 rounded-md object-contain"
+          />
           <div>
-            <div className="text-sm font-semibold leading-none">Agentic OS</div>
-            <div className="text-xs text-muted-foreground mt-1">v0.1.0</div>
+            <div className="text-sm font-semibold leading-none">SOTA Agentic OS</div>
+            <div className="text-[10px] text-muted-foreground mt-1 tracking-wider">
+              INTELLIGENT · SECURE · AUTONOMOUS
+            </div>
           </div>
         </div>
       </div>

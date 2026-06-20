@@ -1,0 +1,29 @@
+{
+  "colors": [
+    {
+      "key": "bg_dark",
+      "hex": "#0a0a2e",
+      "name": "Background Dark"
+    },
+    {
+      "key": "bg_purple",
+      "hex": "#3a1e6a",
+      "name": "Background Purple"
+    },
+    {
+      "key": "accent_blue",
+      "hex": "#00d4ff",
+      "name": "Accent Blue"
+    },
+    {
+      "key": "text_white",
+      "hex": "#ffffff",
+      "name": "Text White"
+    },
+    {
+      "key": "text_silver",
+      "hex": "#c0c0c0",
+      "name": "Text Silver"
+    }
+  ]
+}
