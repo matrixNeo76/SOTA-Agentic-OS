@@ -2,6 +2,7 @@
 
 import { useDashboard } from './use-dashboard'
 import { useStore } from '@/lib/store'
+import { LiveFeed } from './live-feed'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -194,6 +195,8 @@ export function Overview() {
           </CardContent>
         </Card>
       </div>
+
+      <LiveFeed />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
   type ReflectionInput,
 } from '@/lib/kernel/erl'
 import { db } from '@/lib/db'
+import { publishAgentEvent } from '@/lib/ws-publish'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -47,6 +48,12 @@ export async function POST(req: NextRequest) {
         payload: JSON.stringify({ input, result }),
         level: result.approved ? 'info' : 'warn',
       },
+    })
+    await publishAgentEvent({
+      agentId: 'reflective', phase: '5',
+      event: 'reflection',
+      level: result.approved ? 'info' : 'warn',
+      payload: { outcome: input.outcome, approved: result.approved, stored: result.stored },
     })
     return NextResponse.json({ ok: true, ...result })
   }

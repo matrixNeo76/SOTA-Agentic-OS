@@ -6,6 +6,7 @@ import { verifyEvent, listLTLRules, addLTLRule, type LTLRuleSpec } from '@/lib/k
 import { taintInput, checkSink, listTaintRecords, propagateTaint } from '@/lib/kernel/taint'
 import { evaluateIntent, listAxioms, addAxiom, type Intent } from '@/lib/kernel/normative'
 import { db } from '@/lib/db'
+import { publishAgentEvent } from '@/lib/ws-publish'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -53,6 +54,12 @@ export async function POST(req: NextRequest) {
         payload: JSON.stringify({ eventLabel, result }),
         level: result.verdict === 'reject' ? 'warn' : 'info',
       },
+    })
+    await publishAgentEvent({
+      agentId: 'verifier', phase: '4',
+      event: 'verify_event',
+      level: result.verdict === 'reject' ? 'warn' : 'info',
+      payload: { eventLabel, verdict: result.verdict, violations: result.violations.length },
     })
     return NextResponse.json(result)
   }

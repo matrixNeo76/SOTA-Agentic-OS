@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { steer, STEERING_VOCABULARY, steeringHistory } from '@/lib/kernel/acts'
 import { db } from '@/lib/db'
+import { publishAgentEvent } from '@/lib/ws-publish'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -44,6 +45,11 @@ export async function POST(req: NextRequest) {
       event: 'steer',
       payload: JSON.stringify(result),
     },
+  })
+  await publishAgentEvent({
+    agentId, phase: '3',
+    event: 'steer',
+    payload: { strategy: result.strategy, tokenUsed: result.tokenUsed },
   })
   return NextResponse.json({ ok: true, ...result })
 }

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { applyTransaction, loadGlobalState, type PatchOp } from '@/lib/kernel/patchboard'
 import { db } from '@/lib/db'
+import { publishStateDiff, publishAgentEvent } from '@/lib/ws-publish'
 
 export async function GET() {
   const [state, recent] = await Promise.all([
@@ -43,6 +44,14 @@ export async function POST(req: NextRequest) {
       payload: JSON.stringify({ ops, result }),
       level: result.accepted ? 'info' : 'warn',
     },
+  })
+  // Broadcast live
+  await publishStateDiff({ actor, ops, accepted: result.accepted, reason: result.reason })
+  await publishAgentEvent({
+    agentId: actor, phase: '1',
+    event: 'patchboard_tx',
+    level: result.accepted ? 'info' : 'warn',
+    payload: { ops: ops.length, accepted: result.accepted },
   })
   return NextResponse.json(result)
 }
