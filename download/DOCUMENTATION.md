@@ -97,36 +97,50 @@ bun run db:generate   # Rigenera Prisma Client
 │  Browser (client)                                                │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Next.js Page (/)                                         │   │
-│  │  ├── Sidebar navigazione 5 fasi                           │   │
-│  │  ├── Topbar (metriche live WS)                            │   │
-│  │  ├── Overview (dashboard + LiveFeed)                      │   │
-│  │  └── Phase1..5 (componenti interattivi)                   │   │
+│  │  ├── Sidebar (18 voci, 8 categorie, collapsed mode)       │   │
+│  │  ├── Topbar (page title + dark mode + lang + user menu)   │   │
+│  │  ├── Overview (dashboard + ArchitectureMap + KPIs)        │   │
+│  │  ├── Console (chat conversazionale end-to-end)            │   │
+│  │  ├── Cockpit (5 tab plancia di comando)                   │   │
+│  │  └── Phase1..14 + ToolManager (pannelli interattivi)      │   │
 │  │                                                           │   │
 │  │  Hooks: useDashboard (polling 5s)                         │   │
 │  │         useSensoriumLive (WebSocket)                      │   │
+│  │         useI18n (lingua IT/EN)                            │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                            ↕ HTTP (fetch)                        │
 │                            ↕ WebSocket (socket.io-client)        │
 └────────────────────────────┬────────────────────────────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────────┐
-│  Next.js API Routes (/api/*)                                     │
+│  Next.js API Routes (32 routes)                                  │
 │  ├── dashboard, sensorium, memory, patchboard                    │
 │  ├── plan, compiled, steering, verify, reflect                   │
-│  ├── embeddings, seed                                             │
+│  ├── context, dominator, lean, retainer, grounded                │
+│  ├── affect, objective, esr, router, embeddings                   │
+│  ├── console, cockpit, blocked-actions, tools, publishers        │
+│  ├── auth, errors, metrics, traces, backup                       │
+│  ├── jobs, scalability, seed                                      │
 │  └── ws-publish (helper → HTTP POST :3004/publish)               │
 └────────────────────────────┬────────────────────────────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────────┐
-│  Kernel Modules (src/lib/kernel/)                                │
+│  Kernel Modules (src/lib/kernel/ — 24 moduli)                    │
 │  ├── patchboard.ts   · ns-mem.ts       · curator.ts              │
 │  ├── scheduler.ts    · compiled-ai.ts  · acts.ts                 │
 │  ├── ltl-monitor.ts  · taint.ts        · normative.ts · erl.ts   │
+│  ├── context-engineering.ts · dominator-tree.ts · lean4-agent.ts │
+│  ├── artificial-retainer.ts · grounded-inference.ts              │
+│  ├── affect-subsystem.ts · agent-objective.ts · esr-quorum.ts    │
+│  ├── time-router.ts · sovereign-translator.ts · tool-registry.ts │
+│  ├── crypto-trust.ts · observability.ts · scalability.ts         │
+│  └── embeddings.ts (256-dim TF-IDF)                              │
+│  Auth: session.ts · rbac.ts (4 ruoli, 7 permessi)               │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                 ┌────────────┴────────────┐
                 │  SQLite (Prisma)        │  Mini-service WS
-                │  20 tabelle             │  (porta 3003/3004)
+                │  59 tabelle             │  (porta 3003/3004)
                 │  db/custom.db           │  mini-services/sensorium-ws/
                 └─────────────────────────┘
 ```
@@ -509,7 +523,7 @@ Ogni fase ha try/catch con `ErrorDetail` (type, message, phase, recoverable, sug
 
 ## 5. Schema Database
 
-**File:** `prisma/schema.prisma` · 20 modelli · SQLite
+**File:** `prisma/schema.prisma` · 59 modelli · SQLite
 
 ### Fase 1 — Stato & Memoria
 
@@ -720,6 +734,22 @@ Inizializza il DB con dati di esempio per tutte le 5 fasi. **Attenzione:** in ca
   - `revoke`: revoca tool (disattiva)
   - `set_permission`: toggle permesso scope
   - `check_permission`: verifica autorizzazione a runtime
+
+### `/api/affect` (GET, POST) — Fase 11
+- GET `?action=history|stats`: storico metriche affettive, statistiche
+- POST `{action, ...}`: `compute` (calcola Desperation/Frustration), `update_threshold`
+
+### `/api/grounded` (GET, POST) — Fase 10
+- GET `?action=sessions|stats`: elenca sessioni incapsulate
+- POST `{action, ...}`: `encapsulated_call` (esegue chiamata LLM isolata), `update_policy`
+
+### `/api/objective` (GET, POST) — Fase 12
+- GET `?action=tree|list|stats`: albero obiettivi, lista, statistiche
+- POST `{action, ...}`: `create_tree` (BFS decomposition), `evaluate_node` (Pass/Fail)
+
+### `/api/router` (GET, POST) — Fase 14
+- GET `?action=decisions|stats|models|features`: decisioni routing, modelli, feature extraction
+- POST `{action, ...}`: `route` (instrada prompt), `update_config`
 
 ### `/api/console` (POST) — Console Agentica
 - POST `{task, mode}`: orchestra flusso end-to-end
@@ -981,7 +1011,11 @@ Tutti in `src/components/agentic/`.
 | `phase7.tsx`  | `Phase7`    | Cattura Tracce · PTA + Dominators · Validazione · Storico|
 | `phase8.tsx`  | `Phase8`    | Verifica · Grafo · Sorgente Lean4 · LeanEvolve · Storico |
 | `phase9.tsx`  | `Phase9`    | Delegation · HITL Gates · Normative · Audit Ledger       |
-| `phase10-14.tsx` | `Phase10-14` | (Fasi 10-14, vedi sezione 4 per dettagli)             |
+| `phase10.tsx` | `Phase10`  | Encapsulated Call · Storico Sessioni                     |
+| `phase11.tsx` | `Phase11`  | Calcola Metriche · Storico                               |
+| `phase12.tsx` | `Phase12`  | Crea Albero · Grafo Albero · Esplora                     |
+| `phase13.tsx` | `Phase13`  | Beliefs · ESR Sync · Quorum                              |
+| `phase14.tsx` | `Phase14`  | Route Prompt · Storico Decisioni                         |
 | `agent-console.tsx` | `AgentConsole` | Console conversazionale end-to-end con error handling |
 | `tool-manager.tsx` | `ToolManager` | Installati · Installa · Predefiniti + pannello permessi |
 | `sovereign-modal.tsx` | `SovereignModalContainer` | Modale auto-apertura per azioni bloccate |
