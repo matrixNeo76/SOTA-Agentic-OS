@@ -45,8 +45,7 @@
 
 :root {
   --radius: 0.5rem;
-  /* SOTA Brand: viola scuro + accent blu elettrico dal logo */
-  --background: oklch(0.98 0.002 250);
+  --background: oklch(0.99 0.001 250);
   --foreground: oklch(0.18 0.02 260);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.18 0.02 260);
@@ -57,25 +56,25 @@
   --secondary: oklch(0.96 0.005 260);
   --secondary-foreground: oklch(0.25 0.02 260);
   --muted: oklch(0.96 0.005 260);
-  --muted-foreground: oklch(0.50 0.015 260);
-  --accent: oklch(0.94 0.01 260);
+  --muted-foreground: oklch(0.52 0.012 260);
+  --accent: oklch(0.95 0.008 260);
   --accent-foreground: oklch(0.25 0.02 260);
   --destructive: oklch(0.55 0.22 25);
-  --border: oklch(0.90 0.005 260);
-  --input: oklch(0.92 0.005 260);
+  --border: oklch(0.92 0.004 260);
+  --input: oklch(0.93 0.004 260);
   --ring: oklch(0.45 0.18 270);
   --chart-1: oklch(0.55 0.20 270);
   --chart-2: oklch(0.60 0.15 200);
   --chart-3: oklch(0.65 0.18 150);
   --chart-4: oklch(0.70 0.18 60);
   --chart-5: oklch(0.60 0.20 350);
-  --sidebar: oklch(0.97 0.003 260);
+  --sidebar: oklch(0.98 0.002 260);
   --sidebar-foreground: oklch(0.20 0.02 260);
   --sidebar-primary: oklch(0.45 0.18 270);
   --sidebar-primary-foreground: oklch(0.98 0.002 250);
-  --sidebar-accent: oklch(0.93 0.01 260);
+  --sidebar-accent: oklch(0.94 0.008 260);
   --sidebar-accent-foreground: oklch(0.25 0.02 260);
-  --sidebar-border: oklch(0.90 0.005 260);
+  --sidebar-border: oklch(0.92 0.004 260);
   --sidebar-ring: oklch(0.45 0.18 270);
 }
 
@@ -146,23 +145,14 @@
 
 /* Tab transitions */
 [data-state="active"][role="tab"] {
-  transition: all 0.15s ease;
+  transition: color 0.15s ease;
 }
 
-/* Card hover effect */
-.card-hover {
-  transition: all 0.2s ease;
-}
-.card-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px oklch(0.45 0.18 270 / 0.08);
-}
-
-/* Smooth page transitions */
+/* Subtle page transition */
 main > div {
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn 0.15s ease;
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
