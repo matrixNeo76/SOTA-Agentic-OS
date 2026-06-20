@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useSensoriumLive } from './use-sensorium-live'
 import { DynAMODagVisualizer } from './dag-visualizers'
@@ -12,10 +12,7 @@ import {
   ChevronDown, ChevronRight,
 } from 'lucide-react'
 
-// =====================================================
 // Types
-// =====================================================
-
 type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'blocked'
 
 type ErrorDetail = {
@@ -68,10 +65,6 @@ type Message = {
   errors?: ErrorDetail[]
 }
 
-// =====================================================
-// Suggestions
-// =====================================================
-
 const SUGGESTIONS = [
   { icon: Brain, title: 'Analizza e reportizza', desc: 'Analizza le metriche di vendita Q3 e produci un report esecutivo' },
   { icon: Shield, title: 'Verifica conformità', desc: 'Verifica la conformità di sicurezza del modulo di autenticazione' },
@@ -79,16 +72,28 @@ const SUGGESTIONS = [
   { icon: Terminal, title: 'Piano di test', desc: 'Crea un piano di test per la nuova API REST' },
 ]
 
-// ID generator senza crypto.randomUUID (compatibilità)
 let idCounter = 0
 function genId() {
   idCounter++
   return `msg-${Date.now()}-${idCounter}`
 }
 
-// =====================================================
-// Main Component
-// =====================================================
+const STEP_ICONS = {
+  pending: { icon: Clock, color: 'text-muted-foreground' },
+  running: { icon: Loader2, color: 'text-sky-500' },
+  done: { icon: CheckCircle2, color: 'text-emerald-500' },
+  failed: { icon: XCircle, color: 'text-red-500' },
+  blocked: { icon: AlertTriangle, color: 'text-amber-500' },
+}
+
+const STRAT_ICONS: Record<string, any> = {
+  PLAN: Brain, EXECUTE: Zap, CHECK: Shield, REFLECT: Sparkles, HALT: AlertTriangle,
+}
+
+const ERROR_ICONS: Record<string, any> = {
+  plan_generation: Brain, steering: Compass, ltl_verification: Shield,
+  task_execution: Zap, reflection: Sparkles, unknown: AlertTriangle,
+}
 
 export function AgentConsole() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -97,6 +102,7 @@ export function AgentConsole() {
   const [liveLog, setLiveLog] = useState<string[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const executingRef = useRef(false) // ref to prevent stale closure
   const { events } = useSensoriumLive()
 
   // Auto-scroll
@@ -123,25 +129,33 @@ export function AgentConsole() {
     }
   }, [input])
 
-  const send = useCallback(async (task: string, planOnly = false) => {
-    if (!task.trim() || executing) return
+  const send = async (taskText: string, planOnly = false) => {
+    const trimmed = taskText.trim()
+    if (!trimmed || executingRef.current) return
+
+    executingRef.current = true
     setExecuting(true)
     setLiveLog([])
 
     const userMsg: Message = {
       id: genId(),
       role: 'user',
-      content: task,
+      content: trimmed,
       timestamp: new Date().toISOString(),
     }
     setMessages(prev => [...prev, userMsg])
     setInput('')
 
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+    }
+
     try {
       const r = await fetch('/api/console', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task, mode: planOnly ? 'plan-only' : 'full' }),
+        body: JSON.stringify({ task: trimmed, mode: planOnly ? 'plan-only' : 'full' }),
       })
 
       if (!r.ok) {
@@ -183,14 +197,11 @@ export function AgentConsole() {
         errors: [{ type: 'unknown', message: errorMsg, phase: 'network', recoverable: true, suggestion: 'Riprova tra qualche secondo.' }],
       }])
     } finally {
+      executingRef.current = false
       setExecuting(false)
       setLiveLog([])
     }
-  }, [executing])
-
-  // =====================================================
-  // Render
-  // =====================================================
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -216,7 +227,7 @@ export function AgentConsole() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium">Agente</span>
-                    <span className="text-[10px] text-muted-foreground">esecuzione…</span>
+                    <span className="text-[10px] text-muted-foreground">esecuzione in corso…</span>
                   </div>
                   {liveLog.length > 0 && (
                     <div className="rounded-lg bg-zinc-950 text-zinc-300 p-2.5 font-mono text-[10px] space-y-0.5 max-h-32 overflow-y-auto">
@@ -248,12 +259,10 @@ export function AgentConsole() {
               }}
               placeholder="Descrivi il task…"
               rows={1}
-              disabled={executing}
-              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 py-1.5 min-w-0"
+              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 py-1.5 min-w-0"
             />
             <button
               onClick={() => send(input)}
-              disabled={!input.trim() || executing}
               className={cn(
                 'size-8 rounded-lg flex items-center justify-center shrink-0 transition-all',
                 input.trim() && !executing
@@ -269,8 +278,7 @@ export function AgentConsole() {
               Invio per eseguire · Shift+Invio per nuova riga
             </p>
             <button
-              onClick={() => input.trim() && send(input, true)}
-              disabled={!input.trim() || executing}
+              onClick={() => send(input, true)}
               className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 ml-auto"
             >
               Solo piano
@@ -281,10 +289,6 @@ export function AgentConsole() {
     </div>
   )
 }
-
-// =====================================================
-// Welcome Screen
-// =====================================================
 
 function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) {
   return (
@@ -298,7 +302,6 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
             verifica LTL, e impara dall'esperienza.
           </p>
         </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 sm:mt-8">
           {SUGGESTIONS.map((s) => {
             const Icon = s.icon
@@ -326,13 +329,8 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
   )
 }
 
-// =====================================================
-// Message Bubble
-// =====================================================
-
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user'
-
   if (isUser) {
     return (
       <div className="flex justify-end">
@@ -342,11 +340,9 @@ function MessageBubble({ msg }: { msg: Message }) {
       </div>
     )
   }
-
   return (
     <div className="flex items-start gap-3">
       <img src="/avatar.png" alt="" className="size-8 rounded-full object-cover shrink-0 border border-border" />
-
       <div className="flex-1 min-w-0 space-y-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Agente</span>
@@ -355,28 +351,11 @@ function MessageBubble({ msg }: { msg: Message }) {
           </span>
         </div>
         <p className={cn('text-sm break-words', msg.error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{msg.content}</p>
-
-        {msg.errors && msg.errors.length > 0 && (
-          <ErrorList errors={msg.errors} />
-        )}
-
+        {msg.errors && msg.errors.length > 0 && <ErrorList errors={msg.errors} />}
         {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
       </div>
     </div>
   )
-}
-
-// =====================================================
-// Error List
-// =====================================================
-
-const ERROR_ICONS: Record<string, any> = {
-  plan_generation: Brain,
-  steering: Compass,
-  ltl_verification: Shield,
-  task_execution: Zap,
-  reflection: Sparkles,
-  unknown: AlertTriangle,
 }
 
 function ErrorList({ errors }: { errors: ErrorDetail[] }) {
@@ -385,31 +364,18 @@ function ErrorList({ errors }: { errors: ErrorDetail[] }) {
       {errors.map((err, i) => {
         const Icon = ERROR_ICONS[err.type] || AlertTriangle
         return (
-          <div
-            key={i}
-            className={cn(
-              'rounded-lg border p-3',
-              err.recoverable
-                ? 'border-amber-500/30 bg-amber-50 dark:bg-amber-950/10'
-                : 'border-red-500/30 bg-red-50 dark:bg-red-950/10'
-            )}
-          >
+          <div key={i} className={cn('rounded-lg border p-3', err.recoverable ? 'border-amber-500/30 bg-amber-50 dark:bg-amber-950/10' : 'border-red-500/30 bg-red-50 dark:bg-red-950/10')}>
             <div className="flex items-start gap-2.5">
               <Icon className={cn('size-4 shrink-0 mt-0.5', err.recoverable ? 'text-amber-500' : 'text-red-500')} />
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-medium">{err.phase}</span>
-                  <Badge variant="outline" className={cn(
-                    'text-[9px] py-0',
-                    err.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400'
-                  )}>
+                  <Badge variant="outline" className={cn('text-[9px] py-0', err.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400')}>
                     {err.recoverable ? 'Ripristinabile' : 'Bloccante'}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground break-words">{err.message}</p>
-                {err.suggestion && (
-                  <p className="text-[11px] text-foreground/70 italic">→ {err.suggestion}</p>
-                )}
+                {err.suggestion && <p className="text-[11px] text-foreground/70 italic">→ {err.suggestion}</p>}
               </div>
             </div>
           </div>
@@ -419,10 +385,6 @@ function ErrorList({ errors }: { errors: ErrorDetail[] }) {
   )
 }
 
-// =====================================================
-// Result Card
-// =====================================================
-
 function ResultCard({ result, planOnly }: { result: NonNullable<Message['result']>; planOnly?: boolean }) {
   const [showGraph, setShowGraph] = useState(false)
   const [showDetails, setShowDetails] = useState(!planOnly)
@@ -431,18 +393,9 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
 
   return (
     <div className="rounded-xl border overflow-hidden">
-      {/* Header */}
-      <button
-        onClick={() => setShowDetails(!showDetails)}
-        className="w-full flex items-center gap-3 px-4 py-3 border-b bg-muted/30 hover:bg-muted/50 transition-colors"
-      >
-        <div className={cn(
-          'size-7 rounded-full flex items-center justify-center shrink-0',
-          allDone ? 'bg-emerald-500/10' : s.blocked > 0 ? 'bg-amber-500/10' : 'bg-red-500/10'
-        )}>
-          {allDone ? <CheckCircle2 className="size-4 text-emerald-500" />
-            : s.blocked > 0 ? <AlertTriangle className="size-4 text-amber-500" />
-            : <XCircle className="size-4 text-red-500" />}
+      <button onClick={() => setShowDetails(!showDetails)} className="w-full flex items-center gap-3 px-4 py-3 border-b bg-muted/30 hover:bg-muted/50 transition-colors">
+        <div className={cn('size-7 rounded-full flex items-center justify-center shrink-0', allDone ? 'bg-emerald-500/10' : s.blocked > 0 ? 'bg-amber-500/10' : 'bg-red-500/10')}>
+          {allDone ? <CheckCircle2 className="size-4 text-emerald-500" /> : s.blocked > 0 ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-red-500" />}
         </div>
         <div className="flex-1 min-w-0 text-left">
           <div className="text-sm font-medium truncate">{result.goal}</div>
@@ -455,38 +408,24 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
         </div>
         {showDetails ? <ChevronDown className="size-4 text-muted-foreground shrink-0" /> : <ChevronRight className="size-4 text-muted-foreground shrink-0" />}
       </button>
-
-      {/* Expanded details */}
       {showDetails && (
         <div className="p-3 sm:p-4 space-y-3">
-          {/* Task list */}
           <div className="space-y-1">
-            {result.steps.map((step) => (
-              <StepRow key={step.taskId} step={step} />
-            ))}
+            {result.steps.map((step) => <StepRow key={step.taskId} step={step} />)}
           </div>
-
-          {/* Per-step errors */}
           {result.steps.filter(st => st.error).map(step => (
             <div key={`err-${step.taskId}`} className="rounded-lg border border-red-500/20 bg-red-50 dark:bg-red-950/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
                 <XCircle className="size-3.5 text-red-500 shrink-0" />
                 <span className="text-xs font-medium">{step.taskId} — {step.error!.phase}</span>
-                <Badge variant="outline" className={cn(
-                  'text-[9px] py-0 ml-auto',
-                  step.error!.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400'
-                )}>
+                <Badge variant="outline" className={cn('text-[9px] py-0 ml-auto', step.error!.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400')}>
                   {step.error!.recoverable ? 'Ripristinabile' : 'Bloccante'}
                 </Badge>
               </div>
               <p className="text-[11px] text-muted-foreground break-words">{step.error!.message}</p>
-              {step.error!.suggestion && (
-                <p className="text-[11px] text-foreground/70 italic mt-1">→ {step.error!.suggestion}</p>
-              )}
+              {step.error!.suggestion && <p className="text-[11px] text-foreground/70 italic mt-1">→ {step.error!.suggestion}</p>}
             </div>
           ))}
-
-          {/* LTL violations */}
           {result.steps.filter(st => st.ltlViolations && st.ltlViolations.length > 0).map(step => (
             <div key={`ltl-${step.taskId}`} className="rounded-lg border border-amber-500/20 bg-amber-50 dark:bg-amber-950/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
@@ -494,58 +433,29 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
                 <span className="text-xs font-medium">{step.taskId} — Regola LTL violata</span>
               </div>
               <ul className="text-[11px] text-muted-foreground space-y-0.5 pl-5">
-                {step.ltlViolations!.map((v, i) => (
-                  <li key={i} className="list-disc break-words">{v}</li>
-                ))}
+                {step.ltlViolations!.map((v, i) => <li key={i} className="list-disc break-words">{v}</li>)}
               </ul>
             </div>
           ))}
-
-          {/* Graph toggle */}
           {!planOnly && result.steps.length > 0 && (
             <>
-              <button
-                onClick={() => setShowGraph(!showGraph)}
-                className="text-xs text-primary hover:underline"
-              >
-                {showGraph ? 'Nascondi grafo DAG' : 'Mostra grafo DAG'}
-              </button>
+              <button onClick={() => setShowGraph(!showGraph)} className="text-xs text-primary hover:underline">{showGraph ? 'Nascondi grafo DAG' : 'Mostra grafo DAG'}</button>
               {showGraph && (
                 <div className="h-48 sm:h-64 border rounded-lg overflow-hidden">
-                  <DynAMODagVisualizer
-                    tasks={result.steps.map(st => ({
-                      taskId: st.taskId,
-                      agentId: st.agentId,
-                      description: st.description,
-                      dependencies: [],
-                      status: st.status,
-                    }))}
-                    batches={result.batches}
-                  />
+                  <DynAMODagVisualizer tasks={result.steps.map(st => ({ taskId: st.taskId, agentId: st.agentId, description: st.description, dependencies: [], status: st.status }))} batches={result.batches} />
                 </div>
               )}
             </>
           )}
-
-          {/* Reflection */}
           {result.reflection && (
             <div className="flex items-start gap-2.5 pt-2 border-t">
-              <div className={cn(
-                'size-6 rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                result.reflection.approved ? 'bg-emerald-500/10' : 'bg-amber-500/10'
-              )}>
+              <div className={cn('size-6 rounded-full flex items-center justify-center shrink-0 mt-0.5', result.reflection.approved ? 'bg-emerald-500/10' : 'bg-amber-500/10')}>
                 <Sparkles className={cn('size-3', result.reflection.approved ? 'text-emerald-500' : 'text-amber-500')} />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium">
-                  {result.reflection.error ? 'Riflessione fallita' : result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}
-                </div>
-                {result.reflection.heuristic && (
-                  <p className="text-xs text-muted-foreground italic mt-0.5 break-words">"{result.reflection.heuristic}"</p>
-                )}
-                {result.reflection.error && (
-                  <p className="text-[11px] text-red-500 mt-0.5 break-words">{result.reflection.error}</p>
-                )}
+                <div className="text-xs font-medium">{result.reflection.error ? 'Riflessione fallita' : result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}</div>
+                {result.reflection.heuristic && <p className="text-xs text-muted-foreground italic mt-0.5 break-words">"{result.reflection.heuristic}"</p>}
+                {result.reflection.error && <p className="text-[11px] text-red-500 mt-0.5 break-words">{result.reflection.error}</p>}
               </div>
             </div>
           )}
@@ -553,22 +463,6 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
       )}
     </div>
   )
-}
-
-// =====================================================
-// Step Row
-// =====================================================
-
-const STEP_ICONS = {
-  pending: { icon: Clock, color: 'text-muted-foreground' },
-  running: { icon: Loader2, color: 'text-sky-500' },
-  done: { icon: CheckCircle2, color: 'text-emerald-500' },
-  failed: { icon: XCircle, color: 'text-red-500' },
-  blocked: { icon: AlertTriangle, color: 'text-amber-500' },
-}
-
-const STRAT_ICONS: Record<string, any> = {
-  PLAN: Brain, EXECUTE: Zap, CHECK: Shield, REFLECT: Sparkles, HALT: AlertTriangle,
 }
 
 function StepRow({ step }: { step: ExecStep }) {
@@ -580,56 +474,20 @@ function StepRow({ step }: { step: ExecStep }) {
 
   return (
     <div>
-      <div
-        className={cn('flex items-center gap-2 py-1', hasDetails && 'cursor-pointer hover:bg-accent/30 rounded')}
-        onClick={() => hasDetails && setExpanded(!expanded)}
-      >
+      <div className={cn('flex items-center gap-2 py-1', hasDetails && 'cursor-pointer hover:bg-accent/30 rounded')} onClick={() => hasDetails && setExpanded(!expanded)}>
         <Icon className={cn('size-3.5 shrink-0', config.color, step.status === 'running' && 'animate-spin')} />
         <span className="text-xs font-mono text-muted-foreground shrink-0 w-6">{step.taskId}</span>
         <span className="text-xs truncate flex-1 min-w-0">{step.description}</span>
-        {step.strategy && StratIcon && (
-          <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
-            <StratIcon className="size-2.5" />
-            {step.strategy}
-          </span>
-        )}
-        {step.durationMs != null && (
-          <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
-            {(step.durationMs / 1000).toFixed(1)}s
-          </span>
-        )}
-        {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
-          <span className={cn(
-            'text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0',
-            step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-          )}>
-            LTL {step.ltlVerdict}
-          </span>
-        )}
-        {hasDetails && (
-          <ChevronDown className={cn('size-3 text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-180')} />
-        )}
+        {step.strategy && StratIcon && <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0"><StratIcon className="size-2.5" />{step.strategy}</span>}
+        {step.durationMs != null && <span className="text-[10px] text-muted-foreground shrink-0 font-mono">{(step.durationMs / 1000).toFixed(1)}s</span>}
+        {step.ltlVerdict && step.ltlVerdict !== 'accept' && <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0', step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}>LTL {step.ltlVerdict}</span>}
+        {hasDetails && <ChevronDown className={cn('size-3 text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-180')} />}
       </div>
-
       {expanded && hasDetails && (
         <div className="ml-6 mt-1 mb-2 p-2.5 rounded-lg bg-muted/30 text-xs space-y-1 break-words">
-          {step.result && (
-            <div>
-              <span className="text-muted-foreground font-medium">Risultato: </span>
-              <span className={cn(step.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>
-                {step.result}
-              </span>
-            </div>
-          )}
-          {step.error && (
-            <div className="text-muted-foreground">
-              <span className="font-medium">Errore ({step.error.phase}): </span>
-              {step.error.message}
-            </div>
-          )}
-          {step.error?.suggestion && (
-            <div className="text-foreground/70 italic">→ {step.error.suggestion}</div>
-          )}
+          {step.result && <div><span className="text-muted-foreground font-medium">Risultato: </span><span className={cn(step.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>{step.result}</span></div>}
+          {step.error && <div className="text-muted-foreground"><span className="font-medium">Errore ({step.error.phase}): </span>{step.error.message}</div>}
+          {step.error?.suggestion && <div className="text-foreground/70 italic">→ {step.error.suggestion}</div>}
         </div>
       )}
     </div>
