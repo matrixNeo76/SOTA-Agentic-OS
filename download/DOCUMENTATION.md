@@ -1,6 +1,6 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
-> **Versione:** 0.6.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest
+> **Versione:** 0.6.1 · **Data:** 2026-06-21 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest + next-themes
 >
 > **⚠️ Stato**: Prototipo avanzato, NON production-ready. Per analisi critica, gap e roadmap vedere `ROADMAP.md`.
 
@@ -142,7 +142,7 @@ bun run db:generate   # Rigenera Prisma Client
 
 ---
 
-## 4. Le 18 Micro-Fasi
+## 4. Le 23 Micro-Fasi + 3 Trasversali + Console Agentica
 
 ### Fase 1 — Stato e Memoria Persistente
 
@@ -477,6 +477,34 @@ I tool non vengono scelti per similarità semantica (anti-Hallucination Squattin
 
 **Accesso**: sidebar categoria GOVERNANCE, voce "Tool Manager" (icona Package)
 
+### Console Agentica — Interfaccia Conversazionale End-to-End
+
+**Moduli:** `agent-console.tsx` (UI), `console/route.ts` (API orchestratore)
+
+L'interfaccia che collega tutte le fasi in un flusso end-to-end. L'utente invia un task in linguaggio naturale e il sistema lavora attraverso 5 fasi collegate automaticamente:
+
+**Flusso orchestrato:**
+1. **F2 — Planner**: LLM (ZAI SDK) genera piano JSON-Schema-validato con 3-5 task
+2. **F3 — Steering**: per ogni task, ACTS decide strategia (PLAN/EXECUTE/CHECK/REFLECT)
+3. **F4 — LTL verify**: ogni task verificato contro le regole LTL attive
+4. **F3 — Esecuzione reale**: ogni task eseguito via LLM con contesto dei task precedenti
+5. **F5 — ERL**: riflessione estrae euristica con Red Line check
+6. **F15 — CockpitNarrative**: registra narrative per il Cockpit
+7. **WS broadcast**: pubblica eventi real-time
+
+**Error handling strutturato:**
+Ogni fase ha try/catch con `ErrorDetail` (type, message, phase, recoverable, suggestion). Tre livelli di visualizzazione: ErrorList globale, per-step error card, StepRow espandibile.
+
+**UI conversazionale (ispirata a Claude/ChatGPT):**
+- Welcome screen con 4 suggestion cliccabili
+- Thread di messaggi: bubble user (destra) + bubble assistant (sinistra, avatar brand)
+- Input bar fissata con textarea auto-resizing, Enter per eseguire
+- Live execution: avatar + spinner + log WS real-time
+- Result card inline: stato + task list + grafo DAG + riflessione ERL
+- Mobile responsive con flexbox puro
+
+**Accesso**: sidebar categoria CORE, voce "Console" (icona Terminal)
+
 ---
 
 ## 5. Schema Database
@@ -693,6 +721,48 @@ Inizializza il DB con dati di esempio per tutte le 5 fasi. **Attenzione:** in ca
   - `set_permission`: toggle permesso scope
   - `check_permission`: verifica autorizzazione a runtime
 
+### `/api/console` (POST) — Console Agentica
+- POST `{task, mode}`: orchestra flusso end-to-end
+  - `mode: 'plan-only'` — genera solo il piano (veloce)
+  - `mode: 'full'` — genera piano + esegue tutti i task + riflessione ERL
+  - Ritorna: `{ok, result: {planId, goal, steps[], batches[], reflection, summary, errors[]}}`
+
+### `/api/auth` (GET, POST) — Fase 20
+- GET: verifica sessione corrente, ritorna user se autenticato
+- POST `{action, ...}`:
+  - `login`: autentica utente, set cookie HttpOnly `sota_session`
+  - `logout`: revoca sessione + delete cookie
+
+### `/api/publishers` (GET, POST) — Fase 21
+- GET: lista publisher registrati
+- POST `{action, ...}`:
+  - `register`: genera keypair ECDSA P-256 + registra chiave pubblica
+  - `revoke`: revoca publisher
+  - `install_signed`: installa tool con firma ECDSA reale
+  - `verify`: verifica firma tool installato
+
+### `/api/errors` (GET, POST) — Fase 22.1
+- GET `?action=list|stats`: elenca errori con filtri
+- POST `{action, ...}`: `record` (registra errore con dedup), `resolve` (cambia status)
+
+### `/api/metrics` (GET) — Fase 22.2
+- `?format=prometheus`: export in formato Prometheus text (scrape-able)
+- Default: statistiche metriche in JSON
+
+### `/api/traces` (GET) — Fase 22.3
+- `?action=list|detail|stats`: lista trace, dettaglio span, statistiche
+
+### `/api/backup` (GET, POST) — Fase 22.4
+- GET: lista backup registrati + statistiche
+- POST: crea backup manuale con checksum SHA-256
+
+### `/api/jobs` (GET, POST) — Fase 23.3
+- GET `?action=list|stats`: elenca job, statistiche
+- POST `{action, ...}`: `enqueue` (accoda job), `process_next` (processa prossimo job)
+
+### `/api/scalability` (GET) — Fase 23
+- Ritorna: database info, websocket adapter stats, job queue stats, persistence stats
+
 ---
 
 ## 7. Moduli Kernel
@@ -830,6 +900,48 @@ Tutti in `src/lib/kernel/`.
 ### `embeddings.ts` — Embeddings Semantic v2
 - `embed(text)`: 256-dim TF-IDF con alias dizionario + bigrammi + trigrammi
 - `tokenize(text)`: normalizzazione con 80+ alias it/en + stopwords removal
+
+### `crypto-trust.ts` — Fase 21
+- `generatePublisherKeyPair()`: keypair ECDSA P-256 con crypto nativo Node
+- `registerPublisher(publisher)`: registra publisher con chiave pubblica PEM + fingerprint
+- `signToolManifest(manifest, privateKeyPem)`: firma manifest con chiave privata ECDSA
+- `verifyToolSignature(manifest, signatureBase64, publicKeyPem)`: verifica firma
+- `installSignedTool(spec, installedBy)`: installa tool con firma ECDSA reale
+- `verifyInstalledTool(toolId)`: verifica tool contro chiave pubblica publisher
+- `revokePublisher(publisher, reason)`: revoca publisher
+
+### `observability.ts` — Fase 22
+- `recordError(input)`: registra errore con dedup via fingerprint SHA-256
+- `resolveError(errorId, resolvedBy, status)`: cambia status (acknowledged/resolved)
+- `recordMetric(name, value, labels)`: buffer in-memory per metriche
+- `exportMetricsPrometheus()`: export formato Prometheus text
+- `generateTraceId()` / `generateSpanId()`: ID univoci per tracing
+- `traced(operation, fn, options)`: helper che misura duration + registra span + metrica
+- `createBackup(trigger)`: backup DB con checksum SHA-256 + retention 7 backup
+- `startBackupScheduler(intervalHours)` / `stopBackupScheduler()`: cron job automatico
+
+### `scalability.ts` — Fase 23
+- `getDatabaseProvider()`: rileva SQLite vs PostgreSQL dal DATABASE_URL
+- `getDatabaseInfo()`: provider, capabilities, totalModels
+- `getWSPubSubStats()`: adapter type, channels, subscribers
+- `enqueueJob(jobType, payload, priority)`: accoda job (6 tipi: embeddings_recompute, summarize, backup, fsm_checkpoint, taint_cleanup, session_cleanup)
+- `processNextJob()`: estrae ed esegue job con retry (max 3)
+- `startWorker(intervalMs)` / `stopWorker()`: worker loop
+- `checkpointFSMStates()` / `restoreFSMStates()`: persistenza FSM LTL
+- `cleanupExpiredTaints()`: cleanup taint flows scaduti (TTL 60min)
+
+### `session.ts` — Fase 20 (Auth)
+- `hashPassword(password, salt?)`: SHA-256 + salt
+- `authenticateUser(email, password)`: verifica credenziali
+- `createSession(userId)`: crea token con scadenza 7 giorni
+- `verifySession(token)`: verifica validità + ritorna user
+- `revokeSession(token)`: logout
+- `ensureDefaultAdmin()`: auto-crea admin@sota-os.local / admin123
+
+### `rbac.ts` — Fase 20 (RBAC)
+- 4 ruoli: Admin (4), Operator (3), Sovereign (2), Viewer (1)
+- 7 permessi: read, write, approve, manage_users, manage_tools, manage_ltl, view_audit
+- `hasPermission(role, permission)` / `hasRoleOrHigher(role, required)`
 - `cosine(a, b)`: similarity su vettori normalizzati L2
 - `recomputeAllEmbeddings()`: migration di tutti i record esistenti
 - `EMBED_DIM = 256`
@@ -861,17 +973,19 @@ Tutti in `src/components/agentic/`.
 | `overview.tsx` | `Overview` | Dashboard 14 fasi + ArchitectureMap + CategoryKpis + QuickActions + LiveFeed + Branding |
 | `cockpit.tsx` | `Cockpit`  | Narrative · Log · Scheduler · Cycles · Safety + Sensorium widget + Affect gauge |
 | `phase1.tsx`  | `Phase1`    | Memoria · PatchBoard · Sensorium · DAG Logico            |
-| `phase2.tsx`  | `Phase2`    | DynAMO Planner · Compiled AI                             |
+| `phase2.tsx`  | `Phase2`    | DynAMO Planner · Grafo DAG · Compiled AI                 |
 | `phase3.tsx`  | `Phase3`    | Controller ACTS con step manuale + auto-run              |
 | `phase4.tsx`  | `Phase4`    | LTL Monitor · Editor · Taint Tracking · Normative · Eventi |
 | `phase5.tsx`  | `Phase5`    | Riflessione · RAG · Libreria · Red Lines                 |
 | `phase6.tsx`  | `Phase6`    | Working Context · Registra · Policy · RAG Storico        |
 | `phase7.tsx`  | `Phase7`    | Cattura Tracce · PTA + Dominators · Validazione · Storico|
-| `phase8.tsx`  | `Phase8`    | Verifica · Sorgente Lean4 · LeanEvolve · Storico         |
+| `phase8.tsx`  | `Phase8`    | Verifica · Grafo · Sorgente Lean4 · LeanEvolve · Storico |
 | `phase9.tsx`  | `Phase9`    | Delegation · HITL Gates · Normative · Audit Ledger       |
 | `phase10-14.tsx` | `Phase10-14` | (Fasi 10-14, vedi sezione 4 per dettagli)             |
+| `agent-console.tsx` | `AgentConsole` | Console conversazionale end-to-end con error handling |
 | `tool-manager.tsx` | `ToolManager` | Installati · Installa · Predefiniti + pannello permessi |
 | `sovereign-modal.tsx` | `SovereignModalContainer` | Modale auto-apertura per azioni bloccate |
+| `login/page.tsx` | `LoginPage` | Split layout con banner brand + form auth |
 
 ### Componenti live
 
@@ -995,6 +1109,16 @@ Completa l'OS con il livello di Presentazione, Governance e Interazione Umana:
 
 4. **Fase 18 — Tool Ecosystem** — Package manager agentico con signature crittografica SHA-256. 10 scope permessi a grana fine. 3 tool predefiniti (github-integration, filesystem-browser, web-search). Integrazione con Lean4: i permessi alimentano le pre/post-conditions.
 
+### v0.6.1 — Console Agentica + UI/UX Polish + Bug Fix
+
+1. **Console Agentica** — Interfaccia conversazionale end-to-end (ispirata a Claude/ChatGPT) che orchestra F2→F3→F4→F5→F15 con LLM reale. Error handling strutturato con ErrorDetail (type, phase, recoverable, suggestion). Tre livelli di visualizzazione errori.
+
+2. **UI/UX Redesign** — Design system con palette brand-aligned (viola/blu elettrico dal logo). Dark mode con next-themes. Sidebar collapsed mode. Topbar compatta con user dropdown. Login split layout con banner brand. Mobile responsive completo (dropdown nav, flexbox layout, dvh).
+
+3. **Branding Integration** — Logo trasparente in sidebar/console/login, avatar brand nei messaggi console e topbar, banner orizzontale come sfondo login.
+
+4. **Bug Fix** — cycleId overflow SQLite INT (fix definitivo con minuti dal 2024), PlanTask.createdAt inesistente nel cockpit API, Console che non mostrava risposte (crypto.randomUUID → genId custom).
+
 ### v0.6.0 — Production Hardening (Fasi 19-23 + T1-T3)
 
 Trasforma il prototipo in sistema production-ready con 5 release incrementali:
@@ -1027,6 +1151,10 @@ Trasforma il prototipo in sistema production-ready con 5 release incrementali:
 - **Prisma client schema mismatch**: dopo aver aggiunto nuovi modelli allo schema Prisma, il client cached del dev server non li riconosce (`Cannot read properties of undefined`). Soluzione: killare i processi next-server, cancellare `.next/`, riavviare `bun run dev`
 - **Collisione campo `action`**: nella route `/api/retainer`, il campo `action` del body è usato per il dispatch, ma `request_approval` aveva anche `action` per il nome del gate (duplicazione JSON). Soluzione: rinominato in `gateAction`. Stesso problema in `/api/esr` con `propose_quorum`: rinominato in `quorumAction`.
 - **Icon components during render**: la regola ESLint `react-hooks/static-components` blocca l'assegnazione `const Icon = getIcon(name)` durante il render. Soluzione: usare una `ICON_MAP` statica a livello modulo invece di una funzione `getIcon` chiamata nel corpo del componente.
+- **cycleId overflow SQLite INT**: `generateTimeSortableId()` produceva numeri troppo grandi per SQLite INT (max 2^31-1). Soluzione: usa minuti dal 2024-01-01 × 100 + counter (129M nel 2025, fit in INT fino al 2026).
+- **PlanTask.createdAt inesistente**: il modello `PlanTask` non ha `createdAt`, ha solo `startedAt`/`finishedAt`. Soluzione: sostituito `orderBy: { createdAt: 'desc' }` con `startedAt` in cockpit API.
+- **crypto.randomUUID non disponibile**: `crypto.randomUUID()` richiede contesto sicuro (HTTPS/localhost). Soluzione: generatore ID custom basato su timestamp + counter.
+- **Console non mostrava risposte**: causato da `crypto.randomUUID()` che falliva silenziosamente. Soluzione: `genId()` custom.
 
 ---
 
@@ -1068,9 +1196,13 @@ Le seguenti sezioni indicano onestamente quali moduli usano implementazioni real
 | F21 Crypto | ✅ Reale | ECDSA P-256 con crypto nativo Node |
 | F22 Observability | 🟡 Locale | Error/metrics/tracing/backup locali, no esterni |
 | F23 Scalability | 🔴 Adapter | Pattern pronto, no migrazione reale (SQLite ancora) |
-| T1 DAG Integration | ✅ Reale | 3/3 visualizer integrati |
+| T1 DAG Integration | ✅ Reale | 3/3 visualizer integrati in F2/F8/F12 |
 | T2 i18n | 🟡 Base | 60+ chiavi, UI principale tradotta, messaggi parziali |
 | T3 Dev Workflow | ✅ Reale | dev:clean, dev:full, db:backup, db:restore, UUID v7 |
+| Console Agentica | ✅ Reale | LLM reale (ZAI SDK), error handling strutturato, UI conversazionale |
+| Dark Mode | ✅ Reale | next-themes con toggle Sun/Moon, palette brand-aligned |
+| Mobile Responsive | ✅ Reale | Dropdown nav, flexbox layout, dvh, padding adattivo |
+| Branding | ✅ Reale | Logo trasparente, avatar, banner integrati in sidebar/console/login/topbar |
 
 ### Aree di estensione
 
@@ -1114,6 +1246,10 @@ Le seguenti sezioni indicano onestamente quali moduli usano implementazioni real
 | Cockpit tab vuoto                     | Genera eventi nella fase corrispondente (es. PlanTask per Scheduler) |
 | Tool non installabile                 | Verifica che toolId sia univoco (non già installato) |
 | React Flow non renderizza             | Verifica che `import 'reactflow/dist/style.css'` sia presente |
+| Console non mostra risposte           | Verifica che `genId()` sia usato invece di `crypto.randomUUID()` |
+| cycleId overflow                      | Verifica `generateTimeSortableId()` in `utils.ts` — deve usare minuti dal 2024 |
+| Cockpit 500 error                     | Verifica che `planTask.findMany` usi `startedAt` non `createdAt` |
+| Dark mode non funziona                | Verifica che `next-themes` ThemeProvider sia in `layout.tsx` |
 
 ---
 
