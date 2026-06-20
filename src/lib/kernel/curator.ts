@@ -7,9 +7,9 @@
  */
 import { db } from '@/lib/db'
 import { memoryStats } from './ns-mem'
+import { generateTimeSortableId } from '@/lib/utils'
 
-// cycleId basato su timestamp per evitare collisioni tra riavvii del server.
-// Se gia esiste un record con questo cycleId, fa upsert invece di create.
+// cycleId basato su UUID v7 time-sortable per evitare collisioni tra riavvii.
 let cycleCounter = 0
 
 export type SensoriumData = {
@@ -28,9 +28,9 @@ export type SensoriumData = {
  */
 export async function gatherSensorium(): Promise<SensoriumData> {
   cycleCounter += 1
-  // Aggiungi un offset basato su timestamp per evitare collisioni con cicli precedenti
-  const tsOffset = Math.floor(Date.now() / 1000) % 100000
-  const cycleId = tsOffset * 1000 + (cycleCounter % 1000)
+  // UUID v7 time-sortable: timestamp (48 bit) + counter casuale (16 bit)
+  // Garantisce unicità anche tra riavvii del server
+  const cycleId = generateTimeSortableId()
   const stats = await memoryStats()
   const recentLogs = await db.agentLog.findMany({
     orderBy: { timestamp: 'desc' },

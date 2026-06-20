@@ -9,6 +9,7 @@
  * Budget di token O(1) per decisione.
  */
 import { db } from '@/lib/db'
+import { generateTimeSortableId } from '@/lib/utils'
 
 export type Strategy = 'PLAN' | 'EXECUTE' | 'CHECK' | 'REFLECT' | 'HALT'
 
@@ -84,9 +85,8 @@ export async function steer(
   errorsConsecutive: number
 ): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number }> {
   cycleCounter += 1
-  // cycleId basato su timestamp per evitare collisioni tra riavvii del server
-  const tsOffset = Math.floor(Date.now() / 1000) % 100000
-  const cycleId = tsOffset * 1000 + (cycleCounter % 1000)
+  // UUID v7 time-sortable: timestamp + counter casuale
+  const cycleId = generateTimeSortableId()
   const budgetRemaining = budgetTotal - budgetUsed
   const strategy = decideStrategy({
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
