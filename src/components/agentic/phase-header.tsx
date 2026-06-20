@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Database, Workflow, Compass, ShieldCheck, Sparkles,
   Scissors, GitFork, FunctionSquare, UserCog,
   Boxes, HeartPulse, Target, Network, Shuffle,
+  Gauge, Package,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -26,6 +27,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Target,
   Network,
   Shuffle,
+  Gauge,
+  Package,
 }
 
 /**

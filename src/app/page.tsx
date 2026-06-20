@@ -17,6 +17,9 @@ import { Phase11 } from '@/components/agentic/phase11'
 import { Phase12 } from '@/components/agentic/phase12'
 import { Phase13 } from '@/components/agentic/phase13'
 import { Phase14 } from '@/components/agentic/phase14'
+import { Cockpit } from '@/components/agentic/cockpit'
+import { ToolManager } from '@/components/agentic/tool-manager'
+import { SovereignModalContainer } from '@/components/agentic/sovereign-modal'
 import { useStore } from '@/lib/store'
 import { Toaster } from 'sonner'
 
@@ -31,6 +34,7 @@ export default function Home() {
         <Topbar />
         <main className="flex-1 overflow-y-auto">
           {activePhase === 'overview' && <Overview />}
+          {activePhase === 'cockpit' && <Cockpit />}
           {activePhase === 'phase1' && <Phase1 />}
           {activePhase === 'phase2' && <Phase2 />}
           {activePhase === 'phase3' && <Phase3 />}
@@ -45,14 +49,16 @@ export default function Home() {
           {activePhase === 'phase12' && <Phase12 />}
           {activePhase === 'phase13' && <Phase13 />}
           {activePhase === 'phase14' && <Phase14 />}
+          {activePhase === 'tools' && <ToolManager />}
         </main>
         <footer className="border-t px-4 py-2 text-xs text-muted-foreground bg-background">
           <div className="flex items-center justify-between gap-4">
-            <span>SOTA Agentic OS · 14 micro-fasi · Grounded · Affect · Objective · ESR · TimeRouter</span>
-            <span className="font-mono">v0.4.0</span>
+            <span>SOTA Agentic OS · 18 micro-fasi · Cockpit · DAG Visualizer · Sovereign · Tool Ecosystem</span>
+            <span className="font-mono">v0.5.0</span>
           </div>
         </footer>
       </div>
+      <SovereignModalContainer />
       <Toaster richColors position="top-right" />
     </div>
   )

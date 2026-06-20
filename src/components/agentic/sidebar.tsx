@@ -197,6 +197,18 @@ function getLiveBadge(phaseId: string, data: any): { value: string | number; ton
         if (ep > 0) return { value: ep, tone: 'info' }
         return null
       }
+      case 'cockpit': {
+        // Cockpit: blocked actions pending
+        const pending = data.blocked?.pending || 0
+        if (pending > 0) return { value: pending, tone: 'danger' }
+        return null
+      }
+      case 'tools': {
+        // Tool Manager: active tools count
+        const active = data.tools?.active || 0
+        if (active > 0) return { value: active, tone: 'info' }
+        return null
+      }
       default:
         return null
     }

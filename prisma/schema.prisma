@@ -624,4 +624,62 @@ model RouterConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// =====================================================
+// FASE 15-18: Cockpit, Tool Ecosystem, Sovereign Validator
+// =====================================================
+
+// Cockpit: narrativa ad alto livello per il tab Narrative
+model CockpitNarrative {
+  id           String   @id @default(cuid())
+  agentId      String
+  narrative    String   // descrizione ad alto livello dell'azione
+  cycleId      Int?
+  level        String   @default("info") // info|warn|critical
+  relatedPhase String?  // fase che ha generato l'evento (1-14)
+  timestamp    DateTime @default(now())
+}
+
+// Azione bloccata dai cancelli di sicurezza (LTL/Taint/Normative)
+// In attesa di risoluzione umana (Sovereign Validator)
+model BlockedAction {
+  id           String   @id @default(cuid())
+  agentId      String
+  action       String   // azione tentata dall'agente
+  source       String   // ltl|taint|normative|hitl_gate
+  axiomTrail   String   // JSON: catena logica della violazione
+  readableExplanation String // traduzione in linguaggio naturale
+  status       String   @default("pending") // pending|approved|modified|downgraded|rejected
+  resolution   String?  // JSON: dettagli della risoluzione umana
+  resolvedBy   String?
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+}
+
+// Tool installato nel Tool Ecosystem (Fase 18)
+model Tool {
+  id           String   @id @default(cuid())
+  toolId       String   @unique
+  name         String
+  version      String
+  signature    String   // hash crittografico (simulato)
+  description  String?
+  publisher    String?
+  active       Boolean  @default(true)
+  installedAt  DateTime @default(now())
+  installedBy  String?
+  revokedAt    DateTime?
+  revokeReason String?
+}
+
+// Permessi a grana fine per ogni tool
+model ToolPermission {
+  id           String   @id @default(cuid())
+  toolId       String
+  scope        String   // es. filesystem:read, network:post, tool:exec, db:write
+  granted      Boolean  @default(false)
+  grantedBy    String?
+  grantedAt    DateTime @default(now())
+  constraint   String?  // JSON: limiti aggiuntivi (maxCalls, paths, ecc.)
+}
+
 

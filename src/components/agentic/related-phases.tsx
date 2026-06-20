@@ -109,8 +109,9 @@ export function consumeTransferState(phase: Phase): Record<string, unknown> | nu
  * Mappa phase ID → nome icona (per evitare import circolari).
  */
 function getPhaseIconName(phase: Phase): string {
-  const map: Record<Phase, string> = {
+  const map: Record<string, string> = {
     overview: 'LayoutDashboard',
+    cockpit: 'Gauge',
     phase1: 'Database',
     phase2: 'Workflow',
     phase3: 'Compass',
@@ -125,6 +126,7 @@ function getPhaseIconName(phase: Phase): string {
     phase12: 'Target',
     phase13: 'Network',
     phase14: 'Shuffle',
+    tools: 'Package',
   }
   return map[phase] || 'LayoutDashboard'
 }

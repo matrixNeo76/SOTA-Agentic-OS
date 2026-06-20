@@ -1,0 +1,55 @@
+/**
+ * API: /api/blocked-actions (Fase 17 - Sovereign Validator)
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  registerBlockedAction, resolveBlockedAction,
+  listPendingBlocked, listRecentBlocked, blockedStats,
+  type BlockedActionInput, type ResolutionChoice,
+} from '@/lib/kernel/sovereign-translator'
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const action = searchParams.get('action') || 'pending'
+
+  if (action === 'pending') {
+    const items = await listPendingBlocked(20)
+    return NextResponse.json({ items })
+  }
+
+  if (action === 'recent') {
+    const items = await listRecentBlocked(30)
+    return NextResponse.json({ items })
+  }
+
+  if (action === 'stats') {
+    const stats = await blockedStats()
+    return NextResponse.json(stats)
+  }
+
+  return NextResponse.json({ error: 'Action non riconosciuta' }, { status: 400 })
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json()
+  const { action } = body
+
+  if (action === 'register') {
+    const input: BlockedActionInput = body.input
+    const result = await registerBlockedAction(input)
+    return NextResponse.json({ ok: true, ...result })
+  }
+
+  if (action === 'resolve') {
+    const { blockedId, choice, resolvedBy, resolutionDetails } = body
+    const result = await resolveBlockedAction(
+      blockedId,
+      choice as ResolutionChoice,
+      resolvedBy || 'admin',
+      resolutionDetails
+    )
+    return NextResponse.json({ ok: true, ...result })
+  }
+
+  return NextResponse.json({ ok: false, error: 'Action non riconosciuta' }, { status: 400 })
+}
