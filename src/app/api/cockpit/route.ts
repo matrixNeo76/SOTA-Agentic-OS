@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   if (tab === 'scheduler') {
     const tasks = await db.planTask.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { startedAt: 'desc' },
       take: 50,
       include: { plan: true },
     })
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   const [narratives, recentLogs, schedulerTasks, recentSnapshots, safetyPending] = await Promise.all([
     listNarratives(10),
     db.agentLog.findMany({ orderBy: { timestamp: 'desc' }, take: 20 }),
-    db.planTask.findMany({ orderBy: { createdAt: 'desc' }, take: 10, include: { plan: true } }),
+    db.planTask.findMany({ orderBy: { startedAt: 'desc' }, take: 10, include: { plan: true } }),
     db.sensoriumSnapshot.findMany({ orderBy: { timestamp: 'desc' }, take: 5 }),
     db.blockedAction.count({ where: { status: 'pending' } }),
   ])
