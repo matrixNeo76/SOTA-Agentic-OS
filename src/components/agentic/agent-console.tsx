@@ -1,443 +1,477 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { useStore } from '@/lib/store'
-import { useSensoriumLive } from './use-sensorium-live'
-import { getIcon } from '@/lib/phase-icons'
-import { RelatedPhases, link } from './related-phases'
-import { DynAMODagVisualizer } from './dag-visualizers'
 import { cn } from '@/lib/utils'
+import { useSensoriumLive } from './use-sensorium-live'
+import { DynAMODagVisualizer } from './dag-visualizers'
 import { toast } from 'sonner'
 import {
-  Send, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  Sparkles, ArrowRight, Clock, Brain, Shield, Zap,
+  ArrowUp, Loader2, CheckCircle2, XCircle, AlertTriangle,
+  Sparkles, Brain, Shield, Zap, Clock, Terminal,
+  RefreshCw, ChevronDown, ChevronRight,
 } from 'lucide-react'
 
-type ExecutionStep = {
+// =====================================================
+// Types
+// =====================================================
+
+type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'blocked'
+
+type ExecStep = {
   taskId: string
   agentId: string
   description: string
-  status: 'pending' | 'running' | 'done' | 'failed' | 'blocked'
+  status: StepStatus
   strategy?: string
   ltlVerdict?: string
   result?: string
-  startedAt?: string
-  completedAt?: string
 }
 
-type ConsoleResult = {
-  planId: string
-  goal: string
-  steps: ExecutionStep[]
-  batches: string[][]
-  reflection?: {
-    approved: boolean
-    heuristic?: string
-    reviewReason?: string
+type Message = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  // For assistant messages with execution results
+  result?: {
+    goal: string
+    steps: ExecStep[]
+    batches: string[][]
+    reflection?: {
+      approved: boolean
+      heuristic?: string
+      reviewReason?: string
+    }
+    summary: {
+      totalTasks: number
+      completed: number
+      failed: number
+      blocked: number
+      durationMs: number
+    }
   }
-  summary: {
-    totalTasks: number
-    completed: number
-    failed: number
-    blocked: number
-    durationMs: number
-  }
+  isPlanOnly?: boolean
 }
 
-type LogEntry = {
-  ts: string
-  type: 'info' | 'warn' | 'error' | 'success'
-  message: string
-}
+// =====================================================
+// Suggestions
+// =====================================================
 
 const SUGGESTIONS = [
-  'Analizza le metriche di vendita Q3 e produci un report esecutivo',
-  'Verifica la conformità di sicurezza del modulo di autenticazione',
-  'Ottimizza il processo di deploy del microservizio auth',
-  'Crea un piano di test per la nuova API REST',
+  { icon: Brain, title: 'Analizza e reportizza', desc: 'Analizza le metriche di vendita Q3 e produci un report esecutivo' },
+  { icon: Shield, title: 'Verifica conformità', desc: 'Verifica la conformità di sicurezza del modulo di autenticazione' },
+  { icon: Zap, title: 'Ottimizza processo', desc: 'Ottimizza il processo di deploy del microservizio auth' },
+  { icon: Terminal, title: 'Piano di test', desc: 'Crea un piano di test per la nuova API REST' },
 ]
 
-const STATUS_CONFIG = {
-  pending: { icon: Clock, color: 'text-muted-foreground', bg: '', label: 'In attesa' },
-  running: { icon: Loader2, color: 'text-sky-500', bg: 'bg-sky-50 dark:bg-sky-950/20', label: 'In esecuzione' },
-  done: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/20', label: 'Completato' },
-  failed: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-950/20', label: 'Fallito' },
-  blocked: { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950/20', label: 'Bloccato' },
-}
-
-const STRATEGY_ICON: Record<string, any> = {
-  PLAN: Brain,
-  EXECUTE: Zap,
-  CHECK: Shield,
-  REFLECT: Sparkles,
-  HALT: AlertTriangle,
-}
+// =====================================================
+// Main Component
+// =====================================================
 
 export function AgentConsole() {
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [executing, setExecuting] = useState(false)
-  const [result, setResult] = useState<ConsoleResult | null>(null)
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [showGraph, setShowGraph] = useState(false)
+  const [liveLog, setLiveLog] = useState<string[]>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const { events } = useSensoriumLive()
-  const logRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll logs
+  // Auto-scroll
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [logs])
+  }, [messages, liveLog])
 
   // Capture WS events during execution
   useEffect(() => {
     if (!executing) return
     const recent = events[0]
     if (!recent) return
-    const type = recent.level === 'warn' ? 'warn' : recent.level === 'error' ? 'error' : 'info'
-    setLogs(prev => [...prev, {
-      ts: new Date(recent.ts).toLocaleTimeString('it-IT'),
-      type,
-      message: `[P${recent.phase}] ${recent.agentId}: ${recent.event}`,
-    }])
+    const line = `[P${recent.phase}] ${recent.agentId}: ${recent.event}`
+    setLiveLog(prev => [...prev, line])
   }, [events, executing])
 
-  const execute = async () => {
-    if (!input.trim()) return
+  // Auto-resize textarea
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 160) + 'px'
+    }
+  }, [input])
+
+  const send = async (task: string, planOnly = false) => {
+    if (!task.trim() || executing) return
     setExecuting(true)
-    setResult(null)
-    setLogs([{
-      ts: new Date().toLocaleTimeString('it-IT'),
-      type: 'info',
-      message: `Task inviato: "${input.slice(0, 80)}"`,
-    }])
+    setLiveLog([])
+
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: task,
+      timestamp: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, userMsg])
+    setInput('')
 
     try {
       const r = await fetch('/api/console', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task: input, mode: 'full' }),
+        body: JSON.stringify({ task, mode: planOnly ? 'plan-only' : 'full' }),
       })
       const d = await r.json()
-      if (d.ok) {
-        setResult(d.result)
-        setLogs(prev => [...prev, {
-          ts: new Date().toLocaleTimeString('it-IT'),
-          type: 'success',
-          message: `Esecuzione completata in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati`,
-        }])
-        toast.success(`Task completato: ${d.result.summary.completed}/${d.result.summary.totalTasks}`)
-      } else {
-        setLogs(prev => [...prev, {
-          ts: new Date().toLocaleTimeString('it-IT'),
-          type: 'error',
-          message: `Errore: ${d.error}`,
-        }])
-        toast.error(d.error)
+
+      const assistantMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: d.ok
+          ? planOnly
+            ? `Piano generato: ${d.result.summary.totalTasks} task in ${d.result.batches.length} batch.`
+            : `Task completato in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati.`
+          : `Errore: ${d.error}`,
+        timestamp: new Date().toISOString(),
+        result: d.ok ? d.result : undefined,
+        isPlanOnly: planOnly,
       }
+      setMessages(prev => [...prev, assistantMsg])
+
+      if (!d.ok) toast.error(d.error)
+      else if (!planOnly) toast.success(`${d.result.summary.completed}/${d.result.summary.totalTasks} task completati`)
     } catch (e: any) {
       toast.error(e.message)
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Errore di connessione: ${e.message}`,
+        timestamp: new Date().toISOString(),
+      }])
     } finally {
       setExecuting(false)
+      setLiveLog([])
     }
   }
 
-  const planOnly = async () => {
-    if (!input.trim()) return
-    setExecuting(true)
-    setResult(null)
-    setLogs([{
-      ts: new Date().toLocaleTimeString('it-IT'),
-      type: 'info',
-      message: `Generazione piano per: "${input.slice(0, 80)}"`,
-    }])
-
-    try {
-      const r = await fetch('/api/console', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task: input, mode: 'plan-only' }),
-      })
-      const d = await r.json()
-      if (d.ok) {
-        setResult(d.result)
-        setLogs(prev => [...prev, {
-          ts: new Date().toLocaleTimeString('it-IT'),
-          type: 'success',
-          message: `Piano generato: ${d.result.summary.totalTasks} task in ${d.result.batches.length} batch`,
-        }])
-        toast.success('Piano generato')
-      } else {
-        toast.error(d.error)
-      }
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
-      setExecuting(false)
-    }
-  }
+  // =====================================================
+  // Render
+  // =====================================================
 
   return (
-    <div className="flex flex-col h-full max-w-5xl mx-auto p-6">
-      {/* Input section */}
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold mb-1">Console Agentica</h1>
-        <p className="text-xs text-muted-foreground mb-4">
-          Invia un task all'agente. Il sistema genera un piano (F2), esegue ogni task con steering (F3),
-          verifica LTL (F4), e al termine estrae euristiche (F5).
-        </p>
-
-        <div className="relative">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Descrivi il task da eseguire…"
-            rows={3}
-            className="resize-none pr-32"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) execute()
-            }}
-          />
-          <div className="absolute bottom-3 right-3 flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={planOnly}
-              disabled={executing || !input.trim()}
-              className="h-8 text-xs"
-            >
-              Solo piano
-            </Button>
-            <Button
-              size="sm"
-              onClick={execute}
-              disabled={executing || !input.trim()}
-              className="h-8 text-xs"
-            >
-              {executing ? <Loader2 className="size-3.5 mr-1 animate-spin" /> : <Send className="size-3.5 mr-1" />}
-              Esegui
-            </Button>
-          </div>
-        </div>
-
-        {/* Suggestions */}
-        {!result && !executing && (
-          <div className="flex flex-wrap gap-2 mt-3">
-            {SUGGESTIONS.map(s => (
-              <button
-                key={s}
-                onClick={() => setInput(s)}
-                className="text-xs px-3 py-1.5 rounded-lg border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-              >
-                {s}
-              </button>
+    <div className="flex flex-col h-full">
+      {/* Conversation thread */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          <WelcomeScreen onSuggestion={(s) => send(s)} />
+        ) : (
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+            {messages.map((msg) => (
+              <MessageBubble key={msg.id} msg={msg} />
             ))}
+
+            {/* Live execution indicator */}
+            {executing && (
+              <div className="flex items-start gap-3">
+                <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium">Agente</span>
+                    <span className="text-[10px] text-muted-foreground">esecuzione…</span>
+                  </div>
+                  {liveLog.length > 0 && (
+                    <div className="rounded-lg bg-zinc-950 text-zinc-300 p-2.5 font-mono text-[10px] space-y-0.5 max-h-32 overflow-y-auto">
+                      {liveLog.map((l, i) => (
+                        <div key={i} className="text-zinc-400">{l}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Execution log (real-time) */}
-      {executing && (
-        <div className="mb-4 rounded-lg border bg-zinc-950 text-zinc-100 p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Loader2 className="size-3.5 animate-spin text-sky-400" />
-            <span className="text-xs font-medium text-zinc-400">Esecuzione in corso…</span>
+      {/* Input bar */}
+      <div className="border-t bg-background/95 backdrop-blur">
+        <div className="max-w-3xl mx-auto p-3">
+          <div className="relative flex items-end gap-2 rounded-2xl border bg-card px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  send(input)
+                }
+              }}
+              placeholder="Descrivi il task da eseguire…"
+              rows={1}
+              disabled={executing}
+              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 py-1.5"
+            />
+            <button
+              onClick={() => send(input)}
+              disabled={!input.trim() || executing}
+              className={cn(
+                'size-8 rounded-lg flex items-center justify-center shrink-0 transition-all',
+                input.trim() && !executing
+                  ? 'bg-primary text-primary-foreground hover:opacity-90'
+                  : 'bg-muted text-muted-foreground'
+              )}
+            >
+              {executing ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+            </button>
           </div>
-          <div ref={logRef} className="h-32 overflow-y-auto space-y-0.5 font-mono text-[11px]">
-            {logs.map((l, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-zinc-600 shrink-0">{l.ts}</span>
-                <span className={cn(
-                  l.type === 'error' && 'text-red-400',
-                  l.type === 'warn' && 'text-amber-400',
-                  l.type === 'success' && 'text-emerald-400',
-                  l.type === 'info' && 'text-zinc-300',
-                )}>
-                  {l.message}
-                </span>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mt-1.5 px-1">
+            <p className="text-[10px] text-muted-foreground">
+              Invio per eseguire · Shift+Invio per nuova riga
+            </p>
+            <button
+              onClick={() => input.trim() && send(input, true)}
+              disabled={!input.trim() || executing}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Solo piano
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  )
+}
 
-      {/* Results */}
-      {result && (
-        <div className="space-y-6">
-          {/* Summary bar */}
-          <div className="flex items-center gap-4 py-3 border-y">
-            <div className="flex items-center gap-2">
-              {result.summary.failed > 0 || result.summary.blocked > 0 ? (
-                <AlertTriangle className="size-4 text-amber-500" />
-              ) : (
-                <CheckCircle2 className="size-4 text-emerald-500" />
-              )}
-              <span className="text-sm font-medium">
-                {result.summary.completed}/{result.summary.totalTasks} completati
-              </span>
-            </div>
-            {result.summary.failed > 0 && (
-              <Badge variant="secondary" className="text-[10px] bg-red-500/10 text-red-600 dark:text-red-400">
-                {result.summary.failed} falliti
-              </Badge>
-            )}
-            {result.summary.blocked > 0 && (
-              <Badge variant="secondary" className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                {result.summary.blocked} bloccati
-              </Badge>
-            )}
-            <span className="text-xs text-muted-foreground ml-auto">
-              {(result.summary.durationMs / 1000).toFixed(1)}s
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowGraph(!showGraph)}
-              className="h-7 text-xs"
-            >
-              {showGraph ? 'Nascondi grafo' : 'Mostra grafo'}
-            </Button>
-          </div>
+// =====================================================
+// Welcome Screen
+// =====================================================
 
-          {/* DAG visualization */}
-          {showGraph && result.steps.length > 0 && (
-            <div className="h-72 border rounded-lg overflow-hidden">
-              <DynAMODagVisualizer
-                tasks={result.steps.map(s => ({
-                  taskId: s.taskId,
-                  agentId: s.agentId,
-                  description: s.description,
-                  dependencies: [],
-                  status: s.status,
-                }))}
-                batches={result.batches}
-              />
-            </div>
-          )}
+function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-8">
+      <div className="max-w-2xl w-full text-center space-y-6">
+        <img src="/logo-sota.png" alt="SOTA" className="size-12 mx-auto rounded-lg object-contain" />
+        <div>
+          <h2 className="text-xl font-semibold">Console Agentica</h2>
+          <p className="text-sm text-muted-foreground mt-1.5">
+            Invia un task all'agente. Il sistema genera un piano, esegue ogni task con steering cognitivo,
+            verifica conformità LTL, e impara dall'esperienza.
+          </p>
+        </div>
 
-          {/* Task steps */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Task eseguiti</h3>
-            {result.steps.map((step, i) => {
-              const config = STATUS_CONFIG[step.status]
-              const StatusIcon = config.icon
-              const StratIcon = step.strategy ? STRATEGY_ICON[step.strategy] : null
-
-              return (
-                <div
-                  key={step.taskId}
-                  className={cn(
-                    'flex items-start gap-3 p-3 rounded-lg border transition-colors',
-                    config.bg
-                  )}
-                >
-                  <div className="flex items-center gap-2 shrink-0 w-20">
-                    <StatusIcon className={cn('size-4', config.color, step.status === 'running' && 'animate-spin')} />
-                    <span className="text-xs font-mono font-medium">{step.taskId}</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-8">
+          {SUGGESTIONS.map((s) => {
+            const Icon = s.icon
+            return (
+              <button
+                key={s.title}
+                onClick={() => onSuggestion(s.desc)}
+                className="text-left p-3.5 rounded-xl border hover:border-primary/30 hover:bg-accent/30 transition-all group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="size-8 rounded-lg bg-primary/5 flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-colors">
+                    <Icon className="size-4 text-primary" />
                   </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{step.description}</span>
-                    </div>
-                    <div className="flex items-center gap-3 mt-1">
-                      <Badge variant="outline" className="text-[9px] py-0">
-                        {step.agentId}
-                      </Badge>
-                      {step.strategy && (
-                        <Badge variant="outline" className="text-[9px] py-0 gap-1">
-                          {StratIcon && <StratIcon className="size-2.5" />}
-                          {step.strategy}
-                        </Badge>
-                      )}
-                      {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
-                        <Badge variant="outline" className={cn(
-                          'text-[9px] py-0',
-                          step.ltlVerdict === 'reject' && 'border-red-500 text-red-600 dark:text-red-400',
-                          step.ltlVerdict === 'warn' && 'border-amber-500 text-amber-600 dark:text-amber-400',
-                        )}>
-                          LTL: {step.ltlVerdict}
-                        </Badge>
-                      )}
-                      <span className={cn('text-[10px]', config.color)}>
-                        {config.label}
-                      </span>
-                    </div>
-                    {step.result && (
-                      <p className="text-[11px] text-muted-foreground mt-1.5 font-mono">
-                        {step.result}
-                      </p>
-                    )}
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{s.title}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.desc}</div>
                   </div>
                 </div>
-              )
-            })}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// =====================================================
+// Message Bubble
+// =====================================================
+
+function MessageBubble({ msg }: { msg: Message }) {
+  const isUser = msg.role === 'user'
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-start gap-3">
+      {/* Avatar */}
+      <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+        <Sparkles className="size-4 text-primary" />
+      </div>
+
+      <div className="flex-1 min-w-0 space-y-3">
+        {/* Text content */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Agente</span>
+          <span className="text-[10px] text-muted-foreground">
+            {new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">{msg.content}</p>
+
+        {/* Result card */}
+        {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
+      </div>
+    </div>
+  )
+}
+
+// =====================================================
+// Result Card
+// =====================================================
+
+function ResultCard({ result, planOnly }: { result: NonNullable<Message['result']>; planOnly?: boolean }) {
+  const [showGraph, setShowGraph] = useState(false)
+  const [showDetails, setShowDetails] = useState(!planOnly)
+  const s = result.summary
+
+  const allDone = s.completed === s.totalTasks && s.failed === 0 && s.blocked === 0
+
+  return (
+    <div className="rounded-xl border overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b bg-muted/30">
+        <div className={cn(
+          'size-7 rounded-full flex items-center justify-center shrink-0',
+          allDone ? 'bg-emerald-500/10' : s.blocked > 0 ? 'bg-amber-500/10' : 'bg-red-500/10'
+        )}>
+          {allDone ? <CheckCircle2 className="size-4 text-emerald-500" />
+            : s.blocked > 0 ? <AlertTriangle className="size-4 text-amber-500" />
+            : <XCircle className="size-4 text-red-500" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{result.goal}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {s.completed}/{s.totalTasks} completati
+            {s.failed > 0 && ` · ${s.failed} falliti`}
+            {s.blocked > 0 && ` · ${s.blocked} bloccati`}
+            {!planOnly && ` · ${(s.durationMs / 1000).toFixed(1)}s`}
           </div>
+        </div>
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          className="text-muted-foreground hover:text-foreground transition-colors p-1"
+        >
+          {showDetails ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        </button>
+      </div>
+
+      {/* Expanded details */}
+      {showDetails && (
+        <div className="p-4 space-y-3">
+          {/* Task list */}
+          <div className="space-y-1.5">
+            {result.steps.map((step) => (
+              <StepRow key={step.taskId} step={step} />
+            ))}
+          </div>
+
+          {/* Graph toggle */}
+          {!planOnly && result.steps.length > 0 && (
+            <>
+              <button
+                onClick={() => setShowGraph(!showGraph)}
+                className="text-xs text-primary hover:underline"
+              >
+                {showGraph ? 'Nascondi grafo DAG' : 'Mostra grafo DAG'}
+              </button>
+              {showGraph && (
+                <div className="h-64 border rounded-lg overflow-hidden">
+                  <DynAMODagVisualizer
+                    tasks={result.steps.map(s => ({
+                      taskId: s.taskId,
+                      agentId: s.agentId,
+                      description: s.description,
+                      dependencies: [],
+                      status: s.status,
+                    }))}
+                    batches={result.batches}
+                  />
+                </div>
+              )}
+            </>
+          )}
 
           {/* Reflection */}
           {result.reflection && (
-            <div className="rounded-lg border p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <Sparkles className={cn('size-4', result.reflection.approved ? 'text-emerald-500' : 'text-amber-500')} />
-                <h3 className="text-sm font-medium">Riflessione ERL</h3>
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'text-[9px] ml-auto',
-                    result.reflection.approved ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  )}
-                >
-                  {result.reflection.approved ? 'Euristica approvata' : 'Red Line'}
-                </Badge>
+            <div className="flex items-start gap-2.5 pt-2 border-t">
+              <div className={cn(
+                'size-6 rounded-full flex items-center justify-center shrink-0 mt-0.5',
+                result.reflection.approved ? 'bg-emerald-500/10' : 'bg-amber-500/10'
+              )}>
+                <Sparkles className={cn('size-3', result.reflection.approved ? 'text-emerald-500' : 'text-amber-500')} />
               </div>
-              {result.reflection.heuristic && (
-                <p className="text-xs text-muted-foreground italic">
-                  "{result.reflection.heuristic}"
-                </p>
-              )}
-              <p className="text-[10px] text-muted-foreground">
-                {result.reflection.reviewReason}
-              </p>
-            </div>
-          )}
-
-          {/* Log (post-execution) */}
-          {!executing && logs.length > 0 && (
-            <div className="rounded-lg border bg-zinc-950 text-zinc-100 p-3">
-              <div className="text-xs font-medium text-zinc-400 mb-2">Log di esecuzione</div>
-              <div className="h-32 overflow-y-auto space-y-0.5 font-mono text-[11px]">
-                {logs.map((l, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-zinc-600 shrink-0">{l.ts}</span>
-                    <span className={cn(
-                      l.type === 'error' && 'text-red-400',
-                      l.type === 'warn' && 'text-amber-400',
-                      l.type === 'success' && 'text-emerald-400',
-                      l.type === 'info' && 'text-zinc-300',
-                    )}>
-                      {l.message}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex-1">
+                <div className="text-xs font-medium">
+                  {result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}
+                </div>
+                {result.reflection.heuristic && (
+                  <p className="text-xs text-muted-foreground italic mt-0.5">
+                    "{result.reflection.heuristic}"
+                  </p>
+                )}
               </div>
             </div>
           )}
-
-          {/* New task */}
-          <div className="flex items-center gap-3 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { setResult(null); setLogs([]); setInput('') }}
-              className="h-8 text-xs"
-            >
-              Nuovo task
-            </Button>
-          </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// =====================================================
+// Step Row
+// =====================================================
+
+const STEP_ICONS = {
+  pending: { icon: Clock, color: 'text-muted-foreground' },
+  running: { icon: Loader2, color: 'text-sky-500' },
+  done: { icon: CheckCircle2, color: 'text-emerald-500' },
+  failed: { icon: XCircle, color: 'text-red-500' },
+  blocked: { icon: AlertTriangle, color: 'text-amber-500' },
+}
+
+const STRAT_ICONS: Record<string, any> = {
+  PLAN: Brain, EXECUTE: Zap, CHECK: Shield, REFLECT: Sparkles, HALT: AlertTriangle,
+}
+
+function StepRow({ step }: { step: ExecStep }) {
+  const config = STEP_ICONS[step.status]
+  const Icon = config.icon
+  const StratIcon = step.strategy ? STRAT_ICONS[step.strategy] : null
+
+  return (
+    <div className="flex items-center gap-2.5 py-1">
+      <Icon className={cn('size-3.5 shrink-0', config.color, step.status === 'running' && 'animate-spin')} />
+      <span className="text-xs font-mono text-muted-foreground shrink-0 w-6">{step.taskId}</span>
+      <span className="text-xs truncate flex-1">{step.description}</span>
+      {step.strategy && StratIcon && (
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+          <StratIcon className="size-2.5" />
+          {step.strategy}
+        </span>
+      )}
+      {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
+        <span className={cn(
+          'text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0',
+          step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+        )}>
+          LTL {step.ltlVerdict}
+        </span>
       )}
     </div>
   )
