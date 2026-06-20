@@ -51,10 +51,10 @@ export default function Home() {
           {activePhase === 'phase14' && <Phase14 />}
           {activePhase === 'tools' && <ToolManager />}
         </main>
-        <footer className="border-t px-4 py-2 text-xs text-muted-foreground bg-background">
+        <footer className="border-t px-4 py-2 text-[10px] text-muted-foreground bg-background/50">
           <div className="flex items-center justify-between gap-4">
-            <span>SOTA Agentic OS · 18 micro-fasi · Cockpit · DAG Visualizer · Sovereign · Tool Ecosystem</span>
-            <span className="font-mono">v0.5.0</span>
+            <span>SOTA Agentic OS · 23 fasi + 3 trasversali</span>
+            <span className="font-mono">v0.6.0</span>
           </div>
         </footer>
       </div>
