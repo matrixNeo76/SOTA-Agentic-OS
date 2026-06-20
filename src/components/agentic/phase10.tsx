@@ -14,6 +14,8 @@ import {
   Boxes, RefreshCw, Play, Lock, CheckCircle2, XCircle, AlertTriangle, Code2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Session = {
   id: string; agentId: string; taskGoal: string;
@@ -60,19 +62,7 @@ export function Phase10() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Boxes className="size-6 text-primary" /> Fase 10 · Grounded Inference
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Model Encapsulator: LLM stateless, contesto azzerato ad ogni iterazione, parsing sandboxed.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase10" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -166,6 +156,8 @@ export function Phase10() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase6', 'Working context', 'Il contesto minimale deriva dal Context Manager'), link('phase14', 'Route modello', 'L\'encapsulator può usare il TimeRouter per scegliere il modello'), link('phase3', 'Steering injection', 'Le steering phrases sono iniettate nelle chiamate incapsulate'), link('phase4', 'Sandbox verificata', 'Gli script di parsing sono validati come Compiled AI (Fase 2)')]} />
+
     </div>
   )
 }

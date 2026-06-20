@@ -15,6 +15,8 @@ import {
   Scissors, RefreshCw, Plus, FileStack, BookOpen, Search, Coins, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type ToolCall = {
   id: string
@@ -121,19 +123,7 @@ export function Phase6() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Scissors className="size-6 text-primary" /> Fase 6 · Context Engineering
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Ring buffer N coppie Tool Call/Response + summarization asincrona. Previene il "context rot".
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase6" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -222,7 +212,7 @@ export function Phase6() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Registra Tool Call</CardTitle>
-              <CardDescription>Simula l'esecuzione di un tool da parte di un agente</CardDescription>
+              <CardDescription>Simula l\'esecuzione di un tool da parte di un agente</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid md:grid-cols-2 gap-3">
@@ -262,7 +252,7 @@ export function Phase6() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Policy di Pruning</CardTitle>
-              <CardDescription>Configura il comportamento del ring buffer per l'agente</CardDescription>
+              <CardDescription>Configura il comportamento del ring buffer per l\'agente</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -328,6 +318,8 @@ export function Phase6() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase1', 'Fonte: Sensorium', 'Il contesto riassemblato è iniettato dal Curator (Fase 1)'), link('phase10', 'Encapsulated call', 'Il working context alimenta il Model Encapsulator'), link('phase14', 'Routing basato su size', 'La lunghezza del contesto influenza il Model Router'), link('phase3', 'Steering aware', 'Le sterzate ACTS consumano contesto working memory')]} />
+
     </div>
   )
 }

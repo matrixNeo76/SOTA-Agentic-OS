@@ -14,6 +14,8 @@ import {
   Network, RefreshCw, Plus, GitBranch, CheckCircle2, XCircle, Users, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Belief = {
   id: string; agentId: string; content: string; beliefType: string;
@@ -130,19 +132,7 @@ export function Phase13() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Network className="size-6 text-primary" /> Fase 13 · ESR + Quorum
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Belief lineage + Epistemic State Replication + Semantic Quorum per swarm coerenti.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase13" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -360,6 +350,8 @@ export function Phase13() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase2', 'Join dei piani', 'Il quorum semantico è il meccanismo di Join dei DAG'), link('phase1', 'Replica in memoria', 'I belief sincronizzati diventano entità semantiche'), link('phase5', 'Riflessione swarm', 'I conflitti ESR attivano riflessione ERL'), link('phase9', 'Quorum = delega multipla', 'Il quorum sostituisce HITL singolo per azioni delegate')]} />
+
     </div>
   )
 }

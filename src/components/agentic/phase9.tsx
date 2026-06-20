@@ -16,6 +16,8 @@ import {
   Shield, Scale, BookOpen, KeyRound, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Delegation = {
   id: string; agentId: string; scope: string; constraints: string;
@@ -164,19 +166,7 @@ export function Phase9() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <UserCog className="size-6 text-primary" /> Fase 9 · Artificial Retainer
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Delegation contracts + HITL gates + Normative calculus + Audit ledger. Previene l'Agentic Literacy Debt.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase9" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -531,6 +521,8 @@ export function Phase9() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase4', 'Policy LTL', 'I gate HITL scattano anche su violazioni LTL'), link('phase11', 'Affect-driven gates', 'Disperazione alta stringe i gate di approvazione'), link('phase13', 'Quorum come delega', 'Il quorum semantico può sostituire HITL singolo'), link('phase2', 'Approva piano', 'I piani DynAMO irreversibili richiedono HITL')]} />
+
     </div>
   )
 }

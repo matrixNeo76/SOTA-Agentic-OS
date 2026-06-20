@@ -15,6 +15,8 @@ import {
   Layers, Target, Network,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Trace = {
   id: string
@@ -120,19 +122,7 @@ export function Phase7() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <GitFork className="size-6 text-primary" /> Fase 7 · Dominator Trees
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            PTA fusion + dominator extraction + coverage score. Tolleranza al non-determinismo sequenziale.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase7" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -374,6 +364,8 @@ export function Phase7() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase2', 'Tracce da piano', 'Le esecuzioni dei piani DynAMO generano tracce da validare'), link('phase8', 'Verifica formale', 'Le tracce valide possono essere certificate formalmente'), link('phase12', 'Confronta con rubric', 'Le tracce Pass/Fail allineano con la rubric tree'), link('phase9', 'Audit esecuzione', 'Le esecuzioni validate diventano voci Audit Ledger')]} />
+
     </div>
   )
 }

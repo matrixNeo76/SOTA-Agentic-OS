@@ -13,6 +13,8 @@ import {
   Target, RefreshCw, Plus, CheckCircle2, XCircle, SkipForward,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type TreeNode = {
   id: string; treeId: string; parentId: string | null;
@@ -93,19 +95,7 @@ export function Phase12() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Target className="size-6 text-primary" /> Fase 12 · AgentObjective
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            BFS decomposition: obiettivo macro → micro-task Pass/Fail con arresto basato sul peso.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase12" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -217,6 +207,8 @@ export function Phase12() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase2', 'Piano da obiettivo', 'La rubric tree guida la generazione del piano DynAMO'), link('phase5', 'Euristiche di valutazione', 'I nodi Pass/Fail usano euristiche ERL'), link('phase7', 'Tracce di valutazione', 'Le esecuzioni validate producono tracce per PTA'), link('phase8', 'Verifica formale', 'I nodi foglia possono avere contratti Lean4')]} />
+
     </div>
   )
 }

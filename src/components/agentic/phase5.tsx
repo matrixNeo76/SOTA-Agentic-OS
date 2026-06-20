@@ -16,6 +16,8 @@ import {
   Plus, Send, BookOpen, Shield, Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Heuristic = {
   id: string; trigger: string; action: string; context: string;
@@ -96,20 +98,7 @@ export function Phase5() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Sparkles className="size-6 text-primary" /> Fase 5 · Riflessione & Evoluzione
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            ERL: analisi causale post-operazione → estrazione euristica → valutazione AutoSOTA Red Line → memorizzazione.
-            RAG semantico per recuperare euristiche rilevanti nei nuovi task.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase5" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       <Tabs defaultValue="reflect" className="w-full">
         <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full">
@@ -334,6 +323,8 @@ export function Phase5() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase2', 'Applica a nuovo piano', 'Le euristiche ERL vengono iniettate nel prompt di pianificazione'), link('phase8', 'LeanEvolve', 'Le euristiche guidano il recovery dei workflow falliti'), link('phase12', 'Valuta obiettivo', 'Le euristiche valutano i nodi della rubric tree'), link('phase1', 'Memorizza in NS-Mem', 'Le euristiche sono entità semantiche con embedding')]} />
+
     </div>
   )
 }

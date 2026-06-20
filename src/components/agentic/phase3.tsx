@@ -14,6 +14,8 @@ import {
   Play, RotateCcw, Cpu,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Strategy = 'PLAN' | 'EXECUTE' | 'CHECK' | 'REFLECT' | 'HALT'
 type Vocab = Record<Strategy, { phrase: string; budgetCost: number; description: string }>
@@ -112,20 +114,7 @@ export function Phase3() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Compass className="size-6 text-primary" /> Fase 3 · Steering ACTS
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Agentic Chain-of-Thought Steering: un Controller ultraleggero decide la strategia successiva
-            (PLAN/EXECUTE/CHECK/REFLECT) e invia una steering phrase. Budget O(1) per decisione.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase3" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       <div className="grid lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">
@@ -277,6 +266,8 @@ export function Phase3() {
           </ScrollArea>
         </CardContent>
       </Card>
+      <RelatedPhases links={[link('phase1', 'Stato & memoria', 'Lo steering consulta stato globale e Sensorium'), link('phase10', 'Modello incapsulato', 'Le steering phrases vengono iniettate nel Model Encapsulator'), link('phase14', 'Route steering', 'Le decisioni PLAN/EXECUTE possono usare modelli specializzati'), link('phase11', 'Monitora affetti', 'Le sterzate ripetute aumentano la frustrazione')]} />
+
     </div>
   )
 }

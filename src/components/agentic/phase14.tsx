@@ -15,6 +15,8 @@ import {
   Shuffle, RefreshCw, Play, Cpu, Layers, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Decision = {
   id: string; agentId: string; inputHash: string;
@@ -82,19 +84,7 @@ Dimostra con un proof formale che la funzione è errata.`)
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Shuffle className="size-6 text-primary" /> Fase 14 · TimeRouter
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Router classificatore + Gate Selettivo (τm, τd) + Ensemble Fallback per routing adattivo.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase14" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -221,6 +211,8 @@ Dimostra con un proof formale che la funzione è errata.`)
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase10', 'Encapsulator consumer', 'Il Model Encapsulator usa il modello scelto dal router'), link('phase3', 'Steering model choice', 'Le strategie ACTS possono usare modelli diversi'), link('phase11', 'Affect influences routing', 'Disperazione alta può forzare ensemble (più cautela)'), link('phase4', 'Safety routing', 'Modelli per task sensibili sono validati da LTL/Taint')]} />
+
     </div>
   )
 }

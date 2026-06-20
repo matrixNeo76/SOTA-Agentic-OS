@@ -14,6 +14,8 @@ import {
   HeartPulse, RefreshCw, Play, AlertTriangle, Flame, Snowflake, Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Sample = {
   id: string; agentId: string; desperation: number; frustration: number;
@@ -66,19 +68,7 @@ export function Phase11() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <HeartPulse className="size-6 text-primary" /> Fase 11 · Affect Subsystem
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Telemetria affettiva: Disperazione + Frustrazione → Meta-Observer interviene con cooldown/tightening.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase11" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -194,6 +184,8 @@ export function Phase11() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase4', 'Fonte: gate rejects', 'I rifiuti LTL/Taint alimentano la disperazione'), link('phase9', 'Interventi → HITL', 'Il Meta-Observer può forzare gate HITL'), link('phase3', 'HALT steering', 'Gli interventi HALT fermano il ciclo cognitivo'), link('phase5', 'Rifletti su stress', 'Le metriche affettive alimentano euristiche ERL')]} />
+
     </div>
   )
 }

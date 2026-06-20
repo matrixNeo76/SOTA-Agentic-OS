@@ -16,6 +16,8 @@ import {
   ShieldCheck, FileCode, Code2, Rocket, Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type TaskSpec = { taskId: string; agentId: string; description: string; dependencies: string[] }
 type Plan = { goal: string; tasks: TaskSpec[] }
@@ -105,19 +107,7 @@ export function Phase2() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Workflow className="size-6 text-primary" /> Fase 2 · Orchestrazione & Compiled AI
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            DynAMO: piani JSON-Schema-validati → DAG topologico per parallelismo. Compiled AI: codice generato e validato a 4 stadi.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refreshAll}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase2" action={<Button variant="outline" size="sm" onClick={refreshAll}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       <Tabs defaultValue="plan" className="w-full">
         <TabsList className="grid grid-cols-2 w-full">
@@ -353,6 +343,8 @@ ${lastResult.code.split('\n').map((l: string) => '  ' + l).join('\n')}
           )}
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase8', 'Verifica formalmente', 'Traduci il DAG in contratti Lean4 e verifica pre/post conditions'), link('phase7', 'Valida traccia', 'Confronta l\'esecuzione del piano con tracce PTA'), link('phase5', 'Rifletti su esito', 'Dopo il piano, estrai euristiche dall\'esperienza'), link('phase9', 'Richiedi approvazione', 'Azioni del piano irreversibili richiedono HITL gate')]} />
+
     </div>
   )
 }

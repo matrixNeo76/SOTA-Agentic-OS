@@ -17,6 +17,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LTLNormativeEditor } from './ltl-normative-editor'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type LTLRule = { id: string; ruleId: string; ltlFormula: string; description: string | null; severity: string; active: boolean }
 type TaintRecord = { id: string; source: string; payload: string; taintLabel: string; flowTrace: string; blocked: boolean; createdAt: string }
@@ -142,19 +144,7 @@ export function Phase4() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ShieldCheck className="size-6 text-primary" /> Fase 4 · Zero-Trust & Verifica Formale
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            AgentVerify: Monitor FSM con LTL compilate · Taint Tracking anti-MitE · Cancello Normativo Stoico.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase4" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       <Tabs defaultValue="ltl" className="w-full">
         <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full">
@@ -449,6 +439,8 @@ export function Phase4() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase9', 'Cancello normativo', 'Le violazioni LTL bloccanti richiedono Audit Ledger'), link('phase8', 'Verifica formale', 'LTL runtime + Lean4 pre-execution formano trust stratificato'), link('phase11', 'Affect monitor', 'I gate rejects aumentano la disperazione dell\'agente'), link('phase13', 'Quorum semantico', 'Le decisioni LTL possono richiedere quorum swarm')]} />
+
     </div>
   )
 }

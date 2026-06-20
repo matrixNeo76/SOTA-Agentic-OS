@@ -15,6 +15,8 @@ import {
   Sparkles, History, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Plan = { id: string; taskGoal: string; status: string; agentCount: number }
 type Workflow = {
@@ -135,19 +137,7 @@ export function Phase8() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FunctionSquare className="size-6 text-primary" /> Fase 8 · Lean4 Formal Verification
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            DAG → contratti formali (pre/post conditions) → verifica simbolica → LeanEvolve su failure localizzate.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase8" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -396,6 +386,8 @@ export function Phase8() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase2', 'Verifica piano DynAMO', 'I contratti formali derivano dal DAG della Fase 2'), link('phase5', 'LeanEvolve → ERL', 'Dopo evolve, rifletti sull\'esperienza di recovery'), link('phase7', 'Valida post-evolve', 'Dopo LeanEvolve, valida l\'esecuzione con dominator trees'), link('phase4', 'Verifica runtime LTL', 'Lean4 pre-execution + LTL runtime formano trust stratificato')]} />
+
     </div>
   )
 }

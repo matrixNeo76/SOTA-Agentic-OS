@@ -16,6 +16,8 @@ import {
   CheckCircle2, XCircle, Clock, Brain, GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PhaseHeader } from './phase-header'
+import { RelatedPhases, link } from './related-phases'
 
 type Episode = {
   id: string; observation: string; timestamp: string; decay: number;
@@ -118,19 +120,7 @@ export function Phase1() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Database className="size-6 text-primary" /> Fase 1 · Stato e Memoria Persistente
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            NS-Mem a 3 livelli (episodico/semantico/logico) con EMA anti-drift · PatchBoard transazionale · Sensorium XML.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refreshAll}>
-          <RefreshCw className="size-3.5 mr-1.5" /> Aggiorna
-        </Button>
-      </div>
+      <PhaseHeader phaseId="phase1" action={<Button variant="outline" size="sm" onClick={refreshAll}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -422,6 +412,8 @@ export function Phase1() {
           </Card>
         </TabsContent>
       </Tabs>
+      <RelatedPhases links={[link('phase6', 'Gestisci contesto', 'Le osservazioni episodiche alimentano il ring buffer del Context Manager'), link('phase13', 'Sincronizza belief', 'Replica le convinzioni semantiche tra agenti paralleli'), link('phase3', 'Ciclo cognitivo', 'Il Sensorium alimenta lo steering ACTS'), link('phase5', 'Rifletti', 'Dalla memoria episodica estrai euristiche ERL')]} />
+
     </div>
   )
 }
