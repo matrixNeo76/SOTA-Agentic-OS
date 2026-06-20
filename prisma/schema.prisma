@@ -440,3 +440,188 @@ model AuditLedgerEntry {
   timestamp    DateTime @default(now())
 }
 
+// =====================================================
+// FASE 10: Grounded Inference (Model Encapsulator)
+// =====================================================
+
+// Sessione incapsulata: ogni chiamata LLM è isolata, niente stato tra chiamate
+model EncapsulatedSession {
+  id           String   @id @default(cuid())
+  agentId      String
+  taskGoal     String
+  contextInjected String // JSON: contesto minimale iniettato nel prompt
+  modelOutput  String   // output raw dell'LLM
+  parsedScript String?  // script deterministico estratto dall'output (per parsing sandbox)
+  sandboxResult String? // JSON: risultato dell'esecuzione sandboxed
+  sandboxOk    Boolean  @default(false)
+  retryCount   Int      @default(0)
+  status       String   @default("pending") // pending|executed|failed|sandbox_blocked
+  createdAt    DateTime @default(now())
+}
+
+// Policy di incapsulamento per agente
+model EncapsulationPolicy {
+  id           String   @id @default(cuid())
+  agentId      String   @unique
+  maxRetries   Int      @default(3)
+  contextBudget Int     @default(2000) // token max iniettabili
+  sandboxEnabled Boolean @default(true)
+  forbidDirectMutation Boolean @default(true)
+  updatedAt    DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 11: Affect Subsystem (Desperation/Frustration)
+// =====================================================
+
+// Campione di telemetria affettiva (timestamped)
+model AffectSample {
+  id           String   @id @default(cuid())
+  agentId      String
+  desperation  Float    // 0..1
+  frustration  Float    // 0..1
+  toolFailureRate Float // 0..1
+  gateRejectRate Float  // 0..1
+  repeatedToolCalls Int  // count di chiamate ripetute allo stesso tool
+  intervention String?  // azione intrapresa dal Meta-Observer
+  cycleId      Int
+  timestamp    DateTime @default(now())
+}
+
+// Soglie di intervento configurabili
+model AffectThreshold {
+  id           String   @id @default(cuid())
+  agentId      String   @unique
+  desperationCritical Float @default(0.7)
+  frustrationCritical Float @default(0.7)
+  cooldownMs   Int      @default(5000) // sleep forzato in ms
+  tighteningPct Float   @default(0.15) // riduzione soglie di accettazione
+  updatedAt    DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 12: AgentObjective (BFS Rubric Tree)
+// =====================================================
+
+// Obiettivo macro decomposto in rubrica ad albero
+model ObjectiveTree {
+  id           String   @id @default(cuid())
+  rootGoal     String   // obiettivo macro (es. "ottimizza il deploy")
+  status       String   @default("drafted") // drafted|expanded|evaluating|done
+  totalNodes   Int      @default(0)
+  maxDepth     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Nodo della rubrica (Pass/Fail binario)
+model ObjectiveNode {
+  id           String   @id @default(cuid())
+  treeId       String
+  parentId     String?  // null per la root
+  description  String   // sotto-obiettivo binario (Pass/Fail)
+  depth        Int      // 0 = root
+  weight       Float    @default(1.0) // peso (stop se < threshold)
+  contextTier  String   @default("strategic") // strategic|methodological|implementation
+  status       String   @default("pending") // pending|pass|fail|skipped
+  evidence     String?  // JSON: prove raccolte
+  evaluatedAt  DateTime?
+  createdAt    DateTime @default(now())
+}
+
+// =====================================================
+// FASE 13: Epistemic State Replication (ESR) + Quorum
+// =====================================================
+
+// Belief: convinzione di un agente (riassunto, prova, stato pianificato)
+model Belief {
+  id           String   @id @default(cuid())
+  agentId      String
+  content      String   // contenuto della convinzione (testuale)
+  beliefType   String   // summary|evidence|plan|observation
+  embedding    String   // JSON array di float
+  lineageId    String?  // ID della convinzione genitore (belief lineage)
+  confidence   Float    @default(1.0)
+  superseded   Boolean  @default(false) // true se sostituita da versione più recente
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+}
+
+// Replica ESR: sincronizzazione convinzioni tra agenti
+model ESRSyncEvent {
+  id           String   @id @default(cuid())
+  sourceAgentId String
+  targetAgentId String
+  beliefId     String
+  syncStatus   String   @default("pending") // pending|synced|conflict
+  conflictReason String?
+  timestamp    DateTime @default(now())
+}
+
+// Quorum semantico: validazione di un'azione da parte di N validatori
+model QuorumVote {
+  id           String   @id @default(cuid())
+  workflowJoinId String // identificativo del join point nel DAG
+  action       String   // azione da certificare
+  voterAgentId String
+  vote         String   // accept|reject
+  reason       String?
+  confidence   Float    @default(1.0)
+  timestamp    DateTime @default(now())
+}
+
+model QuorumDecision {
+  id           String   @id @default(cuid())
+  workflowJoinId String
+  action       String
+  requiredQuorum Int    @default(2) // numero minimo di accept
+  acceptCount  Int      @default(0)
+  rejectCount  Int      @default(0)
+  verdict      String   @default("pending") // pending|accepted|rejected
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+}
+
+// =====================================================
+// FASE 14: TimeRouter (Adaptive Routing + Ensemble Fallback)
+// =====================================================
+
+// Modello Foundation disponibile
+model FoundationModel {
+  id           String   @id @default(cuid())
+  modelId      String   @unique
+  name         String
+  specialization String  // code|reasoning|math|logic|general
+  costPer1kTokens Float @default(0.0)
+  avgLatencyMs Int      @default(500)
+  active       Boolean  @default(true)
+}
+
+// Decisione di routing
+model RoutingDecision {
+  id           String   @id @default(cuid())
+  agentId      String
+  inputHash    String   // hash del prompt input per dedup
+  inputFeatures String  // JSON: feature estratte (lunghezza, dominio, complessità)
+  primaryModel String   // modello scelto come leader
+  confidence   Float    // confidenza del router
+  margin       Float    // margine tra top-2 modelli
+  diversity    Float    // diversità tra predizioni
+  routedTo     String   // primary|ensemble|critic
+  ensembleModels String? // JSON: modelli usati in ensemble
+  finalOutput  String?  // output finale fuso
+  createdAt    DateTime @default(now())
+}
+
+// Configurazione router
+model RouterConfig {
+  id           String   @id @default(cuid())
+  marginThreshold Float @default(0.2)  // τm
+  diversityThreshold Float @default(0.3) // τd
+  minConfidence Float   @default(0.6)
+  enableEnsemble Boolean @default(true)
+  enableCritic Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+}
+
+

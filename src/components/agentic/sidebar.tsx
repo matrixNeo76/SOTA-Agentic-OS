@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Database, Workflow, Compass, ShieldCheck, Sparkles,
   Scissors, GitFork, FunctionSquare, UserCog,
+  Boxes, HeartPulse, Target, Network, Shuffle,
 } from 'lucide-react'
 
 const NAV: { id: Phase; label: string; sub: string; icon: any }[] = [
@@ -18,6 +19,11 @@ const NAV: { id: Phase; label: string; sub: string; icon: any }[] = [
   { id: 'phase7', label: 'Fase 7', sub: 'Dominator Trees', icon: GitFork },
   { id: 'phase8', label: 'Fase 8', sub: 'Lean4 Formal Verify', icon: FunctionSquare },
   { id: 'phase9', label: 'Fase 9', sub: 'Artificial Retainer', icon: UserCog },
+  { id: 'phase10', label: 'Fase 10', sub: 'Grounded Inference', icon: Boxes },
+  { id: 'phase11', label: 'Fase 11', sub: 'Affect Subsystem', icon: HeartPulse },
+  { id: 'phase12', label: 'Fase 12', sub: 'AgentObjective BFS', icon: Target },
+  { id: 'phase13', label: 'Fase 13', sub: 'ESR + Quorum', icon: Network },
+  { id: 'phase14', label: 'Fase 14', sub: 'TimeRouter', icon: Shuffle },
 ]
 
 export function Sidebar() {

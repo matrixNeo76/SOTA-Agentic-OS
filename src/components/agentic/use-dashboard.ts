@@ -12,6 +12,11 @@ type DashboardData = {
   phase7: { traces: number; ptas: number; validations: number; avgCoverage: number; acceptRate: number }
   phase8: { contracts: number; verifiedContracts: number; verifiedWorkflows: number; deployedWorkflows: number; evolveEvents: number; successfulEvolve: number }
   phase9: { activeDelegations: number; totalDelegations: number; pendingGates: number; resolvedGates: number; approvedGates: number; rejectedGates: number; auditEntries: number; normativeResolutions: number; blockedResolutions: number }
+  phase10: { sessions: number; executed: number; sandboxBlocked: number; policies: number }
+  phase11: { samples: number; agents: number; interventions: number; avgDesperation: number; avgFrustration: number }
+  phase12: { trees: number; nodes: number; completedTrees: number; passNodes: number; failNodes: number }
+  phase13: { beliefs: number; syncEvents: number; conflicts: number; quorumDecisions: number; acceptedQuorum: number; rejectedQuorum: number }
+  phase14: { decisions: number; ensemble: number; critic: number; primary: number; topModel: string; topModelPct: number }
   recentLogs: { id: string; agentId: string; phase: string; event: string; level: string; timestamp: string }[]
   agentLogsTotal: number
   memoryStats: { episodic: number; semantic: number; logical: number; avgDecay: number }

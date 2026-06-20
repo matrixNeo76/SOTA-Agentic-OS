@@ -12,6 +12,7 @@ import {
   Database, Workflow, Compass, ShieldCheck, Sparkles, CheckCircle2, XCircle,
   AlertTriangle, Cpu, Layers, Activity, Zap, RefreshCw, Rocket,
   Scissors, GitFork, FunctionSquare, UserCog,
+  Boxes, HeartPulse, Target, Network, Shuffle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -255,6 +256,80 @@ export function Overview() {
             { label: 'Block norm', value: data.phase9?.blockedResolutions || 0, tone: (data.phase9?.blockedResolutions || 0) > 0 ? 'danger' : 'ok' },
           ]}
           description="Delegation contracts, HITL gates per azioni irreversibili, Normative Calculus per conflitti prompt vs policy, Audit Ledger comprensibile all'umano."
+        />
+      </div>
+
+      {/* Fasi 10-14 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+        <PhaseCard
+          phase="10"
+          title="Grounded Inference"
+          subtitle="Model Encapsulator · Sandbox · Stateless"
+          icon={Boxes}
+          onClick={() => setActivePhase('phase10')}
+          stats={[
+            { label: 'Sessioni', value: data.phase10?.sessions || 0 },
+            { label: 'Eseguite', value: data.phase10?.executed || 0, tone: 'ok' },
+            { label: 'Sandbox block', value: data.phase10?.sandboxBlocked || 0, tone: data.phase10?.sandboxBlocked ? 'warn' : 'ok' },
+            { label: 'Policy', value: data.phase10?.policies || 0 },
+          ]}
+          description="LLM stateless con contesto azzerato ad ogni iterazione. Script di parsing generati vengono eseguiti in sandbox isolata, no accesso diretto ai dati."
+        />
+        <PhaseCard
+          phase="11"
+          title="Affect Subsystem"
+          subtitle="Desperation · Frustration · Meta-Observer"
+          icon={HeartPulse}
+          onClick={() => setActivePhase('phase11')}
+          stats={[
+            { label: 'Samples', value: data.phase11?.samples || 0 },
+            { label: 'Agenti', value: data.phase11?.agents || 0 },
+            { label: 'Interventi', value: data.phase11?.interventions || 0, tone: data.phase11?.interventions ? 'warn' : 'ok' },
+            { label: 'Avg desp', value: ((data.phase11?.avgDesperation || 0) * 100).toFixed(0) + '%', tone: (data.phase11?.avgDesperation || 0) > 0.5 ? 'warn' : 'ok' },
+          ]}
+          description="Telemetria affettiva: Disperazione (gate rejects) e Frustrazione (tool fails). Meta-Observer interviene con cooldown e tightening se superano soglie critiche."
+        />
+        <PhaseCard
+          phase="12"
+          title="AgentObjective BFS"
+          subtitle="Rubric Tree · Weight-stop · Hierarchical Context"
+          icon={Target}
+          onClick={() => setActivePhase('phase12')}
+          stats={[
+            { label: 'Alberi', value: data.phase12?.trees || 0 },
+            { label: 'Nodi', value: data.phase12?.nodes || 0 },
+            { label: 'Completati', value: data.phase12?.completedTrees || 0, tone: 'ok' },
+            { label: 'Fail', value: data.phase12?.failNodes || 0, tone: data.phase12?.failNodes ? 'warn' : 'ok' },
+          ]}
+          description="Decomposizione BFS di obiettivi macro in micro-task Pass/Fail. Arresto basato sul peso. Context tier: strategic → methodological → implementation."
+        />
+        <PhaseCard
+          phase="13"
+          title="ESR + Quorum"
+          subtitle="Belief Lineage · Sync · Semantic Quorum"
+          icon={Network}
+          onClick={() => setActivePhase('phase13')}
+          stats={[
+            { label: 'Beliefs', value: data.phase13?.beliefs || 0 },
+            { label: 'Sync', value: data.phase13?.syncEvents || 0 },
+            { label: 'Conflitti', value: data.phase13?.conflicts || 0, tone: data.phase13?.conflicts ? 'warn' : 'ok' },
+            { label: 'Quorum ok', value: data.phase13?.acceptedQuorum || 0, tone: 'ok' },
+          ]}
+          description="Replica dello Stato Epistemico tra agenti paralleli con coerenza eventuale. Quorum Semantico come meccanismo di Join per grafi di orchestrazione."
+        />
+        <PhaseCard
+          phase="14"
+          title="TimeRouter"
+          subtitle="Classifier · Selective Gate · Ensemble Fallback"
+          icon={Shuffle}
+          onClick={() => setActivePhase('phase14')}
+          stats={[
+            { label: 'Decisioni', value: data.phase14?.decisions || 0 },
+            { label: 'Primary', value: data.phase14?.primary || 0, tone: 'ok' },
+            { label: 'Ensemble', value: data.phase14?.ensemble || 0, tone: data.phase14?.ensemble ? 'warn' : 'ok' },
+            { label: 'Critic', value: data.phase14?.critic || 0, tone: data.phase14?.critic ? 'warn' : 'ok' },
+          ]}
+          description="Router adattivo: estrae feature, score modelli, Gate Selettivo su margine (τm) e diversità (τd). Fallback a ensemble/Critic quando confidenza è bassa."
         />
       </div>
 

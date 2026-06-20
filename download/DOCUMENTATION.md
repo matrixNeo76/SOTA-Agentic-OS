@@ -1,8 +1,8 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
-> **Versione:** 0.3.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io
+> **Versione:** 0.4.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io
 
-Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **9 micro-fasi** operative: stato/memoria persistente, orchestrazione DAG, steering ACTS, verifica formale LTL, riflessione ERL, context engineering, dominator trees, Lean4 formal verification, artificial retainer.
+Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **14 micro-fasi** operative: stato/memoria, orchestrazione DAG, steering ACTS, LTL, ERL, context engineering, dominator trees, Lean4, artificial retainer, grounded inference, affect subsystem, agent objective BFS, ESR + quorum, TimeRouter.
 
 ---
 
@@ -11,7 +11,7 @@ Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" c
 1. [Stack Tecnologico](#1-stack-tecnologico)
 2. [Avvio Rapido](#2-avvio-rapido)
 3. [Architettura Generale](#3-architettura-generale)
-4. [Le 9 Micro-Fasi](#4-le-9-micro-fasi)
+4. [Le 14 Micro-Fasi](#4-le-14-micro-fasi)
 5. [Schema Database](#5-schema-database)
 6. [API Reference](#6-api-reference)
 7. [Moduli Kernel](#7-moduli-kernel)
@@ -279,6 +279,87 @@ Cambia il paradigma: da "chat" a "piattaforma di supervisione". Previene l'Agent
   - Traduzione narrativa di ogni decisione (deleghe, gates, risoluzioni normative)
   - Flag `reversible` per identificare azioni irreversibili
   - Riferimento al DelegationContract quando applicabile
+
+### Fase 10 — Grounded Inference (Model Encapsulator)
+
+**Modulo:** `grounded-inference.ts`
+
+Risolve la "Vulnerabilità dello Stato Latente": l'LLM è degradato a funzione logica stateless.
+
+- **Model Encapsulator:** inietta contesto minimale, azzerando la sessione LLM ad ogni iterazione
+- **Anti-mutazione diretta:** l'LLM sintetizza script di parsing deterministici che l'OS esegue in sandbox isolata
+- **Information Pass-Through Limitato:** contesto troncato al budget di token (default 2000)
+- **Policy configurabile:** maxRetries, contextBudget, sandboxEnabled, forbidDirectMutation
+- Test verificato: script `return input.results.filter(...)` generato, eseguito in sandbox, risultato restituito
+
+### Fase 11 — Affect Subsystem
+
+**Modulo:** `affect-subsystem.ts`
+
+Previene "death spirals" e "reward hacking" tramite telemetria affettiva.
+
+- **Disperazione:** aumenta con gate rejects (peso 0.35 per reject), decay 5%/ciclo
+- **Frustrazione:** aumenta con tool failures (0.20) + repeated calls (0.15)
+- **Meta-Observer:** interviene se metriche > soglia critica (default 0.7):
+  - `TIGHTEN_ACCEPTANCE_THRESHOLD` (es. -15%)
+  - `COOLDOWN` (sleep forzato, default 5000ms)
+  - `INJECT_CAUTION_PROMPT` (avviso nel prompt)
+  - `HALT:dual_critical_state` se entrambe critiche
+- **Soglie configurabili** per agente
+- Test verificato: 5 tool fails + 4 gate rejects + 3 repeated → HALT scattato
+
+### Fase 12 — AgentObjective (BFS Rubric Tree)
+
+**Modulo:** `agent-objective.ts`
+
+Decomposizione automatica di obiettivi macro in rubriche Pass/Fail.
+
+- **BFS decomposition:** branching factor 3, peso dimezzato ad ogni livello
+- **Arresto basato sul peso:** stop se weight < 0.1 o depth >= 5
+- **Context tier gerarchico:**
+  - Livello 0: `strategic` (abstract, overview)
+  - Livello 1-2: `methodological` (documentazione)
+  - Livello 3+: `implementation` (codice, log)
+- **Valutazione Pass/Fail/Skip:** nodo fail → tutti i discendenti skippati
+- Test verificato: albero 13 nodi, profondità 2, generato da "Ottimizza il deploy del microservizio auth"
+
+### Fase 13 — ESR + Semantic Quorum
+
+**Modulo:** `esr-quorum.ts`
+
+Risolve la "Divergenza Epistemica" tra agenti paralleli.
+
+- **Belief Lineage:** ogni convinzione traccia il proprio genitore (versioning)
+  - Auto-superseded se nuova convinzione ha cosine similarity > 0.85 con precedente
+- **ESR (Epistemic State Replication):** replica convinzioni tra agenti
+  - syncStatus: `synced` se sim > 0.9 o identico, `conflict` se 0.7 < sim < 0.9
+  - Coerenza eventuale
+- **Quorum Semantico:** meccanismo di Join per DAG
+  - `proposeQuorumAction(workflowJoinId, action, requiredQuorum)`
+  - Validatori votano accept/reject
+  - Verdict: `accepted` quando acceptCount >= requiredQuorum
+- Test verificato: 2 vote accept → quorum ACCEPTED
+
+### Fase 14 — TimeRouter
+
+**Modulo:** `time-router.ts`
+
+Routing adattivo per massimizzare performance e ridurre costi.
+
+- **Feature extraction:** lunghezza, token estimate, hasCode, hasMath, hasLogic, complexity, domain
+- **Classificatore leggero** (semplificato, in produzione XGBoost):
+  - Score per modello basato su match dominio/specializzazione
+  - Bonus per task complessi, penalità per costi alti su task semplici
+- **Gate Selettivo** con soglie configurabili:
+  - `marginThreshold` (τm = 0.2): differenza minima tra top-2 modelli
+  - `diversityThreshold` (τd = 0.3): diversità massima tollerata
+  - `minConfidence` (0.6): confidenza minima per routing diretto
+- **Routing outcomes:**
+  - `primary`: modello leader singolo (alta confidenza + alto margine + bassa diversità)
+  - `ensemble`: fallback a top-3 modelli pesati
+  - `critic`: primary + modello critic specializzato
+- **6 modelli default:** GLM-4.6 (general/code/reason/math/logic) + GLM-4.5 Flash
+- Test verificato: code prompt → glm-4.6-code; simple prompt → glm-4.5-flash
 
 ---
 
@@ -695,6 +776,20 @@ Implementa le 4 lacune architetturali identificate dall'analisi LATS:
 
 4. **Fase 9 — Artificial Retainer** — cambia paradigma da "chat" a "piattaforma di supervisione". DelegationContract con scope + constraints, HITL gates per azioni irreversibili, Normative Calculus con gerarchia SAFETY > OPERATIONAL > AESTHETIC e Axiom Trail auditabile, Audit Ledger comprensibile all'umano. Test verificato: `OPERATIONAL vs SAFETY` → BLOCK, `SAFETY vs AESTHETIC` → MODIFY.
 
+### v0.4.0 — Blueprint integrativo 3 (Fasi 10-14)
+
+Risolve 5 vulnerabilità critiche per deployment industriali:
+
+1. **Fase 10 — Grounded Inference** — Model Encapsulator che degrada l'LLM a funzione stateless. Contesto azzerato ad ogni iterazione, script di parsing eseguiti in sandbox isolata. Anti-pattern "Generative Model as Data Worker" eliminato.
+
+2. **Fase 11 — Affect Subsystem** — Telemetria affettiva (Desperation + Frustration) con Meta-Observer che interviene con cooldown e tightening delle soglie. Previene death spirals e reward hacking. Test verificato: HALT scattato su dual critical state.
+
+3. **Fase 12 — AgentObjective BFS** — Decomposizione BFS di obiettivi macro in rubriche Pass/Fail con arresto basato sul peso. Context tier gerarchico: strategic → methodological → implementation.
+
+4. **Fase 13 — ESR + Quorum** — Belief Lineage con auto-superseded, Epistemic State Replication con coerenza eventuale, Quorum Semantico come meccanismo di Join per DAG. Risolve la divergenza epistemica tra swarm.
+
+5. **Fase 14 — TimeRouter** — Router classificatore con feature extraction, Gate Selettivo su τm (margine) e τd (diversità), Ensemble Fallback. 6 modelli Foundation default (GLM-4.6 family + Flash).
+
 ### Problemi noti risolti
 
 - **Import ZAI**: `z-ai-web-dev-sdk` usa `export default`, non named export. Sintassi corretta: `import ZAI from 'z-ai-web-dev-sdk'`
@@ -702,7 +797,7 @@ Implementa le 4 lacune architetturali identificate dall'analisi LATS:
 - **cycleId collisioni**: il cycleId in-memory si resetta ad ogni riavvio. Soluzione: cycleId basato su timestamp (`tsOffset * 1000 + counter`)
 - **LTL monitor reset**: ogni `verifyEvent` chiamava `initMonitor()` che ricaricava le FSM da capo, perdendo lo stato. Soluzione: `initMonitor` idempotente, ricarica solo se il numero di regole è cambiato; `reloadMonitor` esplicito dopo add/delete
 - **Prisma client schema mismatch**: dopo aver aggiunto nuovi modelli allo schema Prisma, il client cached del dev server non li riconosce (`Cannot read properties of undefined`). Soluzione: killare i processi next-server, cancellare `.next/`, riavviare `bun run dev`
-- **Collisione campo `action`**: nella route `/api/retainer`, il campo `action` del body è usato per il dispatch, ma `request_approval` aveva anche `action` per il nome del gate (duplicazione JSON). Soluzione: rinominato in `gateAction`
+- **Collisione campo `action`**: nella route `/api/retainer`, il campo `action` del body è usato per il dispatch, ma `request_approval` aveva anche `action` per il nome del gate (duplicazione JSON). Soluzione: rinominato in `gateAction`. Stesso problema in `/api/esr` con `propose_quorum`: rinominato in `quorumAction`.
 
 ---
 

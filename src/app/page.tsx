@@ -12,6 +12,11 @@ import { Phase6 } from '@/components/agentic/phase6'
 import { Phase7 } from '@/components/agentic/phase7'
 import { Phase8 } from '@/components/agentic/phase8'
 import { Phase9 } from '@/components/agentic/phase9'
+import { Phase10 } from '@/components/agentic/phase10'
+import { Phase11 } from '@/components/agentic/phase11'
+import { Phase12 } from '@/components/agentic/phase12'
+import { Phase13 } from '@/components/agentic/phase13'
+import { Phase14 } from '@/components/agentic/phase14'
 import { useStore } from '@/lib/store'
 import { Toaster } from 'sonner'
 
@@ -35,11 +40,16 @@ export default function Home() {
           {activePhase === 'phase7' && <Phase7 />}
           {activePhase === 'phase8' && <Phase8 />}
           {activePhase === 'phase9' && <Phase9 />}
+          {activePhase === 'phase10' && <Phase10 />}
+          {activePhase === 'phase11' && <Phase11 />}
+          {activePhase === 'phase12' && <Phase12 />}
+          {activePhase === 'phase13' && <Phase13 />}
+          {activePhase === 'phase14' && <Phase14 />}
         </main>
         <footer className="border-t px-4 py-2 text-xs text-muted-foreground bg-background">
           <div className="flex items-center justify-between gap-4">
-            <span>SOTA Agentic OS · 9 micro-fasi · kernel transazionale + LTL + ERL + Dominators + Lean4 + Retainer</span>
-            <span className="font-mono">v0.3.0</span>
+            <span>SOTA Agentic OS · 14 micro-fasi · Grounded · Affect · Objective · ESR · TimeRouter</span>
+            <span className="font-mono">v0.4.0</span>
           </div>
         </footer>
       </div>

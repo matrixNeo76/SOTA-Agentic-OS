@@ -1,6 +1,6 @@
 /**
  * API: /api/dashboard
- * Aggrega metriche per il dashboard overview (9 fasi).
+ * Aggrega metriche per il dashboard overview (14 fasi).
  */
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
@@ -9,6 +9,11 @@ import { contextStats } from '@/lib/kernel/context-engineering'
 import { dominatorStats } from '@/lib/kernel/dominator-tree'
 import { leanStats } from '@/lib/kernel/lean4-agent'
 import { retainerStats } from '@/lib/kernel/artificial-retainer'
+import { groundingStats } from '@/lib/kernel/grounded-inference'
+import { affectStats } from '@/lib/kernel/affect-subsystem'
+import { objectiveStats } from '@/lib/kernel/agent-objective'
+import { esrStats } from '@/lib/kernel/esr-quorum'
+import { routerStats } from '@/lib/kernel/time-router'
 
 export async function GET() {
   const [
@@ -22,6 +27,7 @@ export async function GET() {
     heuristics, reflections, redLineFlags,
     agentLogs,
     phase6Stats, phase7Stats, phase8Stats, phase9Stats,
+    phase10Stats, phase11Stats, phase12Stats, phase13Stats, phase14Stats,
   ] = await Promise.all([
     db.episodicMemory.count(),
     db.semanticEntity.count(),
@@ -47,6 +53,11 @@ export async function GET() {
     dominatorStats(),
     leanStats(),
     retainerStats(),
+    groundingStats(),
+    affectStats(),
+    objectiveStats(),
+    esrStats(),
+    routerStats(),
   ])
 
   const recentLogs = await db.agentLog.findMany({
@@ -63,6 +74,11 @@ export async function GET() {
     phase7: phase7Stats,
     phase8: phase8Stats,
     phase9: phase9Stats,
+    phase10: phase10Stats,
+    phase11: phase11Stats,
+    phase12: phase12Stats,
+    phase13: phase13Stats,
+    phase14: phase14Stats,
     recentLogs,
     agentLogsTotal: agentLogs,
     memoryStats: await memoryStats(),
