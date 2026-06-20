@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useSensoriumLive } from './use-sensorium-live'
 import { DynAMODagVisualizer } from './dag-visualizers'
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   ArrowUp, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Sparkles, Brain, Shield, Zap, Clock, Terminal, Compass,
-  RefreshCw, ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
 
 // =====================================================
@@ -17,6 +17,14 @@ import {
 // =====================================================
 
 type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'blocked'
+
+type ErrorDetail = {
+  type: string
+  message: string
+  phase: string
+  recoverable: boolean
+  suggestion?: string
+}
 
 type ExecStep = {
   taskId: string
@@ -29,14 +37,6 @@ type ExecStep = {
   result?: string
   error?: ErrorDetail
   durationMs?: number
-}
-
-type ErrorDetail = {
-  type: string
-  message: string
-  phase: string
-  recoverable: boolean
-  suggestion?: string
 }
 
 type Message = {
@@ -79,6 +79,13 @@ const SUGGESTIONS = [
   { icon: Terminal, title: 'Piano di test', desc: 'Crea un piano di test per la nuova API REST' },
 ]
 
+// ID generator senza crypto.randomUUID (compatibilità)
+let idCounter = 0
+function genId() {
+  idCounter++
+  return `msg-${Date.now()}-${idCounter}`
+}
+
 // =====================================================
 // Main Component
 // =====================================================
@@ -97,7 +104,7 @@ export function AgentConsole() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, liveLog])
+  }, [messages, liveLog, executing])
 
   // Capture WS events during execution
   useEffect(() => {
@@ -105,24 +112,24 @@ export function AgentConsole() {
     const recent = events[0]
     if (!recent) return
     const line = `[P${recent.phase}] ${recent.agentId}: ${recent.event}`
-    setLiveLog(prev => [...prev, line])
+    setLiveLog(prev => prev.length < 50 ? [...prev, line] : prev)
   }, [events, executing])
 
   // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 160) + 'px'
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px'
     }
   }, [input])
 
-  const send = async (task: string, planOnly = false) => {
+  const send = useCallback(async (task: string, planOnly = false) => {
     if (!task.trim() || executing) return
     setExecuting(true)
     setLiveLog([])
 
     const userMsg: Message = {
-      id: crypto.randomUUID(),
+      id: genId(),
       role: 'user',
       content: task,
       timestamp: new Date().toISOString(),
@@ -136,10 +143,16 @@ export function AgentConsole() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task, mode: planOnly ? 'plan-only' : 'full' }),
       })
+
+      if (!r.ok) {
+        const text = await r.text()
+        throw new Error(`HTTP ${r.status}: ${text.slice(0, 200)}`)
+      }
+
       const d = await r.json()
 
       const assistantMsg: Message = {
-        id: crypto.randomUUID(),
+        id: genId(),
         role: 'assistant',
         content: d.ok
           ? planOnly
@@ -147,7 +160,7 @@ export function AgentConsole() {
             : d.result.summary.failed > 0 || d.result.summary.blocked > 0
               ? `Task completato con problemi: ${d.result.summary.completed}/${d.result.summary.totalTasks} riusciti, ${d.result.summary.failed + d.result.summary.blocked} falliti.`
               : `Task completato in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati.`
-          : `Si è verificato un errore: ${d.error}`,
+          : `Si è verificato un errore: ${d.error || 'Errore sconosciuto'}`,
         timestamp: new Date().toISOString(),
         result: d.ok ? d.result : undefined,
         isPlanOnly: planOnly,
@@ -156,34 +169,37 @@ export function AgentConsole() {
       }
       setMessages(prev => [...prev, assistantMsg])
 
-      if (!d.ok) toast.error(d.error)
+      if (!d.ok) toast.error(d.error || 'Errore')
       else if (!planOnly) toast.success(`${d.result.summary.completed}/${d.result.summary.totalTasks} task completati`)
     } catch (e: any) {
-      toast.error(e.message)
+      const errorMsg = e.message || 'Errore sconosciuto'
+      toast.error(errorMsg)
       setMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
+        id: genId(),
         role: 'assistant',
-        content: `Errore di connessione: ${e.message}`,
+        content: `Errore di connessione: ${errorMsg}`,
         timestamp: new Date().toISOString(),
+        error: errorMsg,
+        errors: [{ type: 'unknown', message: errorMsg, phase: 'network', recoverable: true, suggestion: 'Riprova tra qualche secondo.' }],
       }])
     } finally {
       setExecuting(false)
       setLiveLog([])
     }
-  }
+  }, [executing])
 
   // =====================================================
   // Render
   // =====================================================
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-7rem)] md:h-[calc(100dvh-5.5rem)]">
+    <div className="flex flex-col h-full min-h-0">
       {/* Conversation thread */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain min-h-0">
         {messages.length === 0 ? (
           <WelcomeScreen onSuggestion={(s) => send(s)} />
         ) : (
-          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
@@ -192,12 +208,12 @@ export function AgentConsole() {
             {executing && (
               <div className="flex items-start gap-3">
                 <div className="relative shrink-0">
-                  <img src="/avatar.png" alt="Agent" className="size-8 rounded-full object-cover border border-border" />
+                  <img src="/avatar.png" alt="" className="size-8 rounded-full object-cover border border-border" />
                   <div className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-primary border-2 border-background flex items-center justify-center">
                     <Loader2 className="size-2 animate-spin text-primary-foreground" />
                   </div>
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium">Agente</span>
                     <span className="text-[10px] text-muted-foreground">esecuzione…</span>
@@ -219,7 +235,7 @@ export function AgentConsole() {
       {/* Input bar */}
       <div className="border-t bg-background/95 backdrop-blur shrink-0">
         <div className="max-w-3xl mx-auto p-2 sm:p-3">
-          <div className="relative flex items-end gap-2 rounded-2xl border bg-card px-2.5 sm:px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+          <div className="flex items-end gap-2 rounded-2xl border bg-card px-2.5 sm:px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
             <textarea
               ref={inputRef}
               value={input}
@@ -321,7 +337,7 @@ function MessageBubble({ msg }: { msg: Message }) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
         </div>
       </div>
     )
@@ -329,25 +345,21 @@ function MessageBubble({ msg }: { msg: Message }) {
 
   return (
     <div className="flex items-start gap-3">
-      {/* Avatar */}
-      <img src="/avatar.png" alt="Agent" className="size-8 rounded-full object-cover shrink-0 border border-border" />
+      <img src="/avatar.png" alt="" className="size-8 rounded-full object-cover shrink-0 border border-border" />
 
       <div className="flex-1 min-w-0 space-y-3">
-        {/* Text content */}
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Agente</span>
           <span className="text-[10px] text-muted-foreground">
             {new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
-        <p className={cn('text-sm', msg.error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{msg.content}</p>
+        <p className={cn('text-sm break-words', msg.error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{msg.content}</p>
 
-        {/* Error details */}
         {msg.errors && msg.errors.length > 0 && (
           <ErrorList errors={msg.errors} />
         )}
 
-        {/* Result card */}
         {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
       </div>
     </div>
@@ -355,7 +367,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 // =====================================================
-// Error List (mostra errori con dettagli e suggerimenti)
+// Error List
 // =====================================================
 
 const ERROR_ICONS: Record<string, any> = {
@@ -383,30 +395,20 @@ function ErrorList({ errors }: { errors: ErrorDetail[] }) {
             )}
           >
             <div className="flex items-start gap-2.5">
-              <Icon className={cn(
-                'size-4 shrink-0 mt-0.5',
-                err.recoverable ? 'text-amber-500' : 'text-red-500'
-              )} />
+              <Icon className={cn('size-4 shrink-0 mt-0.5', err.recoverable ? 'text-amber-500' : 'text-red-500')} />
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-medium">{err.phase}</span>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      'text-[9px] py-0',
-                      err.recoverable
-                        ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                        : 'border-red-500 text-red-600 dark:text-red-400'
-                    )}
-                  >
+                  <Badge variant="outline" className={cn(
+                    'text-[9px] py-0',
+                    err.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400'
+                  )}>
                     {err.recoverable ? 'Ripristinabile' : 'Bloccante'}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">{err.message}</p>
+                <p className="text-xs text-muted-foreground break-words">{err.message}</p>
                 {err.suggestion && (
-                  <p className="text-[11px] text-foreground/70 italic">
-                    → {err.suggestion}
-                  </p>
+                  <p className="text-[11px] text-foreground/70 italic">→ {err.suggestion}</p>
                 )}
               </div>
             </div>
@@ -425,14 +427,15 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
   const [showGraph, setShowGraph] = useState(false)
   const [showDetails, setShowDetails] = useState(!planOnly)
   const s = result.summary
-
   const allDone = s.completed === s.totalTasks && s.failed === 0 && s.blocked === 0
-  const hasErrors = (result.errors?.length ?? 0) > 0 || s.failed > 0 || s.blocked > 0
 
   return (
     <div className="rounded-xl border overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b bg-muted/30">
+      <button
+        onClick={() => setShowDetails(!showDetails)}
+        className="w-full flex items-center gap-3 px-4 py-3 border-b bg-muted/30 hover:bg-muted/50 transition-colors"
+      >
         <div className={cn(
           'size-7 rounded-full flex items-center justify-center shrink-0',
           allDone ? 'bg-emerald-500/10' : s.blocked > 0 ? 'bg-amber-500/10' : 'bg-red-500/10'
@@ -441,7 +444,7 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
             : s.blocked > 0 ? <AlertTriangle className="size-4 text-amber-500" />
             : <XCircle className="size-4 text-red-500" />}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-left">
           <div className="text-sm font-medium truncate">{result.goal}</div>
           <div className="text-[11px] text-muted-foreground">
             {s.completed}/{s.totalTasks} completati
@@ -450,17 +453,12 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
             {!planOnly && ` · ${(s.durationMs / 1000).toFixed(1)}s`}
           </div>
         </div>
-        <button
-          onClick={() => setShowDetails(!showDetails)}
-          className="text-muted-foreground hover:text-foreground transition-colors p-1"
-        >
-          {showDetails ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        </button>
-      </div>
+        {showDetails ? <ChevronDown className="size-4 text-muted-foreground shrink-0" /> : <ChevronRight className="size-4 text-muted-foreground shrink-0" />}
+      </button>
 
       {/* Expanded details */}
       {showDetails && (
-        <div className="p-4 space-y-3">
+        <div className="p-3 sm:p-4 space-y-3">
           {/* Task list */}
           <div className="space-y-1">
             {result.steps.map((step) => (
@@ -468,30 +466,28 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
             ))}
           </div>
 
-          {/* Per-step errors (inline, expandable) */}
-          {result.steps.filter(s => s.error).map(step => (
+          {/* Per-step errors */}
+          {result.steps.filter(st => st.error).map(step => (
             <div key={`err-${step.taskId}`} className="rounded-lg border border-red-500/20 bg-red-50 dark:bg-red-950/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
                 <XCircle className="size-3.5 text-red-500 shrink-0" />
                 <span className="text-xs font-medium">{step.taskId} — {step.error!.phase}</span>
                 <Badge variant="outline" className={cn(
                   'text-[9px] py-0 ml-auto',
-                  step.error!.recoverable
-                    ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                    : 'border-red-500 text-red-600 dark:text-red-400'
+                  step.error!.recoverable ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-red-500 text-red-600 dark:text-red-400'
                 )}>
                   {step.error!.recoverable ? 'Ripristinabile' : 'Bloccante'}
                 </Badge>
               </div>
-              <p className="text-[11px] text-muted-foreground">{step.error!.message}</p>
+              <p className="text-[11px] text-muted-foreground break-words">{step.error!.message}</p>
               {step.error!.suggestion && (
                 <p className="text-[11px] text-foreground/70 italic mt-1">→ {step.error!.suggestion}</p>
               )}
             </div>
           ))}
 
-          {/* LTL violations detail */}
-          {result.steps.filter(s => s.ltlViolations && s.ltlViolations.length > 0).map(step => (
+          {/* LTL violations */}
+          {result.steps.filter(st => st.ltlViolations && st.ltlViolations.length > 0).map(step => (
             <div key={`ltl-${step.taskId}`} className="rounded-lg border border-amber-500/20 bg-amber-50 dark:bg-amber-950/10 p-2.5">
               <div className="flex items-center gap-2 mb-1">
                 <Shield className="size-3.5 text-amber-500 shrink-0" />
@@ -499,7 +495,7 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
               </div>
               <ul className="text-[11px] text-muted-foreground space-y-0.5 pl-5">
                 {step.ltlViolations!.map((v, i) => (
-                  <li key={i} className="list-disc">{v}</li>
+                  <li key={i} className="list-disc break-words">{v}</li>
                 ))}
               </ul>
             </div>
@@ -515,14 +511,14 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
                 {showGraph ? 'Nascondi grafo DAG' : 'Mostra grafo DAG'}
               </button>
               {showGraph && (
-                <div className="h-64 border rounded-lg overflow-hidden">
+                <div className="h-48 sm:h-64 border rounded-lg overflow-hidden">
                   <DynAMODagVisualizer
-                    tasks={result.steps.map(s => ({
-                      taskId: s.taskId,
-                      agentId: s.agentId,
-                      description: s.description,
+                    tasks={result.steps.map(st => ({
+                      taskId: st.taskId,
+                      agentId: st.agentId,
+                      description: st.description,
                       dependencies: [],
-                      status: s.status,
+                      status: st.status,
                     }))}
                     batches={result.batches}
                   />
@@ -540,15 +536,15 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
               )}>
                 <Sparkles className={cn('size-3', result.reflection.approved ? 'text-emerald-500' : 'text-amber-500')} />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium">
                   {result.reflection.error ? 'Riflessione fallita' : result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}
                 </div>
                 {result.reflection.heuristic && (
-                  <p className="text-xs text-muted-foreground italic mt-0.5">"{result.reflection.heuristic}"</p>
+                  <p className="text-xs text-muted-foreground italic mt-0.5 break-words">"{result.reflection.heuristic}"</p>
                 )}
                 {result.reflection.error && (
-                  <p className="text-[11px] text-red-500 mt-0.5">{result.reflection.error}</p>
+                  <p className="text-[11px] text-red-500 mt-0.5 break-words">{result.reflection.error}</p>
                 )}
               </div>
             </div>
@@ -576,21 +572,21 @@ const STRAT_ICONS: Record<string, any> = {
 }
 
 function StepRow({ step }: { step: ExecStep }) {
-  const config = STEP_ICONS[step.status]
+  const config = STEP_ICONS[step.status] || STEP_ICONS.pending
   const Icon = config.icon
   const StratIcon = step.strategy ? STRAT_ICONS[step.strategy] : null
   const [expanded, setExpanded] = useState(false)
-  const hasDetails = (step.result && step.status !== 'done') || step.error
+  const hasDetails = (step.result && step.status !== 'done') || !!step.error
 
   return (
     <div>
       <div
-        className={cn('flex items-center gap-2.5 py-1', hasDetails && 'cursor-pointer hover:bg-accent/30 rounded')}
+        className={cn('flex items-center gap-2 py-1', hasDetails && 'cursor-pointer hover:bg-accent/30 rounded')}
         onClick={() => hasDetails && setExpanded(!expanded)}
       >
         <Icon className={cn('size-3.5 shrink-0', config.color, step.status === 'running' && 'animate-spin')} />
         <span className="text-xs font-mono text-muted-foreground shrink-0 w-6">{step.taskId}</span>
-        <span className="text-xs truncate flex-1">{step.description}</span>
+        <span className="text-xs truncate flex-1 min-w-0">{step.description}</span>
         {step.strategy && StratIcon && (
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
             <StratIcon className="size-2.5" />
@@ -605,8 +601,7 @@ function StepRow({ step }: { step: ExecStep }) {
         {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
           <span className={cn(
             'text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0',
-            step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+            step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
           )}>
             LTL {step.ltlVerdict}
           </span>
@@ -616,9 +611,8 @@ function StepRow({ step }: { step: ExecStep }) {
         )}
       </div>
 
-      {/* Expanded details for failed/blocked tasks */}
       {expanded && hasDetails && (
-        <div className="ml-6 mt-1 mb-2 p-2.5 rounded-lg bg-muted/30 text-xs space-y-1">
+        <div className="ml-6 mt-1 mb-2 p-2.5 rounded-lg bg-muted/30 text-xs space-y-1 break-words">
           {step.result && (
             <div>
               <span className="text-muted-foreground font-medium">Risultato: </span>

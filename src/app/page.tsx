@@ -22,6 +22,7 @@ import { AgentConsole } from '@/components/agentic/agent-console'
 import { ToolManager } from '@/components/agentic/tool-manager'
 import { SovereignModalContainer } from '@/components/agentic/sovereign-modal'
 import { useStore } from '@/lib/store'
+import { cn } from '@/lib/utils'
 import { Toaster } from 'sonner'
 
 export default function Home() {
@@ -30,11 +31,11 @@ export default function Home() {
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <MobileNav />
         <Topbar />
-        <main className="flex-1 overflow-y-auto">
-          <div className="min-h-full">
+        <main className="flex-1 overflow-y-auto min-h-0">
+          <div className={cn('h-full', activePhase === 'console' && 'flex flex-col')}>
             {activePhase === 'overview' && <Overview />}
             {activePhase === 'console' && <AgentConsole />}
             {activePhase === 'cockpit' && <Cockpit />}
@@ -55,12 +56,14 @@ export default function Home() {
           {activePhase === 'tools' && <ToolManager />}
           </div>
         </main>
-        <footer className="border-t px-4 py-2 text-[10px] text-muted-foreground bg-background/50">
-          <div className="flex items-center justify-between gap-4">
-            <span>SOTA Agentic OS · 23 fasi + 3 trasversali</span>
-            <span className="font-mono">v0.6.0</span>
-          </div>
-        </footer>
+        {activePhase !== 'console' && (
+          <footer className="border-t px-4 py-2 text-[10px] text-muted-foreground bg-background/50">
+            <div className="flex items-center justify-between gap-4">
+              <span>SOTA Agentic OS · 23 fasi + 3 trasversali</span>
+              <span className="font-mono">v0.6.0</span>
+            </div>
+          </footer>
+        )}
       </div>
       <SovereignModalContainer />
       <Toaster richColors position="top-right" />
