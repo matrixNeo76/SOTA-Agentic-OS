@@ -1,0 +1,260 @@
+// SOTA Agentic OS - Prisma Schema
+// Implementa i sottosistemi definiti nel blueprint architetturale
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================
+// FASE 1: Sottosistema di Stato e Memoria Persistente
+// =====================================================
+
+// Livello Episodico: osservazioni grezze basate sul tempo
+model EpisodicMemory {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  observation String
+  embedding   String   // JSON array di float (vettore semantico)
+  decay       Float    @default(1.0) // EMA decay factor
+  source      String?
+  agentId     String?
+  tags        String?  // JSON array di tag
+}
+
+// Livello Semantico: entità coerenti (database vettoriale simulato)
+model SemanticEntity {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        String
+  embedding   String   // JSON array di float
+  description String?
+  attributes  String?  // JSON object di attributi
+  decay       Float    @default(1.0)
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+// Livello Logico: regole procedurali deterministiche (DAG)
+model LogicalRule {
+  id            String   @id @default(cuid())
+  ruleId        String   @unique
+  expression    String   // espressione del nodo DAG
+  dependencies  String   // JSON array di ruleId
+  priority      Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+// PatchBoard: transazioni JSON Patch validate
+model PatchTransaction {
+  id         String   @id @default(cuid())
+  path       String   // percorso JSON target
+  op         String   // add|remove|replace|move|copy|test
+  value      String?  // valore (JSON serializzato)
+  actor      String   // agente richiedente
+  authorized Boolean  @default(false)
+  status     String   @default("pending") // pending|accepted|rejected
+  reason     String?
+  snapshot   String?  // stato precedente (per replay)
+  createdAt  DateTime @default(now())
+}
+
+// Stato Globale: albero JSON condiviso
+model GlobalState {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   // JSON serializzato
+  schemaRef String?  // riferimento allo schema di autorizzazione
+  updatedAt DateTime @updatedAt
+}
+
+// Sensorium: snapshot dei cicli cognitivi
+model SensoriumSnapshot {
+  id         String   @id @default(cuid())
+  cycleId    Int      @unique
+  xmlContent String   // blocco XML compilato dal Curator
+  queueDepth Int
+  activeThreads Int
+  systemLoad Float
+  timestamp  DateTime @default(now())
+}
+
+// =====================================================
+// FASE 2: Orchestrazione e Compiled AI
+// =====================================================
+
+// Piani JSON Schema-validati (DynAMO)
+model AgentPlan {
+  id          String   @id @default(cuid())
+  taskGoal    String
+  planJson    String   // piano JSON strutturato
+  dagJson     String?  // DAG compilato
+  status      String   @default("drafted") // drafted|scheduled|running|completed|failed
+  agentCount  Int      @default(0)
+  tasks       PlanTask[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PlanTask {
+  id          String   @id @default(cuid())
+  planId      String
+  taskId      String
+  agentId     String
+  description String
+  dependencies String  // JSON array di taskId
+  status      String   @default("pending") // pending|ready|running|done|failed
+  result      String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  plan        AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+}
+
+// Compiled AI: artefatti generati e validati
+model CompiledArtifact {
+  id               String   @id @default(cuid())
+  name             String
+  templateId       String
+  generatedCode    String
+  validationSafety Boolean  @default(false)
+  validationSyntax Boolean  @default(false)
+  validationExec   Boolean  @default(false)
+  validationAcc    Boolean  @default(false)
+  deployed         Boolean  @default(false)
+  deployedAt       DateTime?
+  createdAt        DateTime @default(now())
+}
+
+model CompiledTemplate {
+  id          String   @id @default(cuid())
+  templateId  String   @unique
+  name        String
+  description String?
+  skeleton    String   // template con placeholder
+  schemaJson  String   // schema di validazione output
+  createdAt   DateTime @default(now())
+}
+
+// =====================================================
+// FASE 3: Steering (ACTS)
+// =====================================================
+
+model SteeringEvent {
+  id         String   @id @default(cuid())
+  cycleId    Int
+  agentId    String
+  strategy   String   // PLAN|EXECUTE|CHECK|REFLECT
+  phrase     String   // steering phrase inviata
+  tokenBudget Int
+  tokenUsed  Int
+  timestamp  DateTime @default(now())
+}
+
+model SteeringStrategy {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  triggerPhrase String
+  description String?
+  budgetCost  Int      @default(50)
+  active      Boolean  @default(true)
+}
+
+// =====================================================
+// FASE 4: Zero-Trust e Verifica Formale (AgentVerify)
+// =====================================================
+
+model LTLRule {
+  id          String   @id @default(cuid())
+  ruleId      String   @unique
+  ltlFormula  String   // formula LTL (es. "G(high_risk -> X human_approval)")
+  description String?
+  severity    String   @default("block") // block|warn|log
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model VerificationEvent {
+  id         String   @id @default(cuid())
+  ruleId     String?
+  eventType  String   // tool_call|state_change|output_intent
+  payload    String
+  stateLabel String   // etichetta di stato discreto
+  verdict    String   // accept|reject|warn
+  reason     String?
+  timestamp  DateTime @default(now())
+}
+
+model TaintRecord {
+  id         String   @id @default(cuid())
+  source     String   // origine input (es. "user_chat", "api_response")
+  payload    String   // contenuto tainted
+  taintLabel String   @default("TAINTED")
+  flowTrace  String   // JSON array di passaggi
+  blocked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// Normative Computing: gerarchia di priorità
+model NormativeRule {
+  id        String   @id @default(cuid())
+  axiom     String
+  priority  Int      // 1=massima (legale), 2=operativo, 3=efficienza
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// =====================================================
+// FASE 5: Riflessione ed Evoluzione (ERL + AutoSOTA)
+// =====================================================
+
+model Heuristic {
+  id          String   @id @default(cuid())
+  trigger     String   // "Quando incontro situazione X"
+  action      String   // "devo fare Y"
+  context     String   // contesto semantico per RAG
+  embedding   String   // JSON array di float
+  source      String?  // operazione che l'ha generata
+  redLineOk   Boolean  @default(true)
+  appliedCount Int     @default(0)
+  successRate Float    @default(0.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RedLine {
+  id          String   @id @default(cuid())
+  description String   @unique
+  rationale   String
+  severity    String   @default("absolute") // absolute|strong|soft
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model ReflectionLog {
+  id          String   @id @default(cuid())
+  operationId String?
+  outcome     String   // success|failure|partial
+  analysis    String
+  extractedHeuristic String?
+  redLineFlag Boolean  @default(false)
+  timestamp   DateTime @default(now())
+}
+
+// =====================================================
+// Cross-cutting: Agent Log (audit trail)
+// =====================================================
+
+model AgentLog {
+  id        String   @id @default(cuid())
+  agentId   String
+  phase     String   // 1|2|3|4|5
+  event     String
+  payload   String   // JSON
+  level     String   @default("info") // info|warn|error
+  timestamp DateTime @default(now())
+}
