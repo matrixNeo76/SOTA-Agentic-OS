@@ -101,6 +101,13 @@ export async function addAxiom(axiom: string, priority: number): Promise<void> {
   await db.normativeRule.create({ data: { axiom, priority } })
 }
 
+export async function deleteAxiom(id: string): Promise<void> {
+  await db.normativeRule.updateMany({
+    where: { id },
+    data: { active: false },
+  })
+}
+
 export async function listAxioms() {
   const rows = await db.normativeRule.findMany({ where: { active: true }, orderBy: { priority: 'asc' } })
   return rows.length ? rows : DEFAULT_AXIOMS.map((a, i) => ({ id: `default-${i}`, axiom: a.axiom, priority: a.priority, active: true }))

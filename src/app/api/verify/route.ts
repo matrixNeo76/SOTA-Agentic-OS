@@ -2,9 +2,9 @@
  * API: /api/verify (LTL Monitor + Taint Tracking + Normative Gate)
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyEvent, listLTLRules, addLTLRule, type LTLRuleSpec } from '@/lib/kernel/ltl-monitor'
+import { verifyEvent, listLTLRules, addLTLRule, deleteLTLRule, validateLTLFormula, previewFSM, type LTLRuleSpec } from '@/lib/kernel/ltl-monitor'
 import { taintInput, checkSink, listTaintRecords, propagateTaint } from '@/lib/kernel/taint'
-import { evaluateIntent, listAxioms, addAxiom, type Intent } from '@/lib/kernel/normative'
+import { evaluateIntent, listAxioms, addAxiom, deleteAxiom, type Intent } from '@/lib/kernel/normative'
 import { db } from '@/lib/db'
 import { publishAgentEvent } from '@/lib/ws-publish'
 
@@ -109,12 +109,56 @@ export async function POST(req: NextRequest) {
   if (action === 'add_ltl') {
     const spec: LTLRuleSpec = body.spec
     await addLTLRule(spec)
+    await publishAgentEvent({
+      agentId: 'verifier', phase: '4',
+      event: 'ltl_rule_added',
+      payload: { ruleId: spec.ruleId, formula: spec.formula },
+    })
     return NextResponse.json({ ok: true })
+  }
+
+  if (action === 'delete_ltl') {
+    const { ruleId } = body
+    await deleteLTLRule(ruleId)
+    await publishAgentEvent({
+      agentId: 'verifier', phase: '4',
+      event: 'ltl_rule_deleted',
+      payload: { ruleId },
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (action === 'validate_ltl') {
+    const { formula } = body
+    const result = validateLTLFormula(formula)
+    return NextResponse.json(result)
+  }
+
+  if (action === 'preview_fsm') {
+    const { formula } = body
+    const result = previewFSM(formula)
+    return NextResponse.json(result)
   }
 
   if (action === 'add_axiom') {
     const { axiom, priority } = body
     await addAxiom(axiom, priority)
+    await publishAgentEvent({
+      agentId: 'verifier', phase: '4',
+      event: 'axiom_added',
+      payload: { axiom, priority },
+    })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (action === 'delete_axiom') {
+    const { id } = body
+    await deleteAxiom(id)
+    await publishAgentEvent({
+      agentId: 'verifier', phase: '4',
+      event: 'axiom_deleted',
+      payload: { id },
+    })
     return NextResponse.json({ ok: true })
   }
 

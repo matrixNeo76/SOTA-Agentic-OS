@@ -13,9 +13,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import {
   ShieldCheck, RefreshCw, ShieldAlert, Lock, Scale, Activity, AlertTriangle,
-  CheckCircle2, XCircle, Plus, Send, Gavel, Filter, AlertOctagon,
+  CheckCircle2, XCircle, Plus, Send, Gavel, Filter, AlertOctagon, GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LTLNormativeEditor } from './ltl-normative-editor'
 
 type LTLRule = { id: string; ruleId: string; ltlFormula: string; description: string | null; severity: string; active: boolean }
 type TaintRecord = { id: string; source: string; payload: string; taintLabel: string; flowTrace: string; blocked: boolean; createdAt: string }
@@ -156,8 +157,9 @@ export function Phase4() {
       </div>
 
       <Tabs defaultValue="ltl" className="w-full">
-        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full">
+        <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full">
           <TabsTrigger value="ltl"><Activity className="size-3.5 mr-1.5" /> LTL Monitor</TabsTrigger>
+          <TabsTrigger value="editor"><GitBranch className="size-3.5 mr-1.5" /> Editor</TabsTrigger>
           <TabsTrigger value="taint"><Lock className="size-3.5 mr-1.5" /> Taint Tracking</TabsTrigger>
           <TabsTrigger value="normative"><Scale className="size-3.5 mr-1.5" /> Normative</TabsTrigger>
           <TabsTrigger value="events"><AlertOctagon className="size-3.5 mr-1.5" /> Eventi</TabsTrigger>
@@ -230,6 +232,10 @@ export function Phase4() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="editor" className="mt-4">
+          <LTLNormativeEditor />
         </TabsContent>
 
         <TabsContent value="taint" className="space-y-4 mt-4">

@@ -146,6 +146,10 @@ ltl_rules = [
      'Dopo un CHECK deve seguire un EXECUTE (no loop infiniti di verifica)', 'warn'),
     ('LTL-004', 'G(error -> F reflect)',
      'Dopo un errore deve eventualmente seguire una riflessione', 'warn'),
+    ('LTL-005', 'F(halt || success)',
+     'Ogni esecuzione deve eventualmente terminare (halt o success)', 'warn'),
+    ('LTL-006', 'G(plan -> F execute)',
+     'Dopo un PLAN deve eventualmente seguire un EXECUTE (nessun piano sterile)', 'warn'),
 ]
 for rid, formula, desc, sev in ltl_rules:
     cur.execute("""INSERT INTO LTLRule
