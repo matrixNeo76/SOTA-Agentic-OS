@@ -158,9 +158,9 @@ export function AgentConsole() {
   // =====================================================
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100dvh-7rem)] md:h-[calc(100dvh-5.5rem)]">
       {/* Conversation thread */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
           <WelcomeScreen onSuggestion={(s) => send(s)} />
         ) : (
@@ -195,9 +195,9 @@ export function AgentConsole() {
       </div>
 
       {/* Input bar */}
-      <div className="border-t bg-background/95 backdrop-blur">
-        <div className="max-w-3xl mx-auto p-3">
-          <div className="relative flex items-end gap-2 rounded-2xl border bg-card px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+      <div className="border-t bg-background/95 backdrop-blur shrink-0">
+        <div className="max-w-3xl mx-auto p-2 sm:p-3">
+          <div className="relative flex items-end gap-2 rounded-2xl border bg-card px-2.5 sm:px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
             <textarea
               ref={inputRef}
               value={input}
@@ -208,10 +208,10 @@ export function AgentConsole() {
                   send(input)
                 }
               }}
-              placeholder="Descrivi il task da eseguire…"
+              placeholder="Descrivi il task…"
               rows={1}
               disabled={executing}
-              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 py-1.5"
+              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 py-1.5 min-w-0"
             />
             <button
               onClick={() => send(input)}
@@ -226,14 +226,14 @@ export function AgentConsole() {
               {executing ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
             </button>
           </div>
-          <div className="flex items-center justify-between mt-1.5 px-1">
-            <p className="text-[10px] text-muted-foreground">
+          <div className="flex items-center justify-between mt-1 px-1">
+            <p className="text-[10px] text-muted-foreground hidden sm:block">
               Invio per eseguire · Shift+Invio per nuova riga
             </p>
             <button
               onClick={() => input.trim() && send(input, true)}
               disabled={!input.trim() || executing}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 ml-auto"
             >
               Solo piano
             </button>
@@ -250,33 +250,33 @@ export function AgentConsole() {
 
 function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) {
   return (
-    <div className="h-full flex flex-col items-center justify-center p-8">
-      <div className="max-w-2xl w-full text-center space-y-6">
-        <img src="/logo-sota.png" alt="SOTA" className="size-12 mx-auto rounded-lg object-contain" />
+    <div className="min-h-full flex flex-col items-center justify-center p-4 sm:p-8">
+      <div className="max-w-2xl w-full text-center space-y-4 sm:space-y-6">
+        <img src="/logo-sota.png" alt="SOTA" className="size-10 sm:size-12 mx-auto rounded-lg object-contain" />
         <div>
-          <h2 className="text-xl font-semibold">Console Agentica</h2>
-          <p className="text-sm text-muted-foreground mt-1.5">
-            Invia un task all'agente. Il sistema genera un piano, esegue ogni task con steering cognitivo,
-            verifica conformità LTL, e impara dall'esperienza.
+          <h2 className="text-lg sm:text-xl font-semibold">Console Agentica</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 px-2">
+            Invia un task all'agente. Il sistema genera un piano, esegue con steering cognitivo,
+            verifica LTL, e impara dall'esperienza.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 sm:mt-8">
           {SUGGESTIONS.map((s) => {
             const Icon = s.icon
             return (
               <button
                 key={s.title}
                 onClick={() => onSuggestion(s.desc)}
-                className="text-left p-3.5 rounded-xl border hover:border-primary/30 hover:bg-accent/30 transition-all group"
+                className="text-left p-3 rounded-xl border hover:border-primary/30 hover:bg-accent/30 transition-all group"
               >
-                <div className="flex items-start gap-3">
-                  <div className="size-8 rounded-lg bg-primary/5 flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-colors">
-                    <Icon className="size-4 text-primary" />
+                <div className="flex items-start gap-2.5">
+                  <div className="size-7 sm:size-8 rounded-lg bg-primary/5 flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-colors">
+                    <Icon className="size-3.5 sm:size-4 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">{s.title}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.desc}</div>
+                    <div className="text-xs sm:text-sm font-medium">{s.title}</div>
+                    <div className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.desc}</div>
                   </div>
                 </div>
               </button>

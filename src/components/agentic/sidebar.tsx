@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useStore, PHASES, type PhaseCategory } from '@/lib/store'
+import { useStore, PHASES, CATEGORY_LABELS, CATEGORY_COLORS, type PhaseCategory } from '@/lib/store'
 import { getIcon } from '@/lib/phase-icons'
 import { cn } from '@/lib/utils'
 import { useDashboard } from './use-dashboard'
-import { PanelLeftClose, PanelLeft } from 'lucide-react'
+import { PanelLeftClose, PanelLeft, ChevronDown } from 'lucide-react'
 
 const CATEGORY_ORDER: (PhaseCategory | 'core')[] = [
   'core', 'foundation', 'orchestration', 'cognitive', 'trust', 'learning', 'governance', 'infrastructure',
@@ -106,31 +106,64 @@ export function Sidebar() {
 
 export function MobileNav() {
   const { activePhase, setActivePhase } = useStore()
+  const [open, setOpen] = useState(false)
+  const current = PHASES.find(p => p.id === activePhase)
+  const currentIcon = current ? getIcon(current.icon) : null
+
   return (
     <div className="md:hidden border-b bg-sidebar sticky top-0 z-40">
-      <div className="flex items-center gap-1 overflow-x-auto px-2 py-2 scrollbar-none">
-        {PHASES.map((p) => {
-          const Icon = getIcon(p.icon)
-          const active = activePhase === p.id
-          return (
-            <button
-              key={p.id}
-              onClick={() => setActivePhase(p.id)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs whitespace-nowrap shrink-0 transition-colors',
-                active
-                  ? 'bg-primary/10 text-primary font-medium'
-                  : 'text-muted-foreground'
-              )}
-            >
-              <Icon className="size-3.5" />
-              {p.name}
-            </button>
-          )
-        })}
-      </div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-3"
+      >
+        {currentIcon && <currentIcon className="size-4 text-primary" />}
+        <span className="text-sm font-medium flex-1 text-left">{current?.name || 'Dashboard'}</span>
+        <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 top-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 bg-sidebar border-b shadow-lg z-40 max-h-[70vh] overflow-y-auto">
+            {CATEGORY_ORDER.map((cat) => {
+              const items = grouped_phases(cat)
+              if (items.length === 0) return null
+              return (
+                <div key={cat} className="py-1">
+                  {cat !== 'core' && (
+                    <div className={cn('text-[9px] font-bold uppercase tracking-wide px-4 py-1.5', CATEGORY_COLORS[cat])}>
+                      {CATEGORY_LABELS[cat]}
+                    </div>
+                  )}
+                  {items.map((p) => {
+                    const Icon = getIcon(p.icon)
+                    const active = activePhase === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => { setActivePhase(p.id); setOpen(false) }}
+                        className={cn(
+                          'w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors',
+                          active ? 'bg-primary/10 text-primary' : 'text-muted-foreground'
+                        )}
+                      >
+                        <Icon className="size-4 shrink-0" />
+                        <span className={cn('text-sm', active && 'font-medium')}>{p.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
+}
+
+function grouped_phases(cat: string) {
+  return PHASES.filter(p => p.category === cat)
 }
 
 function getLiveBadge(phaseId: string, data: any): { value: string | number; tone: 'warn' | 'danger' | 'info' | 'ok' } | null {

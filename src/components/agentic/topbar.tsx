@@ -55,7 +55,7 @@ export function Topbar() {
   return (
     <header className="h-14 border-b flex items-center justify-between px-4 shrink-0">
       {/* Page title as breadcrumb */}
-      <h2 className="text-sm font-semibold text-muted-foreground">{pageTitle}</h2>
+      <h2 className="text-sm font-semibold text-muted-foreground truncate">{pageTitle}</h2>
 
       {/* Right: only essential controls */}
       <div className="flex items-center gap-1">

@@ -34,9 +34,10 @@ export default function Home() {
         <MobileNav />
         <Topbar />
         <main className="flex-1 overflow-y-auto">
-          {activePhase === 'overview' && <Overview />}
-          {activePhase === 'console' && <AgentConsole />}
-          {activePhase === 'cockpit' && <Cockpit />}
+          <div className="min-h-full">
+            {activePhase === 'overview' && <Overview />}
+            {activePhase === 'console' && <AgentConsole />}
+            {activePhase === 'cockpit' && <Cockpit />}
           {activePhase === 'phase1' && <Phase1 />}
           {activePhase === 'phase2' && <Phase2 />}
           {activePhase === 'phase3' && <Phase3 />}
@@ -52,6 +53,7 @@ export default function Home() {
           {activePhase === 'phase13' && <Phase13 />}
           {activePhase === 'phase14' && <Phase14 />}
           {activePhase === 'tools' && <ToolManager />}
+          </div>
         </main>
         <footer className="border-t px-4 py-2 text-[10px] text-muted-foreground bg-background/50">
           <div className="flex items-center justify-between gap-4">

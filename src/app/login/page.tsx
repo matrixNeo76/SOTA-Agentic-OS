@@ -94,8 +94,8 @@ export default function LoginPage() {
       </div>
 
       {/* Right panel: form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-sm space-y-8">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-background">
+        <div className="w-full max-w-sm space-y-6 sm:space-y-8">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
             <img src="/logo-sota.png" alt="SOTA" className="size-10 object-contain" />

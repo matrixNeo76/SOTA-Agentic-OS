@@ -40,7 +40,7 @@ export function Overview() {
     data.phase4?.verificationEvents === 0
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto">
       {/* Minimal header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
