@@ -8,6 +8,10 @@ import { Phase2 } from '@/components/agentic/phase2'
 import { Phase3 } from '@/components/agentic/phase3'
 import { Phase4 } from '@/components/agentic/phase4'
 import { Phase5 } from '@/components/agentic/phase5'
+import { Phase6 } from '@/components/agentic/phase6'
+import { Phase7 } from '@/components/agentic/phase7'
+import { Phase8 } from '@/components/agentic/phase8'
+import { Phase9 } from '@/components/agentic/phase9'
 import { useStore } from '@/lib/store'
 import { Toaster } from 'sonner'
 
@@ -27,11 +31,15 @@ export default function Home() {
           {activePhase === 'phase3' && <Phase3 />}
           {activePhase === 'phase4' && <Phase4 />}
           {activePhase === 'phase5' && <Phase5 />}
+          {activePhase === 'phase6' && <Phase6 />}
+          {activePhase === 'phase7' && <Phase7 />}
+          {activePhase === 'phase8' && <Phase8 />}
+          {activePhase === 'phase9' && <Phase9 />}
         </main>
         <footer className="border-t px-4 py-2 text-xs text-muted-foreground bg-background">
           <div className="flex items-center justify-between gap-4">
-            <span>SOTA Agentic OS · 5 micro-fasi · kernel transazionale + LTL + ERL</span>
-            <span className="font-mono">v0.1.0</span>
+            <span>SOTA Agentic OS · 9 micro-fasi · kernel transazionale + LTL + ERL + Dominators + Lean4 + Retainer</span>
+            <span className="font-mono">v0.3.0</span>
           </div>
         </footer>
       </div>

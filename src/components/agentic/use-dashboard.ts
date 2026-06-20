@@ -8,6 +8,10 @@ type DashboardData = {
   phase3: { steeringEvents: number }
   phase4: { verificationEvents: number; verifRejects: number; verifWarns: number; taintRecords: number; blockedTaints: number }
   phase5: { heuristics: number; reflections: number; redLineFlags: number }
+  phase6: { activeCalls: number; evictedCalls: number; summaries: number; totalTokensSaved: number }
+  phase7: { traces: number; ptas: number; validations: number; avgCoverage: number; acceptRate: number }
+  phase8: { contracts: number; verifiedContracts: number; verifiedWorkflows: number; deployedWorkflows: number; evolveEvents: number; successfulEvolve: number }
+  phase9: { activeDelegations: number; totalDelegations: number; pendingGates: number; resolvedGates: number; approvedGates: number; rejectedGates: number; auditEntries: number; normativeResolutions: number; blockedResolutions: number }
   recentLogs: { id: string; agentId: string; phase: string; event: string; level: string; timestamp: string }[]
   agentLogsTotal: number
   memoryStats: { episodic: number; semantic: number; logical: number; avgDecay: number }

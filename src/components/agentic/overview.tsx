@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Database, Workflow, Compass, ShieldCheck, Sparkles, CheckCircle2, XCircle,
   AlertTriangle, Cpu, Layers, Activity, Zap, RefreshCw, Rocket,
+  Scissors, GitFork, FunctionSquare, UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -194,6 +195,66 @@ export function Overview() {
             </ScrollArea>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Fasi 6-9 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+        <PhaseCard
+          phase="6"
+          title="Context Engineering"
+          subtitle="Ring buffer · Summarization · Anti context-rot"
+          icon={Scissors}
+          onClick={() => setActivePhase('phase6')}
+          stats={[
+            { label: 'Active', value: data.phase6?.activeCalls || 0 },
+            { label: 'Evicted', value: data.phase6?.evictedCalls || 0 },
+            { label: 'Summary', value: data.phase6?.summaries || 0 },
+            { label: 'Tok salvati', value: data.phase6?.totalTokensSaved || 0, tone: 'ok' },
+          ]}
+          description="Ring buffer N coppie Tool Call/Response + summarization asincrona. Previene il context rot mantenendo consapevolezza situazionale globale."
+        />
+        <PhaseCard
+          phase="7"
+          title="Dominator Trees"
+          subtitle="PTA · Dominator Extraction · Coverage"
+          icon={GitFork}
+          onClick={() => setActivePhase('phase7')}
+          stats={[
+            { label: 'Tracce', value: data.phase7?.traces || 0 },
+            { label: 'PTA', value: data.phase7?.ptas || 0 },
+            { label: 'Validazioni', value: data.phase7?.validations || 0 },
+            { label: 'Avg cov', value: ((data.phase7?.avgCoverage || 0) * 100).toFixed(0) + '%', tone: (data.phase7?.avgCoverage || 0) >= 0.7 ? 'ok' : 'warn' },
+          ]}
+          description="Fonde tracce positive in PTA, estrae dominatori (stati essenziali), calcola coverage per tollerare deviazioni non critiche."
+        />
+        <PhaseCard
+          phase="8"
+          title="Lean4 Formal Verify"
+          subtitle="Contratti · Verifica · LeanEvolve"
+          icon={FunctionSquare}
+          onClick={() => setActivePhase('phase8')}
+          stats={[
+            { label: 'Contratti', value: data.phase8?.contracts || 0 },
+            { label: 'Verificati', value: data.phase8?.verifiedContracts || 0, tone: 'ok' },
+            { label: 'Workflow', value: data.phase8?.verifiedWorkflows || 0 },
+            { label: 'Evolve', value: data.phase8?.evolveEvents || 0 },
+          ]}
+          description="Traduce DAG in contratti formali (pre/post conditions). Verifica simbolica. LeanEvolve: recovery localizzata su failure con ri-validazione."
+        />
+        <PhaseCard
+          phase="9"
+          title="Artificial Retainer"
+          subtitle="Delegation · HITL · Normative · Audit"
+          icon={UserCog}
+          onClick={() => setActivePhase('phase9')}
+          stats={[
+            { label: 'Deleghe', value: data.phase9?.activeDelegations || 0 },
+            { label: 'Gates pend', value: data.phase9?.pendingGates || 0, tone: (data.phase9?.pendingGates || 0) > 0 ? 'warn' : 'ok' },
+            { label: 'Audit', value: data.phase9?.auditEntries || 0 },
+            { label: 'Block norm', value: data.phase9?.blockedResolutions || 0, tone: (data.phase9?.blockedResolutions || 0) > 0 ? 'danger' : 'ok' },
+          ]}
+          description="Delegation contracts, HITL gates per azioni irreversibili, Normative Calculus per conflitti prompt vs policy, Audit Ledger comprensibile all'umano."
+        />
       </div>
 
       <LiveFeed />

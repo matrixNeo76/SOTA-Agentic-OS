@@ -4,6 +4,7 @@ import { useStore, type Phase } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Database, Workflow, Compass, ShieldCheck, Sparkles,
+  Scissors, GitFork, FunctionSquare, UserCog,
 } from 'lucide-react'
 
 const NAV: { id: Phase; label: string; sub: string; icon: any }[] = [
@@ -13,6 +14,10 @@ const NAV: { id: Phase; label: string; sub: string; icon: any }[] = [
   { id: 'phase3', label: 'Fase 3', sub: 'Steering (ACTS)', icon: Compass },
   { id: 'phase4', label: 'Fase 4', sub: 'Zero-Trust & Verifica', icon: ShieldCheck },
   { id: 'phase5', label: 'Fase 5', sub: 'Riflessione & Evoluzione', icon: Sparkles },
+  { id: 'phase6', label: 'Fase 6', sub: 'Context Engineering', icon: Scissors },
+  { id: 'phase7', label: 'Fase 7', sub: 'Dominator Trees', icon: GitFork },
+  { id: 'phase8', label: 'Fase 8', sub: 'Lean4 Formal Verify', icon: FunctionSquare },
+  { id: 'phase9', label: 'Fase 9', sub: 'Artificial Retainer', icon: UserCog },
 ]
 
 export function Sidebar() {

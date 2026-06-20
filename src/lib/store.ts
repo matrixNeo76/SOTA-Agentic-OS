@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-export type Phase = 'overview' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5'
+export type Phase = 'overview' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5' | 'phase6' | 'phase7' | 'phase8' | 'phase9'
 
 type State = {
   activePhase: Phase

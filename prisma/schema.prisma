@@ -252,9 +252,191 @@ model ReflectionLog {
 model AgentLog {
   id        String   @id @default(cuid())
   agentId   String
-  phase     String   // 1|2|3|4|5
+  phase     String   // 1..9
   event     String
   payload   String   // JSON
   level     String   @default("info") // info|warn|error
   timestamp DateTime @default(now())
 }
+
+// =====================================================
+// FASE 6: Gestione Dinamica del Contesto (Pruning & Summarization)
+// =====================================================
+
+// Coppie Tool Call/Response nel ring buffer di working memory
+model ToolCallEntry {
+  id           String   @id @default(cuid())
+  agentId      String
+  toolName     String
+  callPayload  String   // JSON args
+  responsePayload String // JSON result
+  tokenCost    Int      @default(0)
+  evicted      Boolean  @default(false) // true quando esce dal ring buffer
+  evictedAt    DateTime?
+  summaryId    String?  // riferimento al riassunto che lo ha compresso
+  createdAt    DateTime @default(now())
+}
+
+// Riassunto generato dal summarizer (compressione del contesto evicto)
+model ContextSummary {
+  id           String   @id @default(cuid())
+  agentId      String
+  narrative    String   // log narrativo compatto
+  coveredCallIds String // JSON array di ToolCallEntry.id riassunti
+  tokenCost    Int      @default(0)
+  cycleId      Int      // ciclo cognitivo di generazione
+  createdAt    DateTime @default(now())
+}
+
+// Policy di pruning configurabile
+model PruningPolicy {
+  id           String   @id @default(cuid())
+  agentId      String   @unique
+  windowSize   Int      @default(5)  // N coppie recenti mantenute
+  summarizeThreshold Int @default(10) // soglia per trigger summarization
+  autoSummarize Boolean @default(true)
+  updatedAt    DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 7: Dominator Trees (PTA + Dominators + Coverage)
+// =====================================================
+
+// Tracce di esecuzione positive catturate per training PTA
+model ExecutionTrace {
+  id           String   @id @default(cuid())
+  workflowId   String
+  traceLabel   String   // etichetta leggibile
+  statesJson   String   // JSON array di stati discreti
+  actionsJson  String   // JSON array di azioni
+  outcome      String   @default("success") // success|failure|partial
+  capturedAt   DateTime @default(now())
+}
+
+// PTA: Prefix Tree Automaton fuso da più tracce
+model PrefixTreeAutomaton {
+  id           String   @id @default(cuid())
+  workflowId   String   @unique
+  nodesJson    String   // JSON: nodi con stato + transizioni
+  dominatorsJson String // JSON: array di nodeId dominatori
+  startNodeId  String
+  acceptNodeIds String  // JSON array
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+}
+
+// Validazione di una nuova traccia contro il PTA + dominators
+model TraceValidation {
+  id           String   @id @default(cuid())
+  ptaId        String
+  traceId      String?
+  statesJson   String   // traccia validata
+  dominatorCoverage Float @default(0.0) // 0..1
+  passedDominatorIds String // JSON array di dominatori raggiunti
+  verdict      String   @default("accept") // accept|reject|warn
+  reason       String?
+  timestamp    DateTime @default(now())
+}
+
+// =====================================================
+// FASE 8: Lean4Agent (Formal Verification + LeanEvolve)
+// =====================================================
+
+// Contratto formale associato a un nodo del DAG
+model FormalContract {
+  id           String   @id @default(cuid())
+  planId       String
+  taskId       String
+  preconditions  String // JSON array di predicati Lean4
+  postconditions String // JSON array di predicati Lean4
+  variableTypes String // JSON: {var: type}
+  verified     Boolean  @default(false)
+  verificationLog String? // output della verifica Lean4
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Evoluzione guidata dalla verifica formale
+model LeanEvolveEvent {
+  id           String   @id @default(cuid())
+  planId       String
+  failedTaskId String
+  failureReason String
+  leanFeedback String   // output Lean4 con errori localizzati
+  rewrittenInstruction String // nuova istruzione generata dall'LLM
+  revalidated  Boolean  @default(false)
+  revalidationLog String?
+  cycle        Int      @default(1) // iterazione di evolve
+  createdAt    DateTime @default(now())
+}
+
+// Workflow formalmente verificato (snapshot)
+model VerifiedWorkflow {
+  id           String   @id @default(cuid())
+  planId       String
+  contractsJson String  // JSON array di FormalContract snapshot
+  leanSource   String   // codice Lean4 generato
+  verified     Boolean  @default(false)
+  deployed     Boolean  @default(false)
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+}
+
+// =====================================================
+// FASE 9: Artificial Retainer (Delegation + HITL + Audit Ledger)
+// =====================================================
+
+// Contratto di delega: permessi concessi a un agente
+model DelegationContract {
+  id           String   @id @default(cuid())
+  agentId      String
+  scope        String   // es. "filesystem.read:/tmp/*" o "tool:exec"
+  constraints  String   // JSON: limiti (maxCalls, maxSpend, timeWindow)
+  grantedBy    String   // userId o "system"
+  grantedAt    DateTime @default(now())
+  expiresAt    DateTime?
+  active       Boolean  @default(true)
+  revokedAt    DateTime?
+  revokeReason String?
+}
+
+// Gate di approvazione umana (Human-in-the-loop)
+model ApprovalGate {
+  id           String   @id @default(cuid())
+  agentId      String
+  action       String   // azione che richiede approvazione
+  payload      String   // JSON dettagli
+  reason       String   // perché richiede HITL (irreversibile / viola LTL / spesa)
+  status       String   @default("pending") // pending|approved|rejected|expired
+  decidedBy    String?  // userId che ha deciso
+  decidedAt    DateTime?
+  axiomTrail   String?  // JSON: catena logica della decisione
+  expiresAt    DateTime? // auto-expire
+  createdAt    DateTime @default(now())
+}
+
+// Calcolo normativo: risoluzione conflitti prompt utente vs policy
+model NormativeResolution {
+  id           String   @id @default(cuid())
+  conflictType String   // user_vs_safety | user_vs_operational | ...
+  userInstruction String
+  systemPolicy String
+  verdict      String   // accept|block|modify
+  modifiedAction String? // se verdict=modify, nuova azione proposta
+  hierarchyApplied String // JSON: gerarchia usata (safety > operational > aesthetic)
+  axiomTrail   String   // JSON: catena logica auditabile
+  decidedAt    DateTime @default(now())
+}
+
+// Audit Ledger: voce del registro di delega comprensibile all'umano
+model AuditLedgerEntry {
+  id           String   @id @default(cuid())
+  agentId      String
+  action       String
+  decision     String   // JSON: {source, intent, gate, outcome}
+  delegationId String?  // riferimento al DelegationContract
+  readableNarrative String // traduzione umana della decisione
+  reversible   Boolean  @default(true)
+  timestamp    DateTime @default(now())
+}
+

@@ -1,10 +1,14 @@
 /**
  * API: /api/dashboard
- * Aggrega metriche per il dashboard overview.
+ * Aggrega metriche per il dashboard overview (9 fasi).
  */
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { memoryStats } from '@/lib/kernel/ns-mem'
+import { contextStats } from '@/lib/kernel/context-engineering'
+import { dominatorStats } from '@/lib/kernel/dominator-tree'
+import { leanStats } from '@/lib/kernel/lean4-agent'
+import { retainerStats } from '@/lib/kernel/artificial-retainer'
 
 export async function GET() {
   const [
@@ -17,6 +21,7 @@ export async function GET() {
     taintRecords, blockedTaints,
     heuristics, reflections, redLineFlags,
     agentLogs,
+    phase6Stats, phase7Stats, phase8Stats, phase9Stats,
   ] = await Promise.all([
     db.episodicMemory.count(),
     db.semanticEntity.count(),
@@ -38,6 +43,10 @@ export async function GET() {
     db.reflectionLog.count(),
     db.reflectionLog.count({ where: { redLineFlag: true } }),
     db.agentLog.count(),
+    contextStats(),
+    dominatorStats(),
+    leanStats(),
+    retainerStats(),
   ])
 
   const recentLogs = await db.agentLog.findMany({
@@ -50,6 +59,10 @@ export async function GET() {
     phase3: { steeringEvents },
     phase4: { verificationEvents, verifRejects, verifWarns, taintRecords, blockedTaints },
     phase5: { heuristics, reflections, redLineFlags },
+    phase6: phase6Stats,
+    phase7: phase7Stats,
+    phase8: phase8Stats,
+    phase9: phase9Stats,
     recentLogs,
     agentLogsTotal: agentLogs,
     memoryStats: await memoryStats(),
