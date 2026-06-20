@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-export type Phase = 'overview' | 'cockpit' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5' | 'phase6' | 'phase7' | 'phase8' | 'phase9' | 'phase10' | 'phase11' | 'phase12' | 'phase13' | 'phase14' | 'tools'
+export type Phase = 'overview' | 'console' | 'cockpit' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5' | 'phase6' | 'phase7' | 'phase8' | 'phase9' | 'phase10' | 'phase11' | 'phase12' | 'phase13' | 'phase14' | 'tools'
 
 export type PhaseCategory = 'foundation' | 'orchestration' | 'cognitive' | 'trust' | 'learning' | 'governance' | 'infrastructure'
 
@@ -39,6 +39,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
 
 export const PHASES: PhaseMeta[] = [
   { id: 'overview', name: 'Dashboard', subtitle: 'Mappa architetturale + KPI + activity feed', category: 'core', icon: 'LayoutDashboard', number: 0 },
+  { id: 'console', name: 'Console', subtitle: 'Invia task · flusso end-to-end', category: 'core', icon: 'Terminal', number: 0 },
   { id: 'cockpit', name: 'Cockpit', subtitle: 'Plancia di comando · 5 tab', category: 'core', icon: 'Gauge', number: 15 },
   { id: 'phase1', name: 'Memory & State', subtitle: 'NS-Mem · PatchBoard · Sensorium', category: 'foundation', icon: 'Database', number: 1 },
   { id: 'phase6', name: 'Context Manager', subtitle: 'Ring buffer · Summaries', category: 'foundation', icon: 'Scissors', number: 6 },

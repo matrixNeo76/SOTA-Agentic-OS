@@ -19,12 +19,11 @@ export function cn(...inputs: ClassValue[]) {
  * Usato per cycleId in curator.ts e acts.ts.
  */
 export function generateTimeSortableId(): number {
-  const timestamp = Date.now() // ms since epoch (44 bit until year 2100)
-  const counter = Math.floor(Math.random() * 1048576) // 20 bit casuali (0..2^20-1)
-  // Combina: timestamp shiftato di 20 bit + counter
-  // Massimo: 2^44 * 2^20 = 2^64 → ma usiamo solo 53 bit sicuri
-  // In pratica: timestamp (~41 bit nel 2026) << 12 | counter (12 bit)
-  // per restare sotto MAX_SAFE_INTEGER
-  return (timestamp % 17592186044416) * 4096 + (counter % 4096)
+  // Time-sortable ID che fit in SQLite Int (max 2^31-1 = 2,147,483,647)
+  // Usa secondi (non ms) + counter casuale a 2 cifre
+  const seconds = Math.floor(Date.now() / 1000)
+  const counter = Math.floor(Math.random() * 100)
+  // seconds % 20000000 * 100 + counter → max 1,999,999,999 (< 2^31-1)
+  return (seconds % 20000000) * 100 + counter
 }
 

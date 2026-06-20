@@ -18,6 +18,7 @@ import { Phase12 } from '@/components/agentic/phase12'
 import { Phase13 } from '@/components/agentic/phase13'
 import { Phase14 } from '@/components/agentic/phase14'
 import { Cockpit } from '@/components/agentic/cockpit'
+import { AgentConsole } from '@/components/agentic/agent-console'
 import { ToolManager } from '@/components/agentic/tool-manager'
 import { SovereignModalContainer } from '@/components/agentic/sovereign-modal'
 import { useStore } from '@/lib/store'
@@ -34,6 +35,7 @@ export default function Home() {
         <Topbar />
         <main className="flex-1 overflow-y-auto">
           {activePhase === 'overview' && <Overview />}
+          {activePhase === 'console' && <AgentConsole />}
           {activePhase === 'cockpit' && <Cockpit />}
           {activePhase === 'phase1' && <Phase1 />}
           {activePhase === 'phase2' && <Phase2 />}

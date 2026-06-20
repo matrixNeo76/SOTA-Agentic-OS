@@ -111,6 +111,7 @@ export function consumeTransferState(phase: Phase): Record<string, unknown> | nu
 function getPhaseIconName(phase: Phase): string {
   const map: Record<string, string> = {
     overview: 'LayoutDashboard',
+    console: 'Terminal',
     cockpit: 'Gauge',
     phase1: 'Database',
     phase2: 'Workflow',
