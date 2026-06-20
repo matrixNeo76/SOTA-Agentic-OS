@@ -1,8 +1,10 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
 > **Versione:** 0.6.0 · **Data:** 2026-06-20 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest
+>
+> **⚠️ Stato**: Prototipo avanzato, NON production-ready. Per analisi critica, gap e roadmap vedere `ROADMAP.md`.
 
-Implementazione ingegneristica del blueprint "Sistema Operativo Agentico SOTA" con **23 micro-fasi + 3 trasversali** operative: 18 fasi cognitive + Quality Infrastructure, Auth & RBAC, Cryptographic Trust, Observability Stack, Scalability & Persistence, DAG Visualizer Integration, i18n IT/EN, Developer Workflow Hardening.
+Questo documento descrive cosa è **realmente implementato** nel codice. Le promesse non realizzate, i gap e la roadmap evolutiva sono documentati separatamente in `ROADMAP.md`.
 
 ---
 
@@ -1030,23 +1032,63 @@ Trasforma il prototipo in sistema production-ready con 5 release incrementali:
 
 ## 11. Note per Sviluppo Futuro
 
+> ⚠️ Per analisi critica completa, gap detailati e roadmap evolutiva realistica, vedere **`ROADMAP.md`**.
+
+### Stato Implementazione Onesto (Stub vs Reale)
+
+Le seguenti sezioni indicano onestamente quali moduli usano implementazioni reali e quali usano stub deterministici:
+
+| Modulo | Implementazione | Note |
+|--------|----------------|------|
+| F1 Patchboard | ✅ Reale | JSON Patch transazionale con permessi |
+| F1 NS-Mem | ✅ Reale | 3 livelli con EMA (TF-IDF locale, no embeddings neurali) |
+| F1 Sensorium | ✅ Reale | XML compilato dal Curator |
+| F2 DynAMO | ✅ Reale | LLM (ZAI SDK) per generazione piani |
+| F2 CompiledAI | ✅ Reale | LLM (ZAI SDK) + validazione 4-stadi sandbox |
+| F3 ACTS | ✅ Reale | Controller rule-based deterministico |
+| F4 LTL Monitor | 🟡 Parziale | 7 pattern FSM; no NFA per pattern composti |
+| F4 Taint | ✅ Reale | Flow tracking + sink blocking (TTL in F23.4) |
+| F4 Normative | ✅ Reale | Gerarchia SAFETY>OPERATIONAL>AESTHETIC |
+| F5 ERL | ✅ Reale | Estrazione euristiche + Red Lines + RAG (TF-IDF) |
+| F6 Context Manager | ✅ Reale | Ring buffer + summarization deterministica |
+| F7 Dominator Trees | ✅ Reale | PTA + dataflow algorithm + coverage |
+| F8 Lean4 | 🟡 Parziale | Verifica simbolica emulata, no runtime Lean4 reale |
+| F9 Artificial Retainer | ✅ Reale | Delegation + HITL + Normative Calculus |
+| F10 GroundedInference | 🟡 Stub | `simulateLLMOutput()` deterministico, no LLM reale |
+| F11 Affect Monitor | ✅ Reale | Metriche telemetria + Meta-Observer |
+| F12 Objective Builder | ✅ Reale | BFS decomposition con peso + context tier |
+| F13 ESR + Quorum | ✅ Reale | Belief lineage + sync + quorum voting |
+| F14 TimeRouter | 🟡 Stub | `scoreModels()` rule-based, `simulateModelOutput()` stub |
+| F15 Cockpit | ✅ Reale | 5 tab + Sensorium widget + Affect gauge |
+| F16 DAG Visualizer | ✅ Reale | React Flow con 3 visualizzatori integrati |
+| F17 Sovereign Validator | 🟡 Parziale | `generateExplanation()` template-based, no LLM |
+| F18 Tool Ecosystem | ✅ Reale | ECDSA P-256 signing + 10 scope permessi |
+| F19 Quality | 🟡 Parziale | 146 test, 52% coverage (target 80%) |
+| F20 Auth | 🟡 Parziale | Login + RBAC, no multi-tenant isolation |
+| F21 Crypto | ✅ Reale | ECDSA P-256 con crypto nativo Node |
+| F22 Observability | 🟡 Locale | Error/metrics/tracing/backup locali, no esterni |
+| F23 Scalability | 🔴 Adapter | Pattern pronto, no migrazione reale (SQLite ancora) |
+| T1 DAG Integration | ✅ Reale | 3/3 visualizer integrati |
+| T2 i18n | 🟡 Base | 60+ chiavi, UI principale tradotta, messaggi parziali |
+| T3 Dev Workflow | ✅ Reale | dev:clean, dev:full, db:backup, db:restore, UUID v7 |
+
 ### Aree di estensione
 
-- **WebSocket service auto-start**: attualmente il mini-service WS deve essere avviato manualmente. Potrebbe essere integrato in `.zscripts/dev.sh`
-- **Integrazione DAG Visualizer nelle pagine**: i 3 visualizzatori React Flow (`DynAMODagVisualizer`, `ObjectiveTreeVisualizer`, `LeanWorkflowVisualizer`) sono pronti ma non ancora integrati nelle pagine F2/F8/F12 (sostituirebbero le liste testuali attuali)
-- **Time-Slider Audit Ledger**: componente per riavvolgere l'esecuzione cronologicamente (Fase 16)
-- **Indicatori cromatici Tainted**: bordo rosso tratteggiato per dati non fidati in tutto l'app (Fase 17, da integrare)
-- **Persistenza FSM LTL**: gli stati FSM sono in-memory e si perdono al riavvio. Per produzione, persistere su DB
-- **Taint tracking TTL**: i taint flows attivi non scadono mai. Aggiungere un TTL con cleanup automatico
-- **Embeddings esterni**: integrazione con API embeddings reali (OpenAI, Cohere) come fallback del TF-IDF locale
-- **LTL pattern composti**: supportare `G(F(p))`, `F(G(p))`, annidamenti complessi (richiede NFA invece di FSM)
-- **Editor regole logiche DAG**: la Fase 1 mostra il DAG come lista. Un editor visuale con drag-and-drop dei nodi sarebbe utile
-- **Multi-tenant**: l'OS attualmente è single-tenant. Per multi-tenant, aggiungere `tenantId` a tutte le tabelle e scoping nei moduli kernel
+- **WebSocket service auto-start**: il mini-service WS deve essere avviato manualmente (`dev:full` lo automatizza parzialmente)
+- **Time-Slider Audit Ledger**: componente per riavvolgere l'esecuzione cronologicamente (Fase 16, non implementato)
+- **Indicatori cromatici Tainted**: bordo rosso tratteggiato per dati non fidati in tutto l'app (Fase 17, non implementato)
+- **Embeddings neurali**: il TF-IDF locale funziona ma non ha comprensione semantica reale. Integrare modello locale o API esterna
+- **LTL NFA compiler**: supportare `G(F(p))`, `F(G(p))`, `p W q`, `p R q` richiede NFA non implementato
+- **Real LLM integration**: F10 (GroundedInference), F14 (TimeRouter), F17 (SovereignTranslator) usano stub. Integrare ZAI SDK
+- **Multi-tenant isolation**: aggiungere `tenantId` a tutti i modelli DB + scoping automatico nelle query
+- **PostgreSQL migration**: l'adapter pattern è pronto ma la migrazione reale richiede adattamento query SQLite-specific
+- **Redis WS adapter**: l'interfaccia è pronta ma l'implementazione Redis reale non è stata fatta
+- **Test coverage 80%**: 146 test coprono 52%, mancano API routes + E2E + cross-modulo
+- **i18n completo**: 60+ chiavi sono insufficienti per tutte le 28 sezioni + messaggi + tooltips
+- **Cockpit narrative auto-generation**: le voci narrative sono manuali, auto-generare da AgentLog via LLM
+- **Containerizzazione**: Dockerfile + docker-compose per riproducibilità ambiente
+- **Editor regole logiche DAG**: la Fase 1 mostra il DAG come lista. Un editor visuale con drag-and-drop sarebbe utile
 - **Audit trail export**: esportare AgentLog in formato JSONL per analisi esterne
-- **Test suite**: non ci sono test automatici. Aggiungere test unitari per i moduli kernel (especially LTL parser, patchboard transactions, ERL supervisor, sovereign-translator)
-- **Real LLM integration**: i moduli GroundedInference (F10), TimeRouter (F14) e SovereignTranslator (F17) usano stub deterministici. Integrare chiamate reali a ZAI SDK
-- **Tool signing reale**: la signature crittografica dei tool (F18) è simulata con SHA-256. Per produzione, implementare signing con chiave privata del publisher
-- **Cockpit narrative auto-generation**: le voci CockpitNarrative sono registrate manualmente. Auto-generarle dagli eventi AgentLog tramite traduttore LLM
 
 ### Convenzioni di codifica
 
