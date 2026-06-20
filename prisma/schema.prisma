@@ -710,4 +710,69 @@ model Session {
   userAgent     String?
 }
 
+// =====================================================
+// FASE 21: Cryptographic Trust Layer
+// =====================================================
+
+// Publisher registry: chiavi pubbliche ECDSA per verifica firme tool
+model PublisherKey {
+  id            String   @id @default(cuid())
+  publisher     String   @unique
+  publicKeyPem  String   // chiave pubblica ECDSA P-256 in formato PEM
+  fingerprint   String   // SHA-256 della chiave pubblica
+  active        Boolean  @default(true)
+  revokedAt     DateTime?
+  createdAt     DateTime @default(now())
+}
+
+// =====================================================
+// FASE 22: Production Observability Stack
+// =====================================================
+
+// Error tracking
+model ErrorRecord {
+  id            String   @id @default(cuid())
+  fingerprint   String   @unique // hash per dedup
+  message       String
+  stack         String?
+  source        String   // kernel|api|ui
+  phase         String?
+  userId        String?
+  tenantId      String?
+  context       String?  // JSON: additional context
+  status        String   @default("open") // open|acknowledged|resolved
+  count         Int      @default(1)
+  firstSeen     DateTime @default(now())
+  lastSeen      DateTime @default(now())
+  resolvedAt    DateTime?
+  resolvedBy    String?
+}
+
+// Distributed tracing
+model TraceSpan {
+  id            String   @id @default(cuid())
+  traceId       String
+  spanId        String   @unique
+  parentSpanId  String?
+  operation     String   // es. "ltl.verify", "patchboard.apply"
+  phase         String?
+  userId        String?
+  status        String   @default("ok") // ok|error
+  durationMs    Int      @default(0)
+  metadata      String?  // JSON
+  timestamp     DateTime @default(now())
+}
+
+// Backup records
+model BackupRecord {
+  id            String   @id @default(cuid())
+  filePath      String
+  sizeBytes     Int
+  checksum      String
+  status        String   @default("created") // created|verified|failed|restored
+  trigger       String   @default("manual") // manual|scheduled
+  createdAt     DateTime @default(now())
+  verifiedAt    DateTime?
+}
+
 

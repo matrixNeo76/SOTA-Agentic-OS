@@ -16,6 +16,7 @@ import { esrStats } from '@/lib/kernel/esr-quorum'
 import { routerStats } from '@/lib/kernel/time-router'
 import { toolStats } from '@/lib/kernel/tool-registry'
 import { blockedStats } from '@/lib/kernel/sovereign-translator'
+import { errorStats, traceStats, backupStats, metricStats } from '@/lib/kernel/observability'
 
 export async function GET() {
   const [
@@ -31,6 +32,7 @@ export async function GET() {
     phase6Stats, phase7Stats, phase8Stats, phase9Stats,
     phase10Stats, phase11Stats, phase12Stats, phase13Stats, phase14Stats,
     toolStatsData, blockedStatsData,
+    errorStatsData, traceStatsData, backupStatsData, metricStatsData,
   ] = await Promise.all([
     db.episodicMemory.count(),
     db.semanticEntity.count(),
@@ -63,6 +65,10 @@ export async function GET() {
     routerStats(),
     toolStats(),
     blockedStats(),
+    errorStats(),
+    traceStats(),
+    backupStats(),
+    Promise.resolve(metricStats()),
   ])
 
   const recentLogs = await db.agentLog.findMany({
@@ -86,6 +92,12 @@ export async function GET() {
     phase14: phase14Stats,
     tools: toolStatsData,
     blocked: blockedStatsData,
+    observability: {
+      errors: errorStatsData,
+      traces: traceStatsData,
+      backups: backupStatsData,
+      metrics: metricStatsData,
+    },
     recentLogs,
     agentLogsTotal: agentLogs,
     memoryStats: await memoryStats(),
