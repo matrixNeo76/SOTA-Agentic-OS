@@ -91,6 +91,8 @@ function extractHeuristic(input: ReflectionInput): ExtractedHeuristic {
 
 /**
  * AutoSOTA Supervisore: valuta l'euristica contro le Red Lines.
+ * Controlla sia l'euristica estratta SIA gli step dell'operazione
+ * (per intercettare operazioni che hanno bypassato policy).
  */
 async function supervisorReview(
   heuristic: ExtractedHeuristic,
@@ -106,14 +108,18 @@ async function supervisorReview(
     return { approved: false, reason: `Red Line: "Non estrarre euristiche da singoli casi anomali"` }
   }
 
-  // Regola 2: euristica che bypasserebbe sicurezza
-  const safetyBypass = /bypass|skip|ignore.*(policy|security|safe)/i.test(heuristic.action)
+  // Combina testi: euristica + step + razionali per controllare Red Lines
+  const stepText = input.steps.map((s) => `${s.action} ${s.result}`).join(' ')
+  const combinedText = `${heuristic.trigger} ${heuristic.action} ${stepText}`.toLowerCase()
+
+  // Regola 2: bypass di sicurezza
+  const safetyBypass = /bypass|disable.*security|disable.*safe|skip.*(policy|security|safe|check)|ignore.*(policy|security|safe)/i.test(combinedText)
   if (safetyBypass) {
     return { approved: false, reason: `Red Line: "Non bypassare policy di sicurezza per efficienza"` }
   }
 
-  // Regola 3: euristica che ignora i limiti dei dataset
-  const dataIgnore = /assume.*(all|infinite|unlimited).*data/i.test(heuristic.action)
+  // Regola 3: ignora limiti dei dataset
+  const dataIgnore = /assume.*(all|infinite|unlimited).*data|ignor.*dataset|ignor.*limit/i.test(combinedText)
   if (dataIgnore) {
     return { approved: false, reason: `Red Line: "Non ignorare i limiti dei dataset di input"` }
   }

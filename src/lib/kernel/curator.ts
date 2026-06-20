@@ -8,6 +8,8 @@
 import { db } from '@/lib/db'
 import { memoryStats } from './ns-mem'
 
+// cycleId basato su timestamp per evitare collisioni tra riavvii del server.
+// Se gia esiste un record con questo cycleId, fa upsert invece di create.
 let cycleCounter = 0
 
 export type SensoriumData = {
@@ -26,6 +28,9 @@ export type SensoriumData = {
  */
 export async function gatherSensorium(): Promise<SensoriumData> {
   cycleCounter += 1
+  // Aggiungi un offset basato su timestamp per evitare collisioni con cicli precedenti
+  const tsOffset = Math.floor(Date.now() / 1000) % 100000
+  const cycleId = tsOffset * 1000 + (cycleCounter % 1000)
   const stats = await memoryStats()
   const recentLogs = await db.agentLog.findMany({
     orderBy: { timestamp: 'desc' },
@@ -40,7 +45,7 @@ export async function gatherSensorium(): Promise<SensoriumData> {
   const systemLoad = Math.min(0.95, 0.2 + (cycleCounter % 10) * 0.07)
 
   return {
-    cycleId: cycleCounter,
+    cycleId,
     queueDepth,
     activeThreads,
     systemLoad,

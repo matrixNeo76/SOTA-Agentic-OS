@@ -59,7 +59,7 @@ export function decideStrategy(state: {
   if (budgetRemaining < 50) return 'HALT'
   if (errorsConsecutive >= 3) return 'CHECK'
 
-  // Flusso PLAN → EXECUTE → CHECK → (loop) → REFLECT
+  // Flusso PLAN -> EXECUTE -> CHECK -> (loop) -> REFLECT
   if (step === 0) return 'PLAN'
   if (lastStrategy === 'PLAN') return 'EXECUTE'
   if (lastStrategy === 'EXECUTE') return 'CHECK'
@@ -84,6 +84,9 @@ export async function steer(
   errorsConsecutive: number
 ): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number }> {
   cycleCounter += 1
+  // cycleId basato su timestamp per evitare collisioni tra riavvii del server
+  const tsOffset = Math.floor(Date.now() / 1000) % 100000
+  const cycleId = tsOffset * 1000 + (cycleCounter % 1000)
   const budgetRemaining = budgetTotal - budgetUsed
   const strategy = decideStrategy({
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
@@ -93,7 +96,7 @@ export async function steer(
 
   await db.steeringEvent.create({
     data: {
-      cycleId: cycleCounter,
+      cycleId,
       agentId,
       strategy,
       phrase: entry.phrase,
