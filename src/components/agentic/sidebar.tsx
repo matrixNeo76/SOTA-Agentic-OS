@@ -30,9 +30,12 @@ export function Sidebar() {
     )}>
       {/* Logo */}
       <div className="h-14 flex items-center border-b px-3 shrink-0">
-        <img src="/logo-sota.png" alt="SOTA" className="size-7 rounded object-contain shrink-0" />
+        <img src="/logo-transparent.png" alt="SOTA" className="size-8 rounded object-contain shrink-0" />
         {!collapsed && (
-          <span className="ml-2.5 text-sm font-semibold tracking-tight">SOTA OS</span>
+          <div className="ml-2.5">
+            <div className="text-sm font-semibold tracking-tight leading-none">SOTA OS</div>
+            <div className="text-[8px] text-muted-foreground mt-0.5 tracking-wider uppercase">Agentic</div>
+          </div>
         )}
       </div>
 
@@ -117,6 +120,7 @@ export function MobileNav() {
         className="w-full flex items-center gap-2 px-4 py-3"
       >
         {currentIcon && <currentIcon className="size-4 text-primary" />}
+        <img src="/logo-transparent.png" alt="" className="size-5 rounded object-contain shrink-0 md:hidden" />
         <span className="text-sm font-medium flex-1 text-left">{current?.name || 'Dashboard'}</span>
         <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>

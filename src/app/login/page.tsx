@@ -47,14 +47,16 @@ export default function LoginPage() {
     <div className="min-h-screen flex">
       {/* Left panel: branding */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-[#0a0a2e]">
-        {/* Decorative circuit pattern */}
-        <div className="absolute inset-0 opacity-20" style={{
-          backgroundImage: `radial-gradient(circle at 20% 50%, #00d4ff22 0%, transparent 50%),
-                            radial-gradient(circle at 80% 80%, #3a1e6a44 0%, transparent 50%),
-                            radial-gradient(circle at 50% 20%, #00d4ff11 0%, transparent 40%)`,
-        }} />
+        {/* Logo banner as background */}
+        <img
+          src="/banner.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-30"
+        />
+        {/* Dark gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a2e]/80 via-[#0a0a2e]/60 to-[#0a0a2e]/90" />
         {/* Grid overlay */}
-        <div className="absolute inset-0 opacity-10" style={{
+        <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: `linear-gradient(#00d4ff22 1px, transparent 1px),
                             linear-gradient(90deg, #00d4ff22 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
@@ -62,7 +64,7 @@ export default function LoginPage() {
 
         <div className="relative z-10 flex flex-col justify-between p-12 text-white">
           <div className="flex items-center gap-3">
-            <img src="/logo-sota.png" alt="SOTA" className="size-12 object-contain" />
+            <img src="/logo-transparent.png" alt="SOTA" className="size-12 object-contain" />
             <div>
               <div className="text-lg font-bold tracking-tight">SOTA Agentic OS</div>
               <div className="text-[10px] text-white/50 tracking-[0.2em] uppercase">Operating System</div>
@@ -97,8 +99,8 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-background">
         <div className="w-full max-w-sm space-y-6 sm:space-y-8">
           {/* Mobile logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <img src="/logo-sota.png" alt="SOTA" className="size-10 object-contain" />
+          <div className="lg:hidden flex flex-col items-center gap-3 mb-8">
+            <img src="/logo-transparent.png" alt="SOTA" className="size-12 object-contain" />
             <div className="text-lg font-bold">SOTA Agentic OS</div>
           </div>
 

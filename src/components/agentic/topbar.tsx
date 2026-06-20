@@ -79,7 +79,8 @@ export function Topbar() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-lg hover:bg-accent transition-colors">
-                <span className="text-xs font-medium">{user.name || user.email.split('@')[0]}</span>
+                <img src="/avatar.png" alt="" className="size-6 rounded-full object-cover" />
+                <span className="text-xs font-medium hidden sm:inline">{user.name || user.email.split('@')[0]}</span>
                 <ChevronDown className="size-3 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>

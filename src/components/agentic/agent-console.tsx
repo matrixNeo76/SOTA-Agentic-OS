@@ -191,8 +191,11 @@ export function AgentConsole() {
             {/* Live execution indicator */}
             {executing && (
               <div className="flex items-start gap-3">
-                <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Loader2 className="size-4 animate-spin text-primary" />
+                <div className="relative shrink-0">
+                  <img src="/avatar.png" alt="Agent" className="size-8 rounded-full object-cover border border-border" />
+                  <div className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-primary border-2 border-background flex items-center justify-center">
+                    <Loader2 className="size-2 animate-spin text-primary-foreground" />
+                  </div>
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
@@ -271,7 +274,7 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
   return (
     <div className="min-h-full flex flex-col items-center justify-center p-4 sm:p-8">
       <div className="max-w-2xl w-full text-center space-y-4 sm:space-y-6">
-        <img src="/logo-sota.png" alt="SOTA" className="size-10 sm:size-12 mx-auto rounded-lg object-contain" />
+        <img src="/logo-transparent.png" alt="SOTA" className="size-10 sm:size-12 mx-auto rounded-lg object-contain" />
         <div>
           <h2 className="text-lg sm:text-xl font-semibold">Console Agentica</h2>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 px-2">
@@ -327,9 +330,7 @@ function MessageBubble({ msg }: { msg: Message }) {
   return (
     <div className="flex items-start gap-3">
       {/* Avatar */}
-      <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-        <Sparkles className="size-4 text-primary" />
-      </div>
+      <img src="/avatar.png" alt="Agent" className="size-8 rounded-full object-cover shrink-0 border border-border" />
 
       <div className="flex-1 min-w-0 space-y-3">
         {/* Text content */}
