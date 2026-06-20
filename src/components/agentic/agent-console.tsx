@@ -5,9 +5,10 @@ import { cn } from '@/lib/utils'
 import { useSensoriumLive } from './use-sensorium-live'
 import { DynAMODagVisualizer } from './dag-visualizers'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import {
   ArrowUp, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  Sparkles, Brain, Shield, Zap, Clock, Terminal,
+  Sparkles, Brain, Shield, Zap, Clock, Terminal, Compass,
   RefreshCw, ChevronDown, ChevronRight,
 } from 'lucide-react'
 
@@ -24,7 +25,18 @@ type ExecStep = {
   status: StepStatus
   strategy?: string
   ltlVerdict?: string
+  ltlViolations?: string[]
   result?: string
+  error?: ErrorDetail
+  durationMs?: number
+}
+
+type ErrorDetail = {
+  type: string
+  message: string
+  phase: string
+  recoverable: boolean
+  suggestion?: string
 }
 
 type Message = {
@@ -32,7 +44,6 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
   timestamp: string
-  // For assistant messages with execution results
   result?: {
     goal: string
     steps: ExecStep[]
@@ -41,6 +52,7 @@ type Message = {
       approved: boolean
       heuristic?: string
       reviewReason?: string
+      error?: string
     }
     summary: {
       totalTasks: number
@@ -49,8 +61,11 @@ type Message = {
       blocked: number
       durationMs: number
     }
+    errors?: ErrorDetail[]
   }
   isPlanOnly?: boolean
+  error?: string
+  errors?: ErrorDetail[]
 }
 
 // =====================================================
@@ -129,11 +144,15 @@ export function AgentConsole() {
         content: d.ok
           ? planOnly
             ? `Piano generato: ${d.result.summary.totalTasks} task in ${d.result.batches.length} batch.`
-            : `Task completato in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati.`
-          : `Errore: ${d.error}`,
+            : d.result.summary.failed > 0 || d.result.summary.blocked > 0
+              ? `Task completato con problemi: ${d.result.summary.completed}/${d.result.summary.totalTasks} riusciti, ${d.result.summary.failed + d.result.summary.blocked} falliti.`
+              : `Task completato in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati.`
+          : `Si è verificato un errore: ${d.error}`,
         timestamp: new Date().toISOString(),
         result: d.ok ? d.result : undefined,
         isPlanOnly: planOnly,
+        error: d.ok ? undefined : d.error,
+        errors: d.errors || (d.ok ? d.result?.errors : undefined),
       }
       setMessages(prev => [...prev, assistantMsg])
 
@@ -320,11 +339,79 @@ function MessageBubble({ msg }: { msg: Message }) {
             {new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
-        <p className="text-sm text-muted-foreground">{msg.content}</p>
+        <p className={cn('text-sm', msg.error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{msg.content}</p>
+
+        {/* Error details */}
+        {msg.errors && msg.errors.length > 0 && (
+          <ErrorList errors={msg.errors} />
+        )}
 
         {/* Result card */}
         {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
       </div>
+    </div>
+  )
+}
+
+// =====================================================
+// Error List (mostra errori con dettagli e suggerimenti)
+// =====================================================
+
+const ERROR_ICONS: Record<string, any> = {
+  plan_generation: Brain,
+  steering: Compass,
+  ltl_verification: Shield,
+  task_execution: Zap,
+  reflection: Sparkles,
+  unknown: AlertTriangle,
+}
+
+function ErrorList({ errors }: { errors: ErrorDetail[] }) {
+  return (
+    <div className="space-y-2">
+      {errors.map((err, i) => {
+        const Icon = ERROR_ICONS[err.type] || AlertTriangle
+        return (
+          <div
+            key={i}
+            className={cn(
+              'rounded-lg border p-3',
+              err.recoverable
+                ? 'border-amber-500/30 bg-amber-50 dark:bg-amber-950/10'
+                : 'border-red-500/30 bg-red-50 dark:bg-red-950/10'
+            )}
+          >
+            <div className="flex items-start gap-2.5">
+              <Icon className={cn(
+                'size-4 shrink-0 mt-0.5',
+                err.recoverable ? 'text-amber-500' : 'text-red-500'
+              )} />
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-medium">{err.phase}</span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-[9px] py-0',
+                      err.recoverable
+                        ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                        : 'border-red-500 text-red-600 dark:text-red-400'
+                    )}
+                  >
+                    {err.recoverable ? 'Ripristinabile' : 'Bloccante'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{err.message}</p>
+                {err.suggestion && (
+                  <p className="text-[11px] text-foreground/70 italic">
+                    → {err.suggestion}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -339,6 +426,7 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
   const s = result.summary
 
   const allDone = s.completed === s.totalTasks && s.failed === 0 && s.blocked === 0
+  const hasErrors = (result.errors?.length ?? 0) > 0 || s.failed > 0 || s.blocked > 0
 
   return (
     <div className="rounded-xl border overflow-hidden">
@@ -356,8 +444,8 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
           <div className="text-sm font-medium truncate">{result.goal}</div>
           <div className="text-[11px] text-muted-foreground">
             {s.completed}/{s.totalTasks} completati
-            {s.failed > 0 && ` · ${s.failed} falliti`}
-            {s.blocked > 0 && ` · ${s.blocked} bloccati`}
+            {s.failed > 0 && <span className="text-red-500"> · {s.failed} falliti</span>}
+            {s.blocked > 0 && <span className="text-amber-500"> · {s.blocked} bloccati</span>}
             {!planOnly && ` · ${(s.durationMs / 1000).toFixed(1)}s`}
           </div>
         </div>
@@ -373,11 +461,48 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
       {showDetails && (
         <div className="p-4 space-y-3">
           {/* Task list */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {result.steps.map((step) => (
               <StepRow key={step.taskId} step={step} />
             ))}
           </div>
+
+          {/* Per-step errors (inline, expandable) */}
+          {result.steps.filter(s => s.error).map(step => (
+            <div key={`err-${step.taskId}`} className="rounded-lg border border-red-500/20 bg-red-50 dark:bg-red-950/10 p-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <XCircle className="size-3.5 text-red-500 shrink-0" />
+                <span className="text-xs font-medium">{step.taskId} — {step.error!.phase}</span>
+                <Badge variant="outline" className={cn(
+                  'text-[9px] py-0 ml-auto',
+                  step.error!.recoverable
+                    ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                    : 'border-red-500 text-red-600 dark:text-red-400'
+                )}>
+                  {step.error!.recoverable ? 'Ripristinabile' : 'Bloccante'}
+                </Badge>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{step.error!.message}</p>
+              {step.error!.suggestion && (
+                <p className="text-[11px] text-foreground/70 italic mt-1">→ {step.error!.suggestion}</p>
+              )}
+            </div>
+          ))}
+
+          {/* LTL violations detail */}
+          {result.steps.filter(s => s.ltlViolations && s.ltlViolations.length > 0).map(step => (
+            <div key={`ltl-${step.taskId}`} className="rounded-lg border border-amber-500/20 bg-amber-50 dark:bg-amber-950/10 p-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <Shield className="size-3.5 text-amber-500 shrink-0" />
+                <span className="text-xs font-medium">{step.taskId} — Regola LTL violata</span>
+              </div>
+              <ul className="text-[11px] text-muted-foreground space-y-0.5 pl-5">
+                {step.ltlViolations!.map((v, i) => (
+                  <li key={i} className="list-disc">{v}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
 
           {/* Graph toggle */}
           {!planOnly && result.steps.length > 0 && (
@@ -416,12 +541,13 @@ function ResultCard({ result, planOnly }: { result: NonNullable<Message['result'
               </div>
               <div className="flex-1">
                 <div className="text-xs font-medium">
-                  {result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}
+                  {result.reflection.error ? 'Riflessione fallita' : result.reflection.approved ? 'Euristica estratta' : 'Red Line attivata'}
                 </div>
                 {result.reflection.heuristic && (
-                  <p className="text-xs text-muted-foreground italic mt-0.5">
-                    "{result.reflection.heuristic}"
-                  </p>
+                  <p className="text-xs text-muted-foreground italic mt-0.5">"{result.reflection.heuristic}"</p>
+                )}
+                {result.reflection.error && (
+                  <p className="text-[11px] text-red-500 mt-0.5">{result.reflection.error}</p>
                 )}
               </div>
             </div>
@@ -452,26 +578,64 @@ function StepRow({ step }: { step: ExecStep }) {
   const config = STEP_ICONS[step.status]
   const Icon = config.icon
   const StratIcon = step.strategy ? STRAT_ICONS[step.strategy] : null
+  const [expanded, setExpanded] = useState(false)
+  const hasDetails = (step.result && step.status !== 'done') || step.error
 
   return (
-    <div className="flex items-center gap-2.5 py-1">
-      <Icon className={cn('size-3.5 shrink-0', config.color, step.status === 'running' && 'animate-spin')} />
-      <span className="text-xs font-mono text-muted-foreground shrink-0 w-6">{step.taskId}</span>
-      <span className="text-xs truncate flex-1">{step.description}</span>
-      {step.strategy && StratIcon && (
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
-          <StratIcon className="size-2.5" />
-          {step.strategy}
-        </span>
-      )}
-      {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
-        <span className={cn(
-          'text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0',
-          step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-        )}>
-          LTL {step.ltlVerdict}
-        </span>
+    <div>
+      <div
+        className={cn('flex items-center gap-2.5 py-1', hasDetails && 'cursor-pointer hover:bg-accent/30 rounded')}
+        onClick={() => hasDetails && setExpanded(!expanded)}
+      >
+        <Icon className={cn('size-3.5 shrink-0', config.color, step.status === 'running' && 'animate-spin')} />
+        <span className="text-xs font-mono text-muted-foreground shrink-0 w-6">{step.taskId}</span>
+        <span className="text-xs truncate flex-1">{step.description}</span>
+        {step.strategy && StratIcon && (
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+            <StratIcon className="size-2.5" />
+            {step.strategy}
+          </span>
+        )}
+        {step.durationMs != null && (
+          <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
+            {(step.durationMs / 1000).toFixed(1)}s
+          </span>
+        )}
+        {step.ltlVerdict && step.ltlVerdict !== 'accept' && (
+          <span className={cn(
+            'text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0',
+            step.ltlVerdict === 'reject' ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+          )}>
+            LTL {step.ltlVerdict}
+          </span>
+        )}
+        {hasDetails && (
+          <ChevronDown className={cn('size-3 text-muted-foreground shrink-0 transition-transform', expanded && 'rotate-180')} />
+        )}
+      </div>
+
+      {/* Expanded details for failed/blocked tasks */}
+      {expanded && hasDetails && (
+        <div className="ml-6 mt-1 mb-2 p-2.5 rounded-lg bg-muted/30 text-xs space-y-1">
+          {step.result && (
+            <div>
+              <span className="text-muted-foreground font-medium">Risultato: </span>
+              <span className={cn(step.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>
+                {step.result}
+              </span>
+            </div>
+          )}
+          {step.error && (
+            <div className="text-muted-foreground">
+              <span className="font-medium">Errore ({step.error.phase}): </span>
+              {step.error.message}
+            </div>
+          )}
+          {step.error?.suggestion && (
+            <div className="text-foreground/70 italic">→ {step.error.suggestion}</div>
+          )}
+        </div>
       )}
     </div>
   )
