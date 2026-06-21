@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   Clock, Cpu, Activity, AlertTriangle, Info, Zap,
-  Brain, Shield, Sparkles, CheckCircle2, XCircle, Loader2, Hash,
+  Brain, Shield, Sparkles, CheckCircle2, XCircle, Hash,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { LogInspectorSkeleton } from './skeletons'
 
 // === Types ===
 type LogEntry = {
@@ -101,9 +102,7 @@ export function LogInspector({ logId, defaultLog }: { logId: string; defaultLog?
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
+          <LogInspectorSkeleton />
         ) : !log ? (
           <div className="text-center text-xs text-muted-foreground italic py-8">
             Log non trovato. Potrebbe essere stato rimosso o essere troppo vecchio.

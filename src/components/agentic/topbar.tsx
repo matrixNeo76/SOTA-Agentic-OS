@@ -75,7 +75,7 @@ export function Topbar() {
           onClick={toggleCommandPalette}
           className={cn(
             'flex items-center gap-1.5 h-8 px-2 rounded-lg',
-            'hover:bg-accent transition-colors text-muted-foreground'
+            'hover:bg-accent transition-all text-muted-foreground active:scale-95'
           )}
           title="Apri command palette (Cmd+K)"
           aria-label="Apri command palette"
@@ -87,7 +87,7 @@ export function Topbar() {
         {mounted && (
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+            className="size-8 flex items-center justify-center rounded-lg hover:bg-accent transition-all text-muted-foreground active:scale-95"
             aria-label="Cambia tema"
           >
             {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -96,7 +96,7 @@ export function Topbar() {
 
         <button
           onClick={() => setLang(lang === 'it' ? 'en' : 'it')}
-          className="h-8 px-2 flex items-center justify-center rounded-lg hover:bg-accent transition-colors text-xs font-medium text-muted-foreground"
+          className="h-8 px-2 flex items-center justify-center rounded-lg hover:bg-accent transition-all text-xs font-medium text-muted-foreground active:scale-95"
           aria-label="Cambia lingua"
         >
           {lang.toUpperCase()}
@@ -105,7 +105,7 @@ export function Topbar() {
         {user && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-lg hover:bg-accent transition-colors">
+              <button className="flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-lg hover:bg-accent transition-all active:scale-95">
                 <img src="/avatar.png" alt="" className="size-6 rounded-full object-cover" />
                 <span className="text-xs font-medium hidden sm:inline">{user.name || user.email.split('@')[0]}</span>
                 <ChevronDown className="size-3 text-muted-foreground" />

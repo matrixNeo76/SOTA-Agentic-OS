@@ -8,6 +8,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Info, Zap, Brain, Shield, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { TimelineViewSkeleton } from './skeletons'
 
 // === Types ===
 type LogEntry = {
@@ -222,9 +223,7 @@ export function TimelineView() {
       {/* Timeline canvas */}
       <div className="flex-1 min-h-0 mt-3 overflow-hidden flex flex-col">
         {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
+          <TimelineViewSkeleton />
         ) : filtered.length === 0 ? (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center max-w-md space-y-3">

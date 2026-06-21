@@ -13,6 +13,7 @@ import {
   AlertCircle, ChevronDown, CheckCircle2, XCircle, Clock, Loader,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { CanvasViewSkeleton } from './skeletons'
 
 // === Types ===
 type DagType = 'dynamo' | 'objective' | 'lean'
@@ -379,9 +380,7 @@ export function CanvasView() {
       {/* Canvas area */}
       <div className="flex-1 min-h-0 mt-3 overflow-hidden">
         {loading ? (
-          <div className="h-full flex items-center justify-center">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
+          <CanvasViewSkeleton />
         ) : dagType === 'dynamo' ? (
           filteredPlan && filteredPlan.tasks.length > 0 ? (
             <CanvasWrapper onNodeClick={handleNodeClick}>

@@ -7,10 +7,16 @@ import { QuickStats } from './quick-stats'
 import { NodeInspector } from './node-inspector'
 import { LogInspector } from './log-inspector'
 import { BlockedInspector } from './blocked-inspector'
+import { InspectorTransition } from './view-transition'
 
 // === Main ContextPanel ===
 export function ContextPanel({ className }: { className?: string }) {
   const { selectedItem, setContextPanelOpen, setSelectedItem } = useStore()
+
+  // Build a stable key for the InspectorTransition based on selection
+  const itemKey = selectedItem
+    ? `${selectedItem.type}:${selectedItem.id}`
+    : 'quick-stats'
 
   return (
     <div className={cn('flex flex-col h-full bg-card border-l', className)}>
@@ -21,7 +27,7 @@ export function ContextPanel({ className }: { className?: string }) {
             setSelectedItem(null)
             setContextPanelOpen(false)
           }}
-          className="size-6 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+          className="size-6 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors active:scale-95"
           aria-label="Chiudi context panel"
           title="Chiudi (Cmd+\)"
         >
@@ -29,25 +35,27 @@ export function ContextPanel({ className }: { className?: string }) {
         </button>
       </div>
 
-      {/* Content (fills remaining height) */}
+      {/* Content (fills remaining height) — fades between inspectors */}
       <div className="flex-1 min-h-0">
-        {!selectedItem ? (
-          <QuickStats />
-        ) : selectedItem.type === 'node' ? (
-          <NodeInspector
-            nodeId={selectedItem.id}
-            dagType={(selectedItem.meta?.dagType as 'dynamo' | 'objective' | 'lean') || 'dynamo'}
-            planId={selectedItem.meta?.planId as string | undefined}
-            treeId={selectedItem.meta?.treeId as string | undefined}
-            workflowId={selectedItem.meta?.workflowId as string | undefined}
-          />
-        ) : selectedItem.type === 'log' ? (
-          <LogInspector logId={selectedItem.id} />
-        ) : selectedItem.type === 'blocked' ? (
-          <BlockedInspector blockedId={selectedItem.id} />
-        ) : (
-          <QuickStats />
-        )}
+        <InspectorTransition itemKey={itemKey}>
+          {!selectedItem ? (
+            <QuickStats />
+          ) : selectedItem.type === 'node' ? (
+            <NodeInspector
+              nodeId={selectedItem.id}
+              dagType={(selectedItem.meta?.dagType as 'dynamo' | 'objective' | 'lean') || 'dynamo'}
+              planId={selectedItem.meta?.planId as string | undefined}
+              treeId={selectedItem.meta?.treeId as string | undefined}
+              workflowId={selectedItem.meta?.workflowId as string | undefined}
+            />
+          ) : selectedItem.type === 'log' ? (
+            <LogInspector logId={selectedItem.id} />
+          ) : selectedItem.type === 'blocked' ? (
+            <BlockedInspector blockedId={selectedItem.id} />
+          ) : (
+            <QuickStats />
+          )}
+        </InspectorTransition>
       </div>
     </div>
   )

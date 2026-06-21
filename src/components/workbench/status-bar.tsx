@@ -47,7 +47,7 @@ function StatusPill({
       disabled={!onClick}
       title={title || `${label}: ${value}`}
       className={cn(
-        'group flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono transition-colors',
+        'group flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono transition-all active:scale-95',
         onClick ? 'hover:bg-accent/60 cursor-pointer' : 'cursor-default'
       )}
     >

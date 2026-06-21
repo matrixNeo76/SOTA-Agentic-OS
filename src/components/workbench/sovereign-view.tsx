@@ -10,6 +10,7 @@ import {
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { SovereignViewSkeleton } from './skeletons'
 
 // === Types (mirror sovereign-modal.tsx) ===
 type BlockedAction = {
@@ -278,9 +279,7 @@ export function SovereignView() {
       {/* List */}
       <div className="flex-1 min-h-0 mt-3 overflow-y-auto space-y-2 pr-1">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
+          <SovereignViewSkeleton />
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center max-w-md space-y-3">

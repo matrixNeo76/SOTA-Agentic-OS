@@ -8,6 +8,7 @@ import {
   Cpu, GitBranch, ArrowRight,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { NodeInspectorSkeleton } from './skeletons'
 
 // === Types ===
 type DagType = 'dynamo' | 'objective' | 'lean'
@@ -194,9 +195,7 @@ export function NodeInspector({
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
+          <NodeInspectorSkeleton />
         ) : !details || details.kind === 'not-found' ? (
           <div className="text-center text-xs text-muted-foreground italic py-8">
             Nodo non trovato. Potrebbe essere stato rimosso.

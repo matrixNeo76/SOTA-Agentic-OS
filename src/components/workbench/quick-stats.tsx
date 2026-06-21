@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   Activity, Clock, Layers, Cpu, Gauge, ShieldAlert,
-  CheckCircle2, AlertTriangle, XCircle, Loader2, Zap,
+  CheckCircle2, AlertTriangle, XCircle, Zap,
 } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 
@@ -63,8 +63,24 @@ export function QuickStats() {
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <div className="space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="rounded-lg border bg-card/50">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b bg-muted/30">
+                  <div className="size-3 rounded bg-muted animate-pulse" />
+                  <div className="h-3 w-20 bg-muted animate-pulse rounded" />
+                </div>
+                <div className="p-1.5 space-y-1.5">
+                  {[1, 2, 3].map((j) => (
+                    <div key={j} className="flex items-center gap-2 px-1.5 py-1">
+                      <div className="size-3 rounded bg-muted animate-pulse" />
+                      <div className="h-3 flex-1 bg-muted animate-pulse rounded" />
+                      <div className="h-3 w-8 bg-muted animate-pulse rounded" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <>

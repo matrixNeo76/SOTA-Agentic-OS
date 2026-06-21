@@ -26,6 +26,7 @@ import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { CanvasView } from '@/components/workbench/canvas-view'
 import { TimelineView } from '@/components/workbench/timeline-view'
 import { SovereignView } from '@/components/workbench/sovereign-view'
+import { ViewTransition } from '@/components/workbench/view-transition'
 
 // === View metadata ===
 type ViewMeta = {
@@ -121,22 +122,24 @@ export function WorkspaceViews() {
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden min-h-0">
-        <div className={cn(
-          'h-full',
-          // Console needs full-height flex layout
-          (activeView === 'console' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col'
-        )}>
-          {activeView === 'console' && <AgentConsole />}
-          {activeView === 'canvas' && <CanvasView />}
-          {activeView === 'timeline' && <TimelineView />}
-          {activeView === 'cockpit' && <Cockpit />}
-          {activeView === 'sovereign' && <SovereignView />}
-          {activeView === 'phase' && (
-            <div className="h-full overflow-y-auto">
-              <PhaseView />
-            </div>
-          )}
-        </div>
+        <ViewTransition>
+          <div className={cn(
+            'h-full',
+            // Console needs full-height flex layout
+            (activeView === 'console' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col'
+          )}>
+            {activeView === 'console' && <AgentConsole />}
+            {activeView === 'canvas' && <CanvasView />}
+            {activeView === 'timeline' && <TimelineView />}
+            {activeView === 'cockpit' && <Cockpit />}
+            {activeView === 'sovereign' && <SovereignView />}
+            {activeView === 'phase' && (
+              <div className="h-full overflow-y-auto">
+                <PhaseView />
+              </div>
+            )}
+          </div>
+        </ViewTransition>
       </div>
     </div>
   )
@@ -159,15 +162,15 @@ function ViewTab({
     <button
       onClick={onClick}
       className={cn(
-        'group relative flex items-center gap-1.5 px-3 h-9 text-xs font-medium transition-colors',
-        'border-b-2',
+        'group relative flex items-center gap-1.5 px-3 h-9 text-xs font-medium transition-all',
+        'border-b-2 active:scale-95',
         active
           ? 'border-primary text-foreground'
           : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40'
       )}
       aria-current={active ? 'page' : undefined}
     >
-      <Icon className={cn('size-3.5 shrink-0', active && 'text-primary')} />
+      <Icon className={cn('size-3.5 shrink-0 transition-colors', active && 'text-primary')} />
       <span className="truncate max-w-[120px]">{view.label}</span>
       {badge !== undefined && badge > 0 && (
         <span className="ml-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold font-mono">
@@ -190,7 +193,7 @@ function PhaseTab({ active, onClick }: { active: boolean; onClick: () => void })
     <button
       onClick={onClick}
       className={cn(
-        'group relative flex items-center gap-1.5 px-3 h-9 text-xs font-medium transition-colors border-b-2',
+        'group relative flex items-center gap-1.5 px-3 h-9 text-xs font-medium transition-all border-b-2 active:scale-95',
         active
           ? 'border-primary text-foreground'
           : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40'
