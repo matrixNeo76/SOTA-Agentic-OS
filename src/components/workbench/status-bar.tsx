@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, Layers, Cpu, Gauge, AlertTriangle, CheckCircle2, XCircle,
+  Activity, Layers, Cpu, Gauge, DollarSign, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { useStore } from '@/lib/store'
@@ -59,10 +59,37 @@ function StatusPill({
   )
 }
 
+// === Format cost for display ===
+function formatCost(cost: number): string {
+  if (cost === 0) return '$0.00'
+  if (cost < 0.01) return `$${cost.toFixed(4)}`
+  return `$${cost.toFixed(2)}`
+}
+
 // === Main StatusBar ===
 export function StatusBar() {
   const { sensorium, connected } = useSensoriumLive()
   const { setActiveView, setCommandPaletteOpen } = useStore()
+  const [cost, setCost] = useState<number | null>(null)
+
+  // Fetch cost from /api/dashboard (which now includes cost aggregation)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const r = await fetch('/api/dashboard')
+        const d = await r.json()
+        if (!cancelled && d?.cost) {
+          setCost(d.cost.today ?? 0)
+        }
+      } catch {
+        // silent
+      }
+    }
+    load()
+    const t = setInterval(load, 10000) // refresh every 10s
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
 
   // Derive metrics from Sensorium snapshot
   const metrics = useMemo(() => {
@@ -94,6 +121,13 @@ export function StatusBar() {
   const connLabel = connected ? 'Online' : 'Offline'
   const ConnIcon = connected ? CheckCircle2 : XCircle
 
+  // Cost tone: warn if > $1, danger if > $10
+  const costTone: Tone =
+    cost === null ? 'muted'
+    : cost >= 10 ? 'danger'
+    : cost >= 1 ? 'warn'
+    : 'ok'
+
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
       {/* Connection status — first thing, sets the tone */}
@@ -115,7 +149,6 @@ export function StatusBar() {
         tone="muted"
         title="ID del ciclo cognitivo corrente"
         onClick={() => {
-          // Future: open cycle history modal
           setCommandPaletteOpen(true)
         }}
       />
@@ -150,14 +183,17 @@ export function StatusBar() {
         onClick={() => setActiveView('cockpit')}
       />
 
-      {/* Cost placeholder — coming in 1.1 */}
+      {/* Cost — real value from cost-ledger */}
       <Separator />
       <StatusPill
-        icon={AlertTriangle}
+        icon={DollarSign}
         label="Cost"
-        value="—"
-        tone="muted"
-        title="Cost tracking in arrivo nella Release 1.1"
+        value={cost === null ? '—' : formatCost(cost)}
+        tone={costTone}
+        title={cost === null
+          ? 'Cost tracking non disponibile'
+          : `Spesa LLM totale di oggi: ${formatCost(cost)} USD`
+        }
       />
     </div>
   )

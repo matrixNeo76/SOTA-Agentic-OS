@@ -819,3 +819,20 @@ model TaintFlow {
 }
 
 
+
+// === Release 1.1: Cost tracking ===
+model CostEntry {
+  id         String   @id @default(cuid())
+  agentId    String   // planner | orchestrator | curator | controller | verifier | reflective | lean | router | etc.
+  model      String   // zai-glm | gpt-4 | gpt-3.5-turbo | claude-3-opus | etc.
+  phase      String   // plan_generation | task_execution | steering | reflection | routing | compilation
+  tokensIn   Int      // input tokens
+  tokensOut  Int      // output tokens
+  cost       Float    // USD cost
+  timestamp  DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([agentId])
+  @@index([model])
+  @@index([phase])
+}

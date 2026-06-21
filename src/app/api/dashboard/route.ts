@@ -18,6 +18,7 @@ import { toolStats } from '@/lib/kernel/tool-registry'
 import { blockedStats } from '@/lib/kernel/sovereign-translator'
 import { errorStats, traceStats, backupStats, metricStats } from '@/lib/kernel/observability'
 import { scalabilityStats } from '@/lib/kernel/scalability'
+import { getCostStats } from '@/lib/kernel/cost-ledger'
 
 export async function GET() {
   const [
@@ -105,5 +106,6 @@ export async function GET() {
     recentLogs,
     agentLogsTotal: agentLogs,
     memoryStats: await memoryStats(),
+    cost: await getCostStats(),
   })
 }

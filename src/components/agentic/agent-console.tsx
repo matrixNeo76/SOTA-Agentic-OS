@@ -12,7 +12,7 @@ import { AttachmentPreview } from '@/components/workbench/attachment-preview'
 import {
   ArrowUp, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Sparkles, Brain, Shield, Zap, Clock, Terminal, Compass,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Square,
 } from 'lucide-react'
 
 // Types
@@ -103,9 +103,11 @@ export function AgentConsole() {
   const [input, setInput] = useState('')
   const [executing, setExecuting] = useState(false)
   const [liveLog, setLiveLog] = useState<string[]>([])
+  const [isDragging, setIsDragging] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const executingRef = useRef(false) // ref to prevent stale closure
+  const abortRef = useRef<AbortController | null>(null) // for stop button
   const { events } = useSensoriumLive()
 
   // Auto-scroll
@@ -154,11 +156,37 @@ export function AgentConsole() {
       inputRef.current.style.height = 'auto'
     }
 
+    // === AbortController for stop button ===
+    const abortController = new AbortController()
+    abortRef.current = abortController
+
+    // === Streaming state ===
+    const assistantId = genId()
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      isPlanOnly: planOnly,
+    }
+    setMessages(prev => [...prev, assistantMsg])
+
+    // Live update helper
+    const updateAssistant = (patch: Partial<Message>) => {
+      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, ...patch } : m))
+    }
+
+    // Append to live log
+    const appendLog = (line: string) => {
+      setLiveLog(prev => prev.length < 50 ? [...prev, line] : prev)
+    }
+
     try {
-      const r = await fetch('/api/console', {
+      const r = await fetch('/api/console/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task: trimmed, mode: planOnly ? 'plan-only' : 'full' }),
+        signal: abortController.signal,
       })
 
       if (!r.ok) {
@@ -166,43 +194,137 @@ export function AgentConsole() {
         throw new Error(`HTTP ${r.status}: ${text.slice(0, 200)}`)
       }
 
-      const d = await r.json()
+      // === Parse SSE stream ===
+      const reader = r.body?.getReader()
+      if (!reader) throw new Error('Stream non disponibile')
 
-      const assistantMsg: Message = {
-        id: genId(),
-        role: 'assistant',
-        content: d.ok
-          ? planOnly
-            ? `Piano generato: ${d.result.summary.totalTasks} task in ${d.result.batches.length} batch.`
-            : d.result.summary.failed > 0 || d.result.summary.blocked > 0
-              ? `Task completato con problemi: ${d.result.summary.completed}/${d.result.summary.totalTasks} riusciti, ${d.result.summary.failed + d.result.summary.blocked} falliti.`
-              : `Task completato in ${(d.result.summary.durationMs / 1000).toFixed(1)}s — ${d.result.summary.completed}/${d.result.summary.totalTasks} task completati.`
-          : `Si è verificato un errore: ${d.error || 'Errore sconosciuto'}`,
-        timestamp: new Date().toISOString(),
-        result: d.ok ? d.result : undefined,
-        isPlanOnly: planOnly,
-        error: d.ok ? undefined : d.error,
-        errors: d.errors || (d.ok ? d.result?.errors : undefined),
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finalResult: any = null
+      let finalError: any = null
+      let partialPlan = ''
+      let partialTasks: Record<string, string> = {}
+
+      const processEvent = (event: string, data: string) => {
+        try {
+          const payload = JSON.parse(data)
+          switch (event) {
+            case 'plan_start':
+              appendLog('[PLAN] avvio generazione piano...')
+              updateAssistant({ content: 'Generazione piano in corso…' })
+              break
+            case 'plan_chunk':
+              partialPlan = payload.partial || ''
+              appendLog(`[PLAN] ${partialPlan.slice(-60)}…`)
+              break
+            case 'plan_complete':
+              appendLog(`[PLAN] piano generato: ${payload.plan?.tasks?.length || 0} task`)
+              updateAssistant({
+                content: planOnly
+                  ? `Piano generato: ${payload.plan?.tasks?.length || 0} task in ${payload.batches?.length || 0} batch.`
+                  : `Piano pronto. Esecuzione di ${payload.plan?.tasks?.length || 0} task…`,
+              })
+              break
+            case 'task_start':
+              appendLog(`[TASK ${payload.step?.taskId}] avvio (${payload.step?.agentId})`)
+              updateAssistant({
+                content: `Esecuzione task ${payload.step?.taskId} (${payload.step?.agentId})…`,
+              })
+              break
+            case 'task_chunk':
+              partialTasks[payload.taskId] = payload.partial || ''
+              appendLog(`[TASK ${payload.taskId}] ${partialTasks[payload.taskId].slice(-60)}…`)
+              break
+            case 'task_complete':
+              appendLog(`[TASK ${payload.step?.taskId}] ${payload.step?.status}`)
+              break
+            case 'reflection_start':
+              appendLog('[REFLECT] riflessione in corso…')
+              break
+            case 'reflection_complete':
+              appendLog(`[REFLECT] ${payload.reflection?.approved ? 'approvata' : 'red line'}`)
+              break
+            case 'error':
+              finalError = payload.error
+              appendLog(`[ERROR] ${payload.error?.message || 'errore'}`)
+              break
+            case 'done':
+              finalResult = payload.result
+              if (payload.ok) {
+                const s = payload.result?.summary
+                updateAssistant({
+                  content: planOnly
+                    ? `Piano generato: ${s?.totalTasks || 0} task in ${payload.result?.batches?.length || 0} batch.`
+                    : s && (s.failed > 0 || s.blocked > 0)
+                      ? `Task completato con problemi: ${s.completed}/${s.totalTasks} riusciti, ${s.failed + s.blocked} falliti.`
+                      : `Task completato in ${((s?.durationMs || 0) / 1000).toFixed(1)}s — ${s?.completed}/${s?.totalTasks} task completati.`,
+                  result: payload.result,
+                  errors: payload.result?.errors,
+                })
+                if (!planOnly) toast.success(`${s?.completed || 0}/${s?.totalTasks || 0} task completati`)
+              } else {
+                updateAssistant({
+                  content: `Si è verificato un errore: ${payload.error || 'Errore sconosciuto'}`,
+                  error: payload.error,
+                  errors: payload.errors,
+                })
+                toast.error(payload.error || 'Errore')
+              }
+              break
+          }
+        } catch {
+          // ignore parse errors
+        }
       }
-      setMessages(prev => [...prev, assistantMsg])
 
-      if (!d.ok) toast.error(d.error || 'Errore')
-      else if (!planOnly) toast.success(`${d.result.summary.completed}/${d.result.summary.totalTasks} task completati`)
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE events (separated by \n\n)
+        let separatorIdx
+        while ((separatorIdx = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, separatorIdx)
+          buffer = buffer.slice(separatorIdx + 2)
+
+          // Parse event: lines starting with "event:" and "data:"
+          const lines = rawEvent.split('\n')
+          let evt = 'message'
+          let data = ''
+          for (const line of lines) {
+            if (line.startsWith('event: ')) evt = line.slice(7)
+            else if (line.startsWith('data: ')) data = line.slice(6)
+          }
+          processEvent(evt, data)
+        }
+      }
     } catch (e: any) {
-      const errorMsg = e.message || 'Errore sconosciuto'
-      toast.error(errorMsg)
-      setMessages(prev => [...prev, {
-        id: genId(),
-        role: 'assistant',
-        content: `Errore di connessione: ${errorMsg}`,
-        timestamp: new Date().toISOString(),
-        error: errorMsg,
-        errors: [{ type: 'unknown', message: errorMsg, phase: 'network', recoverable: true, suggestion: 'Riprova tra qualche secondo.' }],
-      }])
+      if (e.name === 'AbortError') {
+        updateAssistant({
+          content: '⏹ Esecuzione interrotta dall\'utente.',
+        })
+        toast.info('Esecuzione interrotta')
+      } else {
+        const errorMsg = e.message || 'Errore sconosciuto'
+        toast.error(errorMsg)
+        updateAssistant({
+          content: `Errore di connessione: ${errorMsg}`,
+          error: errorMsg,
+          errors: [{ type: 'unknown', message: errorMsg, phase: 'network', recoverable: true, suggestion: 'Riprova tra qualche secondo.' }],
+        })
+      }
     } finally {
       executingRef.current = false
+      abortRef.current = null
       setExecuting(false)
       setLiveLog([])
+    }
+  }
+
+  const stopExecution = () => {
+    if (abortRef.current) {
+      abortRef.current.abort()
     }
   }
 
@@ -282,7 +404,50 @@ export function AgentConsole() {
       {/* Input bar */}
       <div className="border-t bg-background/95 backdrop-blur shrink-0">
         <div className="max-w-3xl mx-auto p-2 sm:p-3">
-          <div className="flex items-end gap-2 rounded-2xl border bg-card px-2.5 sm:px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+          <div
+            className={cn(
+              'flex items-end gap-2 rounded-2xl border bg-card px-2.5 sm:px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 transition-all',
+              isDragging && 'ring-2 ring-primary/40 border-primary/40 bg-primary/5'
+            )}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!isDragging) setIsDragging(true)
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              // Only set false when leaving the container (not entering child)
+              if (e.currentTarget === e.target) setIsDragging(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setIsDragging(false)
+              const files = Array.from(e.dataTransfer.files)
+              if (files.length === 0) return
+              // Insert file references into the textarea
+              const fileRefs = files.map((f) => {
+                if (f.type.startsWith('image/')) {
+                  // For images, we can't really read them inline in 1.1, just reference the name
+                  return `[image: ${f.name}]`
+                }
+                return `[file: ${f.name}]`
+              })
+              const newText = input ? `${input}\n${fileRefs.join('\n')}` : fileRefs.join('\n')
+              setInput(newText)
+              toast.success(`${files.length} file aggiunti al prompt`)
+              // Focus textarea
+              setTimeout(() => inputRef.current?.focus(), 0)
+            }}
+          >
+            {isDragging && (
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center rounded-2xl bg-primary/10 border-2 border-dashed border-primary/40">
+                <p className="text-xs font-medium text-primary">
+                  Rilascia i file per aggiungerli al prompt
+                </p>
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={input}
@@ -298,23 +463,28 @@ export function AgentConsole() {
               className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 py-1.5 min-w-0"
             />
             <button
-              onClick={() => send(input)}
+              onClick={() => executing ? stopExecution() : send(input)}
               className={cn(
-                'size-8 rounded-lg flex items-center justify-center shrink-0 transition-all',
-                input.trim() && !executing
-                  ? 'bg-primary text-primary-foreground hover:opacity-90'
-                  : 'bg-muted text-muted-foreground'
+                'size-8 rounded-lg flex items-center justify-center shrink-0 transition-all active:scale-95',
+                executing
+                  ? 'bg-destructive text-white hover:bg-destructive/90'
+                  : input.trim()
+                    ? 'bg-primary text-primary-foreground hover:opacity-90'
+                    : 'bg-muted text-muted-foreground'
               )}
+              title={executing ? 'Interrompi esecuzione' : 'Esegui'}
+              aria-label={executing ? 'Stop' : 'Send'}
             >
-              {executing ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+              {executing ? <Square className="size-3.5" /> : <ArrowUp className="size-4" />}
             </button>
           </div>
           <div className="flex items-center justify-between mt-1 px-1">
             <p className="text-[10px] text-muted-foreground hidden sm:block">
-              Invio per eseguire · Shift+Invio per nuova riga
+              Invio per eseguire · Shift+Invio per nuova riga{executing ? ' · Click ■ per interrompere' : ''}
             </p>
             <button
               onClick={() => send(input, true)}
+              disabled={executing}
               className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 ml-auto"
             >
               Solo piano
