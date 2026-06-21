@@ -1,0 +1,540 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useEffect, useState } from 'react'
+     4→     4→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+     5→     5→import { Button } from '@/components/ui/button'
+     6→     6→import { Input } from '@/components/ui/input'
+     7→     7→import { Label } from '@/components/ui/label'
+     8→     8→import { Badge } from '@/components/ui/badge'
+     9→     9→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    10→    10→import { ScrollArea } from '@/components/ui/scroll-area'
+    11→    11→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    12→    12→import { Textarea } from '@/components/ui/textarea'
+    13→    13→import { toast } from 'sonner'
+    14→    14→import {
+    15→    15→  UserCog, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Clock,
+    16→    16→  Shield, Scale, BookOpen, KeyRound, AlertTriangle,
+    17→    17→} from 'lucide-react'
+    18→    18→import { cn } from '@/lib/utils'
+    19→    19→import { PhaseHeader } from './phase-header'
+    20→    20→import { RelatedPhases, link } from './related-phases'
+    21→    21→
+    22→    22→type Delegation = {
+    23→    23→  id: string; agentId: string; scope: string; constraints: string;
+    24→    24→  grantedBy: string; grantedAt: string; expiresAt: string | null;
+    25→    25→  active: boolean; revokedAt: string | null; revokeReason: string | null
+    26→    26→}
+    27→    27→type Gate = {
+    28→    28→  id: string; agentId: string; action: string; payload: string;
+    29→    29→  reason: string; status: string; decidedBy: string | null; decidedAt: string | null;
+    30→    30→  expiresAt: string | null; createdAt: string
+    31→    31→}
+    32→    32→type AuditEntry = {
+    33→    33→  id: string; agentId: string; action: string; decision: string;
+    34→    34→  delegationId: string | null; readableNarrative: string; reversible: boolean; timestamp: string
+    35→    35→}
+    36→    36→type Resolution = {
+    37→    37→  id: string; conflictType: string; userInstruction: string; systemPolicy: string;
+    38→    38→  verdict: string; modifiedAction: string | null; hierarchyApplied: string;
+    39→    39→  axiomTrail: string; decidedAt: string
+    40→    40→}
+    41→    41→
+    42→    42→export function Phase9() {
+    43→    43→  const [delegations, setDelegations] = useState<Delegation[]>([])
+    44→    44→  const [pendingGates, setPendingGates] = useState<Gate[]>([])
+    45→    45→  const [recentGates, setRecentGates] = useState<Gate[]>([])
+    46→    46→  const [audit, setAudit] = useState<AuditEntry[]>([])
+    47→    47→  const [resolutions, setResolutions] = useState<Resolution[]>([])
+    48→    48→  const [stats, setStats] = useState<any>(null)
+    49→    49→
+    50→    50→  // Delegation form
+    51→    51→  const [delAgent, setDelAgent] = useState('orchestrator')
+    52→    52→  const [delScope, setDelScope] = useState('tool:exec')
+    53→    53→  const [delConstraints, setDelConstraints] = useState('{"maxCalls":10,"reversible":true}')
+    54→    54→  const [delGrantedBy, setDelGrantedBy] = useState('admin')
+    55→    55→
+    56→    56→  // Approval form
+    57→    57→  const [gateAgent, setGateAgent] = useState('orchestrator')
+    58→    58→  const [gateAction, setGateAction] = useState('deploy_to_production')
+    59→    59→  const [gatePayload, setGatePayload] = useState('{"service":"auth","version":"1.2.0"}')
+    60→    60→  const [gateReason, setGateReason] = useState('Azione irreversibile: deploy in produzione')
+    61→    61→
+    62→    62→  // Normative form
+    63→    63→  const [nUserInstr, setNUserInstr] = useState('Esegui deploy senza test')
+    64→    64→  const [nUserLevel, setNUserLevel] = useState<'SAFETY' | 'OPERATIONAL' | 'AESTHETIC'>('OPERATIONAL')
+    65→    65→  const [nSystemPolicy, setNSystemPolicy] = useState('Test obbligatori prima di deploy')
+    66→    66→  const [nSystemLevel, setNSystemLevel] = useState<'SAFETY' | 'OPERATIONAL' | 'AESTHETIC'>('SAFETY')
+    67→    67→  const [lastResolution, setLastResolution] = useState<any>(null)
+    68→    68→
+    69→    69→  const refresh = async () => {
+    70→    70→    const [delR, pendR, recR, audR, norR, statsR] = await Promise.all([
+    71→    71→      fetch('/api/retainer?action=delegations').then((r) => r.json()),
+    72→    72→      fetch('/api/retainer?action=gates_pending').then((r) => r.json()),
+    73→    73→      fetch('/api/retainer?action=gates_recent').then((r) => r.json()),
+    74→    74→      fetch('/api/retainer?action=audit').then((r) => r.json()),
+    75→    75→      fetch('/api/retainer?action=normative').then((r) => r.json()),
+    76→    76→      fetch('/api/retainer?action=stats').then((r) => r.json()),
+    77→    77→    ])
+    78→    78→    setDelegations(delR.delegations || [])
+    79→    79→    setPendingGates(pendR.gates || [])
+    80→    80→    setRecentGates(recR.gates || [])
+    81→    81→    setAudit(audR.entries || [])
+    82→    82→    setResolutions(norR.resolutions || [])
+    83→    83→    setStats(statsR)
+    84→    84→  }
+    85→    85→
+    86→    86→  // eslint-disable-next-line react-hooks/set-state-in-effect
+    87→    87→  useEffect(() => { void refresh() }, [])
+    88→    88→
+    89→    89→  const grantDelegation = async () => {
+    90→    90→    let constraints: unknown
+    91→    91→    try { constraints = JSON.parse(delConstraints) } catch { toast.error('Constraints non è JSON valido'); return }
+    92→    92→    const r = await fetch('/api/retainer', {
+    93→    93→      method: 'POST',
+    94→    94→      headers: { 'Content-Type': 'application/json' },
+    95→    95→      body: JSON.stringify({
+    96→    96→        action: 'grant_delegation',
+    97→    97→        agentId: delAgent, scope: delScope, constraints, grantedBy: delGrantedBy,
+    98→    98→      }),
+    99→    99→    })
+   100→   100→    const d = await r.json()
+   101→   101→    if (d.ok) { toast.success(`Delega concessa a ${delAgent}`); refresh() }
+   102→   102→    else toast.error(d.error)
+   103→   103→  }
+   104→   104→
+   105→   105→  const revokeDelegation = async (id: string) => {
+   106→   106→    const r = await fetch('/api/retainer', {
+   107→   107→      method: 'POST',
+   108→   108→      headers: { 'Content-Type': 'application/json' },
+   109→   109→      body: JSON.stringify({ action: 'revoke_delegation', delegationId: id, revokeReason: 'revoked by user' }),
+   110→   110→    })
+   111→   111→    const d = await r.json()
+   112→   112→    if (d.ok) { toast.success('Delega revocata'); refresh() }
+   113→   113→  }
+   114→   114→
+   115→   115→  const requestApproval = async () => {
+   116→   116→    let payload: unknown
+   117→   117→    try { payload = JSON.parse(gatePayload) } catch { toast.error('Payload non è JSON valido'); return }
+   118→   118→    const r = await fetch('/api/retainer', {
+   119→   119→      method: 'POST',
+   120→   120→      headers: { 'Content-Type': 'application/json' },
+   121→   121→      body: JSON.stringify({
+   122→   122→        action: 'request_approval',
+   123→   123→        agentId: gateAgent, gateAction, payload, reason: gateReason,
+   124→   124→      }),
+   125→   125→    })
+   126→   126→    const d = await r.json()
+   127→   127→    if (d.ok) { toast.success(`Gate creato (pending): ${d.gateId.slice(-8)}`); refresh() }
+   128→   128→  }
+   129→   129→
+   130→   130→  const resolveGate = async (gateId: string, decision: 'approved' | 'rejected') => {
+   131→   131→    const r = await fetch('/api/retainer', {
+   132→   132→      method: 'POST',
+   133→   133→      headers: { 'Content-Type': 'application/json' },
+   134→   134→      body: JSON.stringify({ action: 'resolve_approval', gateId, decision, decidedBy: 'admin' }),
+   135→   135→    })
+   136→   136→    const d = await r.json()
+   137→   137→    if (d.ok) {
+   138→   138→      toast.success(decision === 'approved' ? 'Gate approvato' : 'Gate rifiutato')
+   139→   139→      refresh()
+   140→   140→    } else toast.error(d.error)
+   141→   141→  }
+   142→   142→
+   143→   143→  const resolveNormative = async () => {
+   144→   144→    const r = await fetch('/api/retainer', {
+   145→   145→      method: 'POST',
+   146→   146→      headers: { 'Content-Type': 'application/json' },
+   147→   147→      body: JSON.stringify({
+   148→   148→        action: 'resolve_normative',
+   149→   149→        conflict: {
+   150→   150→          userInstruction: nUserInstr,
+   151→   151→          userLevel: nUserLevel,
+   152→   152→          systemPolicy: nSystemPolicy,
+   153→   153→          systemLevel: nSystemLevel,
+   154→   154→        },
+   155→   155→      }),
+   156→   156→    })
+   157→   157→    const d = await r.json()
+   158→   158→    if (d.ok) {
+   159→   159→      setLastResolution(d)
+   160→   160→      if (d.verdict === 'block') toast.error(`BLOCK: gerarchia ${nSystemLevel} > ${nUserLevel}`)
+   161→   161→      else if (d.verdict === 'modify') toast.warning(`MODIFY: azione modificata`)
+   162→   162→      else toast.success('ACCEPT')
+   163→   163→      refresh()
+   164→   164→    }
+   165→   165→  }
+   166→   166→
+   167→   167→  return (
+   168→   168→    <div className="p-4 md:p-6 space-y-4">
+   169→   169→      <PhaseHeader phaseId="phase9" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+   170→   170→
+   171→   171→      {stats && (
+   172→   172→        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+   173→   173→          <StatCard label="Deleghe attive" value={stats.activeDelegations} />
+   174→   174→          <StatCard label="Gates pending" value={stats.pendingGates} highlight={stats.pendingGates > 0} />
+   175→   175→          <StatCard label="Gates approvati" value={stats.approvedGates} />
+   176→   176→          <StatCard label="Gates rifiutati" value={stats.rejectedGates} />
+   177→   177→          <StatCard label="Voci audit" value={stats.auditEntries} />
+   178→   178→        </div>
+   179→   179→      )}
+   180→   180→
+   181→   181→      <Tabs defaultValue="delegation" className="w-full">
+   182→   182→        <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full">
+   183→   183→          <TabsTrigger value="delegation"><KeyRound className="size-3.5 mr-1.5" /> Delegation</TabsTrigger>
+   184→   184→          <TabsTrigger value="approval"><Shield className="size-3.5 mr-1.5" /> HITL Gates</TabsTrigger>
+   185→   185→          <TabsTrigger value="normative"><Scale className="size-3.5 mr-1.5" /> Normative</TabsTrigger>
+   186→   186→          <TabsTrigger value="audit"><BookOpen className="size-3.5 mr-1.5" /> Audit Ledger</TabsTrigger>
+   187→   187→        </TabsList>
+   188→   188→
+   189→   189→        <TabsContent value="delegation" className="space-y-4 mt-4">
+   190→   190→          <Card>
+   191→   191→            <CardHeader>
+   192→   192→              <CardTitle className="text-sm">Concedi Delega</CardTitle>
+   193→   193→              <CardDescription>Definisci lo scope di autorità di un agente</CardDescription>
+   194→   194→            </CardHeader>
+   195→   195→            <CardContent className="space-y-3">
+   196→   196→              <div className="grid md:grid-cols-2 gap-3">
+   197→   197→                <div>
+   198→   198→                  <Label className="text-xs">Agente</Label>
+   199→   199→                  <Input value={delAgent} onChange={(e) => setDelAgent(e.target.value)} />
+   200→   200→                </div>
+   201→   201→                <div>
+   202→   202→                  <Label className="text-xs">Scope (es. tool:exec, filesystem:/tmp/*)</Label>
+   203→   203→                  <Input value={delScope} onChange={(e) => setDelScope(e.target.value)} />
+   204→   204→                </div>
+   205→   205→              </div>
+   206→   206→              <div className="grid md:grid-cols-2 gap-3">
+   207→   207→                <div>
+   208→   208→                  <Label className="text-xs">Constraints (JSON)</Label>
+   209→   209→                  <Textarea value={delConstraints} onChange={(e) => setDelConstraints(e.target.value)} rows={2} className="font-mono text-xs" />
+   210→   210→                </div>
+   211→   211→                <div>
+   212→   212→                  <Label className="text-xs">Granted by</Label>
+   213→   213→                  <Input value={delGrantedBy} onChange={(e) => setDelGrantedBy(e.target.value)} />
+   214→   214→                </div>
+   215→   215→              </div>
+   216→   216→              <Button size="sm" onClick={grantDelegation}>
+   217→   217→                <Plus className="size-3.5 mr-1.5" /> Concedi
+   218→   218→              </Button>
+   219→   219→            </CardContent>
+   220→   220→          </Card>
+   221→   221→
+   222→   222→          <Card>
+   223→   223→            <CardHeader>
+   224→   224→              <CardTitle className="text-sm">Deleghe Attive</CardTitle>
+   225→   225→              <CardDescription>{delegations.length} deleghe totali</CardDescription>
+   226→   226→            </CardHeader>
+   227→   227→            <CardContent>
+   228→   228→              <ScrollArea className="h-72 pr-2">
+   229→   229→                {delegations.length === 0 ? (
+   230→   230→                  <p className="text-xs text-muted-foreground italic">Nessuna delega.</p>
+   231→   231→                ) : (
+   232→   232→                  <ul className="space-y-1.5">
+   233→   233→                    {delegations.map((d) => (
+   234→   234→                      <li key={d.id} className="text-xs border rounded-md p-2.5">
+   235→   235→                        <div className="flex items-center gap-2 mb-1">
+   236→   236→                          <Badge variant="outline" className="font-mono text-[10px]">{d.agentId}</Badge>
+   237→   237→                          <Badge variant="secondary" className="text-[10px] font-mono">{d.scope}</Badge>
+   238→   238→                          {d.active
+   239→   239→                            ? <Badge variant="secondary" className="text-[10px] bg-emerald-500">active</Badge>
+   240→   240→                            : <Badge variant="secondary" className="text-[10px] bg-red-500">revoked</Badge>}
+   241→   241→                          <span className="text-[10px] text-muted-foreground">by {d.grantedBy}</span>
+   242→   242→                          {d.active && (
+   243→   243→                            <Button
+   244→   244→                              size="sm"
+   245→   245→                              variant="ghost"
+   246→   246→                              className="h-5 px-1.5 text-[10px] ml-auto"
+   247→   247→                              onClick={() => revokeDelegation(d.id)}
+   248→   248→                            >
+   249→   249→                              <Trash2 className="size-3" />
+   250→   250→                            </Button>
+   251→   251→                          )}
+   252→   252→                        </div>
+   253→   253→                        <div className="text-[10px] text-muted-foreground font-mono">
+   254→   254→                          {d.constraints}
+   255→   255→                        </div>
+   256→   256→                      </li>
+   257→   257→                    ))}
+   258→   258→                  </ul>
+   259→   259→                )}
+   260→   260→              </ScrollArea>
+   261→   261→            </CardContent>
+   262→   262→          </Card>
+   263→   263→        </TabsContent>
+   264→   264→
+   265→   265→        <TabsContent value="approval" className="space-y-4 mt-4">
+   266→   266→          <Card>
+   267→   267→            <CardHeader>
+   268→   268→              <CardTitle className="text-sm">Richiedi Approvazione (HITL Gate)</CardTitle>
+   269→   269→              <CardDescription>
+   270→   270→                Scatena un gate quando l'azione è irreversibile, viola LTL, o supera soglie di spesa
+   271→   271→              </CardDescription>
+   272→   272→            </CardHeader>
+   273→   273→            <CardContent className="space-y-3">
+   274→   274→              <div className="grid md:grid-cols-2 gap-3">
+   275→   275→                <div>
+   276→   276→                  <Label className="text-xs">Agente richiedente</Label>
+   277→   277→                  <Input value={gateAgent} onChange={(e) => setGateAgent(e.target.value)} />
+   278→   278→                </div>
+   279→   279→                <div>
+   280→   280→                  <Label className="text-xs">Azione</Label>
+   281→   281→                  <Input value={gateAction} onChange={(e) => setGateAction(e.target.value)} />
+   282→   282→                </div>
+   283→   283→              </div>
+   284→   284→              <div>
+   285→   285→                <Label className="text-xs">Payload (JSON)</Label>
+   286→   286→                <Textarea value={gatePayload} onChange={(e) => setGatePayload(e.target.value)} rows={2} className="font-mono text-xs" />
+   287→   287→              </div>
+   288→   288→              <div>
+   289→   289→                <Label className="text-xs">Motivo (perché richiede HITL)</Label>
+   290→   290→                <Input value={gateReason} onChange={(e) => setGateReason(e.target.value)} />
+   291→   291→              </div>
+   292→   292→              <Button size="sm" onClick={requestApproval}>
+   293→   293→                <Shield className="size-3.5 mr-1.5" /> Crea Gate
+   294→   294→              </Button>
+   295→   295→            </CardContent>
+   296→   296→          </Card>
+   297→   297→
+   298→   298→          {pendingGates.length > 0 && (
+   299→   299→            <Card>
+   300→   300→              <CardHeader>
+   301→   301→                <CardTitle className="text-sm flex items-center gap-2">
+   302→   302→                  <Clock className="size-4 text-amber-500" /> Gates Pending ({pendingGates.length})
+   303→   303→                </CardTitle>
+   304→   304→                <CardDescription>Richiedono decisione umana</CardDescription>
+   305→   305→              </CardHeader>
+   306→   306→              <CardContent>
+   307→   307→                <ul className="space-y-2">
+   308→   308→                  {pendingGates.map((g) => (
+   309→   309→                    <li key={g.id} className="text-xs border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 rounded-md p-2.5">
+   310→   310→                      <div className="flex items-center gap-2 mb-1">
+   311→   311→                        <Badge variant="outline" className="font-mono text-[10px]">{g.agentId}</Badge>
+   312→   312→                        <Badge variant="secondary" className="text-[10px] bg-amber-500">pending</Badge>
+   313→   313→                        <span className="font-medium flex-1 truncate">{g.action}</span>
+   314→   314→                      </div>
+   315→   315→                      <div className="text-[10px] text-muted-foreground mb-2">{g.reason}</div>
+   316→   316→                      <div className="flex gap-2">
+   317→   317→                        <Button size="sm" variant="default" className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700" onClick={() => resolveGate(g.id, 'approved')}>
+   318→   318→                          <CheckCircle2 className="size-3 mr-1" /> Approva
+   319→   319→                        </Button>
+   320→   320→                        <Button size="sm" variant="destructive" className="h-6 text-[10px]" onClick={() => resolveGate(g.id, 'rejected')}>
+   321→   321→                          <XCircle className="size-3 mr-1" /> Rifiuta
+   322→   322→                        </Button>
+   323→   323→                      </div>
+   324→   324→                    </li>
+   325→   325→                  ))}
+   326→   326→                </ul>
+   327→   327→              </CardContent>
+   328→   328→            </Card>
+   329→   329→          )}
+   330→   330→
+   331→   331→          <Card>
+   332→   332→            <CardHeader>
+   333→   333→              <CardTitle className="text-sm">Gates Recenti</CardTitle>
+   334→   334→              <CardDescription>{recentGates.length} gates totali</CardDescription>
+   335→   335→            </CardHeader>
+   336→   336→            <CardContent>
+   337→   337→              <ScrollArea className="h-48 pr-2">
+   338→   338→                <ul className="space-y-1.5">
+   339→   339→                  {recentGates.map((g) => (
+   340→   340→                    <li key={g.id} className="text-xs flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 border">
+   341→   341→                      {g.status === 'approved' && <CheckCircle2 className="size-3.5 text-emerald-500" />}
+   342→   342→                      {g.status === 'rejected' && <XCircle className="size-3.5 text-red-500" />}
+   343→   343→                      {g.status === 'pending' && <Clock className="size-3.5 text-amber-500" />}
+   344→   344→                      <Badge variant="outline" className="text-[10px] font-mono">{g.agentId}</Badge>
+   345→   345→                      <span className="flex-1 truncate">{g.action}</span>
+   346→   346→                      <Badge variant="secondary" className="text-[10px]">{g.status}</Badge>
+   347→   347→                    </li>
+   348→   348→                  ))}
+   349→   349→                </ul>
+   350→   350→              </ScrollArea>
+   351→   351→            </CardContent>
+   352→   352→          </Card>
+   353→   353→        </TabsContent>
+   354→   354→
+   355→   355→        <TabsContent value="normative" className="space-y-4 mt-4">
+   356→   356→          <Card>
+   357→   357→            <CardHeader>
+   358→   358→              <CardTitle className="text-sm flex items-center gap-2">
+   359→   359→                <Scale className="size-4" /> Calcolo Normativo
+   360→   360→              </CardTitle>
+   361→   361→              <CardDescription>
+   362→   362→                Risolve conflitti prompt utente vs policy di sistema.
+   363→   363→                Gerarchia: <strong>SAFETY (1) &gt; OPERATIONAL (2) &gt; AESTHETIC (3)</strong>
+   364→   364→              </CardDescription>
+   365→   365→            </CardHeader>
+   366→   366→            <CardContent className="space-y-3">
+   367→   367→              <div className="grid md:grid-cols-2 gap-3">
+   368→   368→                <div className="space-y-2">
+   369→   369→                  <div className="text-xs font-medium">Istruzione utente</div>
+   370→   370→                  <Input value={nUserInstr} onChange={(e) => setNUserInstr(e.target.value)} />
+   371→   371→                  <Select value={nUserLevel} onValueChange={(v: any) => setNUserLevel(v)}>
+   372→   372→                    <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+   373→   373→                    <SelectContent>
+   374→   374→                      <SelectItem value="SAFETY">SAFETY (1)</SelectItem>
+   375→   375→                      <SelectItem value="OPERATIONAL">OPERATIONAL (2)</SelectItem>
+   376→   376→                      <SelectItem value="AESTHETIC">AESTHETIC (3)</SelectItem>
+   377→   377→                    </SelectContent>
+   378→   378→                  </Select>
+   379→   379→                </div>
+   380→   380→                <div className="space-y-2">
+   381→   381→                  <div className="text-xs font-medium">Policy di sistema</div>
+   382→   382→                  <Input value={nSystemPolicy} onChange={(e) => setNSystemPolicy(e.target.value)} />
+   383→   383→                  <Select value={nSystemLevel} onValueChange={(v: any) => setNSystemLevel(v)}>
+   384→   384→                    <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+   385→   385→                    <SelectContent>
+   386→   386→                      <SelectItem value="SAFETY">SAFETY (1)</SelectItem>
+   387→   387→                      <SelectItem value="OPERATIONAL">OPERATIONAL (2)</SelectItem>
+   388→   388→                      <SelectItem value="AESTHETIC">AESTHETIC (3)</SelectItem>
+   389→   389→                    </SelectContent>
+   390→   390→                  </Select>
+   391→   391→                </div>
+   392→   392→              </div>
+   393→   393→              <Button size="sm" onClick={resolveNormative}>
+   394→   394→                <Scale className="size-3.5 mr-1.5" /> Risolvi Conflitto
+   395→   395→              </Button>
+   396→   396→
+   397→   397→              {lastResolution && (
+   398→   398→                <div className="border rounded-md p-3 space-y-2">
+   399→   399→                  <div className="flex items-center gap-2">
+   400→   400→                    {lastResolution.verdict === 'accept' && <CheckCircle2 className="size-5 text-emerald-500" />}
+   401→   401→                    {lastResolution.verdict === 'block' && <XCircle className="size-5 text-red-500" />}
+   402→   402→                    {lastResolution.verdict === 'modify' && <AlertTriangle className="size-5 text-amber-500" />}
+   403→   403→                    <Badge variant="outline" className={cn(
+   404→   404→                      'font-mono',
+   405→   405→                      lastResolution.verdict === 'accept' && 'text-emerald-700 dark:text-emerald-400',
+   406→   406→                      lastResolution.verdict === 'block' && 'text-red-700 dark:text-red-400',
+   407→   407→                      lastResolution.verdict === 'modify' && 'text-amber-700 dark:text-amber-400',
+   408→   408→                    )}>
+   409→   409→                      {lastResolution.verdict.toUpperCase()}
+   410→   410→                    </Badge>
+   411→   411→                    <span className="text-xs text-muted-foreground">
+   412→   412→                      Gerarchia: {lastResolution.hierarchyApplied.join(' > ')}
+   413→   413→                    </span>
+   414→   414→                  </div>
+   415→   415→                  {lastResolution.modifiedAction && (
+   416→   416→                    <div className="text-xs italic bg-muted/50 rounded p-2">
+   417→   417→                      Modified action: "{lastResolution.modifiedAction}"
+   418→   418→                    </div>
+   419→   419→                  )}
+   420→   420→                  <div className="text-[11px] text-muted-foreground">
+   421→   421→                    <div className="font-medium mb-1">Axiom Trail (auditabile):</div>
+   422→   422→                    <pre className="font-mono bg-muted/30 rounded p-2 overflow-auto">
+   423→   423→{JSON.stringify(lastResolution.axiomTrail, null, 2)}
+   424→   424→                    </pre>
+   425→   425→                  </div>
+   426→   426→                </div>
+   427→   427→              )}
+   428→   428→            </CardContent>
+   429→   429→          </Card>
+   430→   430→
+   431→   431→          {resolutions.length > 0 && (
+   432→   432→            <Card>
+   433→   433→              <CardHeader>
+   434→   434→                <CardTitle className="text-sm">Risoluzioni Normative Recenti</CardTitle>
+   435→   435→                <CardDescription>{resolutions.length} risoluzioni</CardDescription>
+   436→   436→              </CardHeader>
+   437→   437→              <CardContent>
+   438→   438→                <ScrollArea className="h-48 pr-2">
+   439→   439→                  <ul className="space-y-1.5">
+   440→   440→                    {resolutions.map((r) => (
+   441→   441→                      <li key={r.id} className="text-xs border rounded-md p-2">
+   442→   442→                        <div className="flex items-center gap-2 mb-1">
+   443→   443→                          <Badge variant="outline" className="text-[10px]">{r.conflictType}</Badge>
+   444→   444→                          <Badge variant="secondary" className={cn(
+   445→   445→                            'text-[10px]',
+   446→   446→                            r.verdict === 'block' && 'bg-red-500',
+   447→   447→                            r.verdict === 'modify' && 'bg-amber-500',
+   448→   448→                            r.verdict === 'accept' && 'bg-emerald-500',
+   449→   449→                          )}>{r.verdict}</Badge>
+   450→   450→                          <span className="text-[10px] text-muted-foreground ml-auto">
+   451→   451→                            {new Date(r.decidedAt).toLocaleString('it-IT')}
+   452→   452→                          </span>
+   453→   453→                        </div>
+   454→   454→                        <div className="text-[10px] text-muted-foreground truncate">
+   455→   455→                          "{r.userInstruction}" vs "{r.systemPolicy}"
+   456→   456→                        </div>
+   457→   457→                      </li>
+   458→   458→                    ))}
+   459→   459→                  </ul>
+   460→   460→                </ScrollArea>
+   461→   461→              </CardContent>
+   462→   462→            </Card>
+   463→   463→          )}
+   464→   464→        </TabsContent>
+   465→   465→
+   466→   466→        <TabsContent value="audit" className="space-y-4 mt-4">
+   467→   467→          <Card>
+   468→   468→            <CardHeader>
+   469→   469→              <CardTitle className="text-sm flex items-center gap-2">
+   470→   470→                <BookOpen className="size-4" /> Audit Ledger
+   471→   471→              </CardTitle>
+   472→   472→              <CardDescription>
+   473→   473→                Registro di delega comprensibile all'umano · {audit.length} voci
+   474→   474→              </CardDescription>
+   475→   475→            </CardHeader>
+   476→   476→            <CardContent>
+   477→   477→              <ScrollArea className="h-[28rem] pr-2">
+   478→   478→                {audit.length === 0 ? (
+   479→   479→                  <p className="text-xs text-muted-foreground italic">
+   480→   480→                    Nessuna voce. Crea deleghe, risolvi gates o risolvi conflitti normativi per popolare il ledger.
+   481→   481→                  </p>
+   482→   482→                ) : (
+   483→   483→                  <ul className="space-y-2">
+   484→   484→                    {audit.map((a) => {
+   485→   485→                      const decision = JSON.parse(a.decision)
+   486→   486→                      return (
+   487→   487→                        <li key={a.id} className="text-xs border rounded-md p-2.5">
+   488→   488→                          <div className="flex items-center gap-2 mb-1">
+   489→   489→                            <Badge variant="outline" className="text-[10px] font-mono">{a.agentId}</Badge>
+   490→   490→                            <Badge variant="secondary" className="text-[10px]">{decision.gate || 'action'}</Badge>
+   491→   491→                            {decision.outcome && (
+   492→   492→                              <Badge variant="secondary" className={cn(
+   493→   493→                                'text-[10px]',
+   494→   494→                                decision.outcome === 'granted' || decision.outcome === 'approved' ? 'bg-emerald-500' :
+   495→   495→                                decision.outcome === 'revoked' || decision.outcome === 'rejected' || decision.outcome === 'block' ? 'bg-red-500' :
+   496→   496→                                'bg-amber-500'
+   497→   497→                              )}>
+   498→   498→                                {decision.outcome}
+   499→   499→                              </Badge>
+   500→   500→                            )}
+   501→   501→                            {!a.reversible && (
+   502→   502→                              <Badge variant="secondary" className="text-[10px] bg-red-700">irreversibile</Badge>
+   503→   503→                            )}
+   504→   504→                            <span className="text-[10px] text-muted-foreground ml-auto">
+   505→   505→                              {new Date(a.timestamp).toLocaleString('it-IT')}
+   506→   506→                            </span>
+   507→   507→                          </div>
+   508→   508→                          <div className="text-[11px] text-muted-foreground mb-1">
+   509→   509→                            <strong>Azione:</strong> {a.action}
+   510→   510→                          </div>
+   511→   511→                          <div className="text-[11px] italic bg-muted/30 rounded p-2">
+   512→   512→                            {a.readableNarrative}
+   513→   513→                          </div>
+   514→   514→                        </li>
+   515→   515→                      )
+   516→   516→                    })}
+   517→   517→                  </ul>
+   518→   518→                )}
+   519→   519→              </ScrollArea>
+   520→   520→            </CardContent>
+   521→   521→          </Card>
+   522→   522→        </TabsContent>
+   523→   523→      </Tabs>
+   524→   524→      <RelatedPhases links={[link('phase4', 'Policy LTL', 'I gate HITL scattano anche su violazioni LTL'), link('phase11', 'Affect-driven gates', 'Disperazione alta stringe i gate di approvazione'), link('phase13', 'Quorum come delega', 'Il quorum semantico può sostituire HITL singolo'), link('phase2', 'Approva piano', 'I piani DynAMO irreversibili richiedono HITL')]} />
+   525→   525→
+   526→   526→    </div>
+   527→   527→  )
+   528→   528→}
+   529→   529→
+   530→   530→function StatCard({ label, value, highlight }: { label: string; value: number | string; highlight?: boolean }) {
+   531→   531→  return (
+   532→   532→    <Card>
+   533→   533→      <CardContent className="pt-4">
+   534→   534→        <div className="text-muted-foreground text-xs mb-1">{label}</div>
+   535→   535→        <div className={cn('text-2xl font-bold font-mono', highlight && 'text-amber-600 dark:text-amber-400')}>{value}</div>
+   536→   536→      </CardContent>
+   537→   537→    </Card>
+   538→   538→  )
+   539→   539→}
+   540→   540→
