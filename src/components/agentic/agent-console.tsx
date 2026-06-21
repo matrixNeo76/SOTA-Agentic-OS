@@ -6,6 +6,9 @@ import { useSensoriumLive } from './use-sensorium-live'
 import { DynAMODagVisualizer } from './dag-visualizers'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
+import { StreamingText } from '@/components/workbench/streaming-text'
+import { InlineActions } from '@/components/workbench/inline-actions'
+import { AttachmentPreview } from '@/components/workbench/attachment-preview'
 import {
   ArrowUp, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Sparkles, Brain, Shield, Zap, Clock, Terminal, Compass,
@@ -210,10 +213,43 @@ export function AgentConsole() {
         {messages.length === 0 ? (
           <WelcomeScreen onSuggestion={(s) => send(s)} />
         ) : (
-          <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))}
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-12 space-y-6 sm:space-y-8">
+            {messages.map((msg, idx) => {
+              // Find the next user message after this one (for retry)
+              const handleRetry = msg.role === 'user'
+                ? () => {
+                    if (executingRef.current) return
+                    // Truncate everything after this user message, then re-send
+                    setMessages(prev => prev.slice(0, idx))
+                    void send(msg.content)
+                  }
+                : undefined
+
+              const handleEdit = msg.role === 'user'
+                ? () => {
+                    if (executingRef.current) return
+                    // Load content into input and truncate history after this message
+                    setInput(msg.content)
+                    setMessages(prev => prev.slice(0, idx))
+                    // Focus the input
+                    setTimeout(() => {
+                      inputRef.current?.focus()
+                      // Place cursor at end
+                      const len = msg.content.length
+                      inputRef.current?.setSelectionRange(len, len)
+                    }, 0)
+                  }
+                : undefined
+
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  onRetry={handleRetry}
+                  onEdit={handleEdit}
+                />
+              )
+            })}
 
             {/* Live execution indicator */}
             {executing && (
@@ -329,19 +365,35 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
   )
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({
+  msg,
+  onRetry,
+  onEdit,
+}: {
+  msg: Message
+  onRetry?: () => void
+  onEdit?: () => void
+}) {
   const isUser = msg.role === 'user'
+
   if (isUser) {
     return (
-      <div className="flex justify-end">
+      <div className="group relative flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5">
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
+          <AttachmentPreview text={msg.content} />
         </div>
+        <InlineActions
+          content={msg.content}
+          isUser
+          onRetry={onRetry}
+          onEdit={onEdit}
+        />
       </div>
     )
   }
   return (
-    <div className="flex items-start gap-3">
+    <div className="group relative flex items-start gap-3">
       <img src="/avatar.png" alt="" className="size-8 rounded-full object-cover shrink-0 border border-border" />
       <div className="flex-1 min-w-0 space-y-3">
         <div className="flex items-center gap-2">
@@ -350,10 +402,24 @@ function MessageBubble({ msg }: { msg: Message }) {
             {new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
-        <p className={cn('text-sm break-words', msg.error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>{msg.content}</p>
+        {msg.error ? (
+          <p className={cn('text-sm break-words text-red-600 dark:text-red-400')}>{msg.content}</p>
+        ) : (
+          <StreamingText
+            text={msg.content}
+            className="text-muted-foreground"
+            speed={12}
+            charsPerTick={3}
+          />
+        )}
+        <AttachmentPreview text={msg.content} />
         {msg.errors && msg.errors.length > 0 && <ErrorList errors={msg.errors} />}
         {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
       </div>
+      <InlineActions
+        content={msg.content}
+        isUser={false}
+      />
     </div>
   )
 }
