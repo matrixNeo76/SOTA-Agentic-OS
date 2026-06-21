@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/lib/store'
 import {
   ShieldAlert, RefreshCw, Loader2, CheckCircle2, XCircle, Wrench,
   ArrowDownCircle, Ban, AlertTriangle, ChevronDown, Filter,
@@ -45,6 +46,7 @@ type SourceFilter = 'all' | 'ltl' | 'taint' | 'normative' | 'hitl_gate'
 
 // === Main SovereignView ===
 export function SovereignView() {
+  const { setSelectedItem } = useStore()
   const [actions, setActions] = useState<BlockedAction[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all')
@@ -302,7 +304,10 @@ export function SovereignView() {
               onToggle={() => setExpandedId(expandedId === a.id ? null : a.id)}
               isResolving={selectedId === a.id && resolving}
               isSelected={selectedId === a.id}
-              onSelect={() => setSelectedId(a.id)}
+              onSelect={() => {
+                setSelectedId(a.id)
+                setSelectedItem({ type: 'blocked', view: 'sovereign', id: a.id, meta: { source: a.source, agentId: a.agentId } })
+              }}
               resolutionNote={selectedId === a.id ? resolutionNote : ''}
               onNoteChange={setResolutionNote}
               onResolve={(choice) => resolve(a.id, choice)}

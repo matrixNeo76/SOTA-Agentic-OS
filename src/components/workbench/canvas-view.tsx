@@ -274,8 +274,18 @@ export function CanvasView() {
   }, [workflows, selectedWorkflowId, statusFilter])
 
   // === Select node handler → context panel integration (Fase 4) ===
-  const handleNodeClick = (nodeId: string, meta?: Record<string, unknown>) => {
-    setSelectedItem({ type: 'node', view: 'canvas', id: nodeId, meta })
+  const handleNodeClick = (nodeId: string, _meta?: Record<string, unknown>) => {
+    setSelectedItem({
+      type: 'node',
+      view: 'canvas',
+      id: nodeId,
+      meta: {
+        dagType,
+        planId: selectedPlanId,
+        treeId: selectedTreeId,
+        workflowId: selectedWorkflowId,
+      },
+    })
   }
 
   return (

@@ -6,17 +6,27 @@ import { SovereignModalContainer } from '@/components/agentic/sovereign-modal'
 import { WorkspaceViews } from '@/components/workbench/workspace-views'
 import { CommandPalette } from '@/components/workbench/command-palette'
 import { useCommandPalette } from '@/components/workbench/use-command-palette'
+import { ContextPanel, MobileContextSheet } from '@/components/workbench/context-panel'
 import { useStore } from '@/lib/store'
 import { Toaster } from 'sonner'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
 
 export default function Home() {
   // Wire up global Cmd+K listener
   useCommandPalette()
-  const { activeView, activePhase } = useStore()
+  const { activeView, activePhase, contextPanelOpen, selectedItem } = useStore()
 
   // Console-like views hide the footer to maximize vertical space
   const hideFooter = activeView === 'console' ||
     (activeView === 'phase' && activePhase === 'console')
+
+  // Context panel is shown when explicitly open AND (there's a selection OR user toggled it manually).
+  // On mobile we hide the desktop panel and rely on MobileContextSheet (FAB + sheet).
+  const showContextPanel = contextPanelOpen
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -25,7 +35,28 @@ export default function Home() {
         <MobileNav />
         <Topbar />
         <main className="flex-1 overflow-hidden min-h-0">
-          <WorkspaceViews />
+          {/* Desktop: 2-zone resizable (workspace | context panel)
+              Context panel can be hidden (collapses to 0). */}
+          <div className="hidden md:flex h-full">
+            <ResizablePanelGroup direction="horizontal" className="h-full">
+              <ResizablePanel defaultSize={showContextPanel ? 70 : 100} minSize={40}>
+                <WorkspaceViews />
+              </ResizablePanel>
+              {showContextPanel && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={30} minSize={20} maxSize={45}>
+                    <ContextPanel />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </div>
+
+          {/* Mobile: workspace full-width, context panel via FAB + sheet */}
+          <div className="md:hidden h-full">
+            <WorkspaceViews />
+          </div>
         </main>
         {!hideFooter && (
           <footer className="border-t px-4 py-2 text-[10px] text-muted-foreground bg-background/50">
@@ -36,6 +67,8 @@ export default function Home() {
           </footer>
         )}
       </div>
+      {/* Mobile context panel (FAB + sheet) */}
+      <MobileContextSheet />
       <SovereignModalContainer />
       <CommandPalette />
       <Toaster richColors position="top-right" />
