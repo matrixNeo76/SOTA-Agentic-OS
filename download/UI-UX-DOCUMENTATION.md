@@ -1,10 +1,12 @@
 # SOTA Agentic OS — Documentazione UI/UX
 
-> **Versione documento:** 1.0
-> **Data:** 21 giugno 2026
-> **Stack:** Next.js 16 (App Router) · React · TypeScript · Tailwind CSS v4 · shadcn/ui (new-york) · Radix Primitives · lucide-react · next-themes · socket.io-client
+> **Versione documento:** 2.0
+> **Data:** 22 giugno 2026
+> **Stack:** Next.js 16 (App Router) · React · TypeScript · Tailwind CSS v4 · shadcn/ui (new-york) · Radix Primitives · lucide-react · next-themes · socket.io-client · Framer Motion · cmdk · react-resizable-panels
 > **Lingua UI:** Italiano (con toggle EN)
-> **Tagline:** "INTELLIGENT · SECURE · AUTONOMOUS — 23 fasi · kernel transazionale + LTL + ERL + Lean4 + Sovereign + Cockpit"
+> **Tagline:** "INTELLIGENT · SECURE · AUTONOMOUS — 23 fasi · kernel transazionale + LTL + ERL + Lean4 + Sovereign + Cockpit + Workbench v2"
+>
+> **⚠️ Novità v2.0**: Documentazione estesa con Workbench v2 (Release 1.0-1.2). Vedere sezione [21. Workbench v2 (R1.0-1.2)](#21-workbench-v2-r1012) per dettagli su 6 viste workspace, command palette, context panel resizable, cost tracking, branch/share.
 
 ---
 
@@ -30,6 +32,7 @@
 18. [Accessibilità](#18-accessibilità)
 19. [Internazionalizzazione](#19-internazionalizzazione)
 20. [Osservazioni e Raccomandazioni](#20-osservazioni-e-raccomandazioni)
+21. [Workbench v2 (R1.0-1.2)](#21-workbench-v2-r1012)
 
 ---
 
@@ -2365,7 +2368,306 @@ Il product label "SOTA Agentic OS" è invariant across languages. Lo `<html lang
 | `/api/seed` | POST | System initialization |
 | `/api/jobs` | GET | Background jobs |
 | `/api/scalability` | GET | Scalability stats |
+| `/api/console/stream` | POST | SSE streaming (R1.1) |
+| `/api/cost` | GET/POST | Cost stats + budget (R1.1-1.2) |
+| `/api/conversation/branch` | GET/POST | Branch CRUD (R1.2) |
+| `/api/conversation/share` | GET/POST | Share signed URL (R1.2) |
 
 ---
 
-*Documentazione generata il 21 giugno 2026 da analisi completa del codebase `/home/z/my-project`. Tutti i file UI/UX sono stati letti integralmente. Nessuna modifica al codice è stata effettuata durante la produzione di questo documento.*
+## 21. Workbench v2 (R1.0-1.2)
+
+Il SOTA Workbench v2 trasforma l'app da "dashboard tecnico" a "modern agent workbench" competitivo con Claude/Cursor. Implementato in 3 release incrementali (24 giorni totali).
+
+### 21.1 — Shell Layout Ridisegnato
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Topbar (h-14)                                                    │
+│ ┌─────────────────────────────────────────────┬───────────────┐ │
+│ │ Status Bar (6 pillole real-time)            │ Cmd+K │🌙│IT│👤│ │
+│ │ Online · Ciclo · Queue · Threads · Load · Cost               │ │
+│ └─────────────────────────────────────────────┴───────────────┘ │
+├──────────┬──────────────────────────────────────┬───────────────┤
+│          │ WorkspaceViews tab bar (h-9)         │               │
+│          │ ┌──────┬──────┬────────┬──────┬─────┐│               │
+│ Sidebar  │ │Console│Canvas│Timeline│Cockpit│Sov.││ Context Panel │
+│ (w-56/   │ └──────┴──────┴────────┴──────┴─────┘│ (resizable    │
+│  w-14)   ├──────────────────────────────────────┤ w-80 default) │
+│          │                                      │               │
+│ 18 voci  │  Active view content                 │  4 inspector  │
+│ 8 cat.   │  (Console/Canvas/Timeline/           │  dinamici:    │
+│ collapse │   Cockpit/Sovereign/Phase)           │  Quick/Node/  │
+│          │                                      │  Log/Blocked  │
+│          │                                      │               │
+├──────────┴──────────────────────────────────────┴───────────────┤
+│ Footer: "SOTA Agentic OS · v0.9.0 · Workbench v2"               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Differenze vs v1.0**:
+- Topbar ora ospita Status Bar con 6 pillole real-time + Cmd+K trigger
+- WorkspaceViews tab bar sempre visibile (5 viste core + Phase contestuale)
+- Context Panel resizable a destra (desktop) / FAB sheet (mobile)
+- Animazioni Framer Motion per transizioni viste
+
+### 21.2 — Workspace a 6 Viste
+
+| Vista | Icona | Descrizione | Componente |
+|-------|-------|-------------|------------|
+| **Console** | Terminal | Chat conversazionale con SSE streaming | `AgentConsole` |
+| **Canvas** | GitFork | DAG visualizer unificato (DynAMO/Objective/Lean) | `CanvasView` |
+| **Timeline** | Clock | Timeline SVG custom con filtri | `TimelineView` |
+| **Cockpit** | Gauge | Plancia 5-tab (esistente) | `Cockpit` |
+| **Sovereign** | ShieldAlert | Batch supervision blocked actions | `SovereignView` |
+| **Phase** | (dinamica) | Fase corrente (P1-P14 + Tool Manager) | `PhaseView` |
+
+**Tab bar dinamica**: 5 viste core sempre visibili + tab "Phase" contestuale che mostra "P7 Trace Validator" quando si naviga a una fase.
+
+**Animazioni**: `AnimatePresence mode="wait"` con fade + slide 8px, duration 0.2s, ease-out curve `[0.16, 1, 0.3, 1]`.
+
+### 21.3 — Command Palette (Cmd+K)
+
+**Componente**: `src/components/workbench/command-palette.tsx`
+
+Overlay modale attivato da Cmd+K / Ctrl+K con:
+- Ricerca fuzzy custom con scoring (exact > startsWith > word boundary > substring > char-sequence)
+- 34 comandi registrati in 4 categorie:
+  - **Azioni** (5): Nuovo task, Aggiorna dashboard, Genera piano, Cambia tema, Mostra shortcuts
+  - **Viste** (6): Console, Canvas, Timeline, Cockpit, Sovereign, Dashboard
+  - **Fasi** (17): P1-P14 + Tool Manager + Dashboard
+  - **Tool & Utility** (6): Installa tool, Verifica LTL, Verifica Lean4, Step cognitivo, Riflessione, Route prompt
+- Sezione "Recenti" persistita in localStorage (ultimi 5)
+- Keyboard nav: ↑↓ naviga, Enter seleziona, Esc chiude
+- Backdrop con blur + animazioni zoom-in + fade-in
+
+**Registry pattern**: `commandRegistry` singleton con subscribe/notify + `useSyncExternalStore` per React integration.
+
+### 21.4 — Status Bar Persistente
+
+**Componente**: `src/components/workbench/status-bar.tsx`
+
+6 pillole real-time nel topbar:
+
+| Pill | Icona | Dati | Tone |
+|------|-------|------|------|
+| Online/Offline | CheckCircle2/XCircle | `useSensoriumLive` WebSocket | ok/danger |
+| Ciclo #N | Activity | Sensorium snapshot | muted |
+| Queue | Layers | Sensorium queueDepth | ok(<5)/warn(<10)/danger |
+| Threads | Cpu | Sensorium activeThreads | ok(>0)/muted |
+| Load % | Gauge | Sensorium systemLoad | ok(<70)/warn(<90)/danger |
+| Cost $X.XX | DollarSign | `/api/cost` polling 10s | ok(<$1)/warn(<$10)/danger |
+
+**Click su pillola**: Ciclo → command palette, Queue/Threads/Load → Cockpit view, Cost → Cost Breakdown Modal.
+
+**Budget alerts** (R1.2):
+- Warning a $1: toast "⚠️ Budget warning" (8s)
+- Danger a $5: toast "🚨 Budget danger superato" (10s)
+- Fire solo quando si attraversa la soglia (no spam) via `lastAlertRef`
+
+### 21.5 — Context Panel Resizable
+
+**Componente**: `src/components/workbench/context-panel.tsx`
+
+Layout resizable 3-zone con `react-resizable-panels` v4:
+- Desktop: workspace (70%) + context panel (30%) con drag handle
+- Mobile: FAB trigger + slide-up sheet (max-h 85vh)
+
+**4 inspector dinamici** basati su `selectedItem.type`:
+
+| Tipo | Inspector | Contenuto |
+|------|-----------|-----------|
+| `null` (default) | `QuickStats` | 5 sezioni real-time: Sensorium, Memoria & Task, Trust & Safety, Cognitive & Affect, Activity Log |
+| `node` | `NodeInspector` | Dettagli nodo DAG per 3 tipi (dynamo/objective/lean) |
+| `log` | `LogInspector` | Evento timeline con category, level, payload JSON |
+| `blocked` | `BlockedInspector` | Azione bloccata con Axiom Trail + resolution form |
+
+**Auto-open**: quando si seleziona un elemento (click su nodo DAG, evento timeline, blocked action card), il context panel si apre automaticamente.
+
+**Inspector transitions**: `AnimatePresence` con fade (0.15s) quando cambia `selectedItem`.
+
+**Cmd+\ shortcut**: toggle context panel.
+
+### 21.6 — Console Evolution
+
+**Componente**: `src/components/agentic/agent-console.tsx`
+
+#### SSE Streaming (R1.1)
+
+- `send()` riscritto per usare `fetch()` con `ReadableStream` reader
+- Parser SSE custom che processa eventi separati da `\n\n`
+- Eventi: `plan_start/chunk/complete`, `task_start/chunk/complete`, `reflection_start/complete`, `error`, `done`
+- Il messaggio assistant viene creato vuoto e aggiornato progressivamente via `updateAssistant()`
+
+#### Stop Button
+
+- Icona `Square` sostituisce `Loader2` spinner durante esecuzione
+- Click → `AbortController.abort()` → backend rileva `req.signal.aborted` → interrompe graceful
+- Messaggio: "⏹ Esecuzione interrotta dall'utente"
+- Helper text dinamico: "Invio per eseguire · Shift+Invio per nuova riga · Click ■ per interrompere"
+
+#### Inline Actions (5 azioni)
+
+Hover su messaggio mostra toolbar con:
+
+| Azione | Icona | User msg | Assistant msg | Descrizione |
+|--------|-------|----------|---------------|-------------|
+| Copy | Copy | ✅ | ✅ | Copia testo negli appunti |
+| Retry | RotateCcw | ✅ | ❌ | Tronca history + re-invia |
+| Edit | Pencil | ✅ | ❌ | Carica testo in textarea + tronca |
+| Branch | GitBranch | ✅ | ❌ | Fork conversazione da qui (R1.2) |
+| Share | Share2 | ✅ | ✅ | Genera link condivisibile (R1.2) |
+
+#### Attachment Preview
+
+Auto-detect nel testo messaggi:
+- **Immagini** (jpg/png/gif/webp/svg) → thumbnail + click-to-zoom modal
+- **JSON blocks** (```json ... ```) → collapsible card con count nodi
+- **Code blocks** (```lang ... ```) → card con header lang + expand
+- **URLs** → link card con hostname
+
+#### Drag-drop Files (R1.1)
+
+- Input bar supporta drag-over con highlight visivo (border-primary/40 + bg-primary/5)
+- Drop handler: immagini → `[image: filename.png]`, altri → `[file: filename.ext]`
+- Toast feedback "N file aggiunti al prompt"
+
+### 21.7 — Canvas View (DAG Unificato)
+
+**Componente**: `src/components/workbench/canvas-view.tsx` (619 righe)
+
+3 tipi DAG switchabili via tab bar:
+- **DynAMO Plan** — carica piani da `/api/plan`, usa `DynAMODagVisualizer`
+- **Objective Tree** — carica alberi da `/api/objective`, usa `ObjectiveTreeVisualizer`
+- **Lean Workflow** — carica workflow da `/api/lean`, usa `LeanWorkflowVisualizer`
+
+**Entity selector dropdown**: seleziona quale piano/albero/workflow visualizzare.
+
+**Status filter** (5): Tutti / Done / Running / Failed / Pending.
+
+**Click su nodo** → `setSelectedItem({ type: 'node', view: 'canvas', id, meta: { dagType, planId, treeId, workflowId } })` → context panel si apre con NodeInspector.
+
+### 21.8 — Timeline View (Custom SVG)
+
+**Componente**: `src/components/workbench/timeline-view.tsx` (542 righe)
+
+Custom SVG (no libreria esterna) con:
+- Lane-based layout: ogni agente ha una lane orizzontale
+- Eventi posizionati per tempo (X) e lane (Y)
+- 7 categorie eventi colorate: plan (violet), execute (emerald), verify (red), block (amber), resolve (emerald), reflect (pink), info (sky)
+- 5 time ticks con timestamp localizzato it-IT
+- Hover tooltips HTML overlay
+- Click evento → detail panel in basso + `setSelectedItem({ type: 'log', ... })`
+- Connecting polyline tra eventi cronologici
+
+**3 filtri dropdown**: Fase (Tutte + P1-P14), Agente (derivato dai log), Livello (Tutti/Info/Warn/Error).
+
+### 21.9 — Sovereign View (Batch Supervision)
+
+**Componente**: `src/components/workbench/sovereign-view.tsx` (460 righe)
+
+Coesiste con il modal auto-open (decisione architetturale):
+- **Modal** (reattivo): si auto-apre su `action_blocked`, gestisce risoluzione immediata
+- **View** (proattivo): batch supervision, risoluzione multipla
+
+**6 stat tile**: Totale / Pending / Approvate / Rifiutate / Modificate / Declassate.
+
+**2 filtri**: Status (Tutte/Pending/Risolte) + Source (Tutte/LTL/Taint/Normative/HITL).
+
+**Blocked action cards** espandibili con:
+- Source badge colorato, agent ID, status badge, timestamp
+- Action text, readable explanation, Axiom Trail con step numerati
+- Resolution form (se pending): Textarea nota + 4 bottoni (Approva/Modifica/Declassa/Rifiuta)
+
+**Batch approve all**: button "Approva tutte (N)" con modale di conferma.
+
+### 21.10 — Cost Breakdown Modal (R1.2)
+
+**Componente**: `src/components/workbench/cost-breakdown-modal.tsx` (290 righe)
+
+Modale 5 tab accessibile cliccando la Cost pill:
+
+| Tab | Contenuto |
+|-----|-----------|
+| **Riepilogo** | 3 stat card (Totale/Oggi/Settimana) + budget progress bar + tokens I/O + Top 3 contributor |
+| **Per Agente** | Lista con barre di progresso relative per ogni agente |
+| **Per Modello** | Breakdown per modello LLM con count chiamate |
+| **Per Fase** | Breakdown per fase (plan_generation, task_execution, ecc.) |
+| **Recenti** | Ultime 30 voci di costo con timestamp, tokens, model, phase |
+
+Esc to close, backdrop click to close, body scroll lock.
+
+### 21.11 — Branch & Share (R1.2)
+
+#### Branch Conversation
+
+Click su `GitBranch` icon (user messages only):
+1. Trova indice messaggio, slice messaggi fino a quello
+2. POST `/api/conversation/branch` con snapshot
+3. `ConversationBranch` creata con `messagesJson` snapshot
+4. Toast: "Branch creato: {branchId} · N messaggi forkati"
+
+#### Share Conversation
+
+Click su `Share2` icon (all messages):
+1. POST `/api/conversation/share` con `expiresInHours: 168` (7 giorni)
+2. Backend genera token random (128-bit hex), crea `SharedConversation`
+3. Link `http://localhost:3000/share/{token}` copiato negli appunti
+4. Toast: "Link condivisibile copiato! {url} · Scade tra 7 giorni"
+
+#### Public Share Route
+
+`/share/[token]` — pagina pubblica no-auth:
+- Header con logo SOTA + titolo + view count + badge "Shared"
+- Thread messaggi con avatar brand (same styling as Console)
+- Footer con expiration + creation date
+- Loading/error states
+
+### 21.12 — Keyboard Shortcuts
+
+| Shortcut | Azione | Contesto |
+|----------|--------|----------|
+| `Cmd+K` / `Ctrl+K` | Toggle command palette | Globale |
+| `Cmd+\` / `Ctrl+\` | Toggle context panel | Globale |
+| `Esc` | Chiudi palette / modale | Palette / modale |
+| `↑` `↓` + `Enter` | Naviga command palette | Palette |
+| `Enter` | Invia task | Console textarea |
+| `Shift+Enter` | Nuova riga | Console textarea |
+| Click ■ | Interrompi esecuzione | Console (durante streaming) |
+
+### 21.13 — Animazioni & Micro-interazioni
+
+**Framer Motion** (limitato ad AnimatePresence come da decisione architetturale):
+- `ViewTransition` — fade + slide 8px per transizioni viste (0.2s)
+- `InspectorTransition` — fade tra inspector nel context panel (0.15s)
+
+**Micro-interazioni Tailwind**:
+- `active:scale-95` su tutti i button interattivi (tab, topbar, status pills, context panel close)
+- `transition-all` (era `transition-colors`) per animare scale + color
+- `hover:bg-accent/40` per tab non attivi
+- `hover:border-primary/30` per card selezionabili
+
+**Skeleton loaders** (7 preset in `src/components/workbench/skeletons.tsx`):
+- 4 inspector skeleton (QuickStats, Node, Log, Blocked)
+- 3 view skeleton (Canvas, Timeline, Sovereign)
+- Tutti i `Loader2 animate-spin` sostituiti con skeleton strutturati
+
+### 21.14 — Metriche UI/UX R1.0-1.2
+
+| Metrica | Valore |
+|---------|--------|
+| File in `src/components/workbench/` | 18 |
+| Righe di codice workbench | ~4.500 |
+| Viste workspace | 6 (Console/Canvas/Timeline/Cockpit/Sovereign/Phase) |
+| Inspector dinamici | 4 (Quick/Node/Log/Blocked) |
+| Comandi command palette | 34+ |
+| Inline actions per user msg | 5 (Copy/Retry/Edit/Branch/Share) |
+| Inline actions per assistant msg | 2 (Copy/Share) |
+| Status bar pillole | 6 (Online/Ciclo/Queue/Threads/Load/Cost) |
+| Keyboard shortcuts | 6 |
+| Skeleton loaders | 7 |
+| Nuove dipendenze | 3 (cmdk, framer-motion, react-resizable-panels) |
+
+---
+
+*Documentazione UI/UX aggiornata il 22 giugno 2026 per Release 1.2. Versione 2.0 — Workbench v2 completo.*

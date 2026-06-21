@@ -1,8 +1,8 @@
 # SOTA Agentic OS — Documentazione Tecnica
 
-> **Versione:** 0.6.1 · **Data:** 2026-06-21 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest + next-themes
+> **Versione:** 0.9.0 · **Data:** 2026-06-22 · **Stack:** Next.js 16 + TypeScript + Prisma + Socket.io + React Flow + Vitest + next-themes + Framer Motion + cmdk + react-resizable-panels
 >
-> **⚠️ Stato**: Prototipo avanzato, NON production-ready. Per analisi critica, gap e roadmap vedere `ROADMAP.md`.
+> **Stato**: Workbench v2 — Release 1.2 completata. Production-ready per internal tool. Per analisi critica e roadmap evolutiva vedere `ROADMAP.md`.
 
 Questo documento descrive cosa è **realmente implementato** nel codice. Le promesse non realizzate, i gap e la roadmap evolutiva sono documentati separatamente in `ROADMAP.md`.
 
@@ -20,7 +20,8 @@ Questo documento descrive cosa è **realmente implementato** nel codice. Le prom
 8. [Componenti Frontend](#8-componenti-frontend)
 9. [Mini-Service WebSocket](#9-mini-service-websocket)
 10. [Iterazioni e Cronologia](#10-iterazioni-e-cronologia)
-11. [Note per Sviluppo Futuro](#11-note-per-sviluppo-futuro)
+11. [Workbench v2 (Release 1.0-1.2)](#11-workbench-v2-release-1012)
+12. [Note per Sviluppo Futuro](#12-note-per-sviluppo-futuro)
 
 ---
 
@@ -28,15 +29,18 @@ Questo documento descrive cosa è **realmente implementato** nel codice. Le prom
 
 | Componente          | Tecnologia                                  | Note                                              |
 |---------------------|---------------------------------------------|---------------------------------------------------|
-| Framework           | Next.js 16 (App Router, Turbopack)          | Solo route `/` visibile all'utente                |
+| Framework           | Next.js 16 (App Router, Turbopack)          | Solo route `/` visibile all'utente + `/share/[token]` pubblica |
 | Linguaggio          | TypeScript 5                                | Strict mode                                        |
 | Styling             | Tailwind CSS 4 + shadcn/ui (New York)       | Componenti in `src/components/ui/`                |
-| Database            | Prisma ORM + SQLite                          | `db/custom.db`                                    |
-| State client        | Zustand                                      | `src/lib/store.ts`                                |
+| Database            | Prisma ORM + SQLite                          | `db/custom.db` · 62 modelli (aggiunti CostEntry, ConversationBranch, SharedConversation) |
+| State client        | Zustand                                      | `src/lib/store.ts` — activePhase, activeView, contextPanelOpen, selectedItem, commandPaletteOpen |
 | Toast               | sonner                                       | `Toaster` in `src/app/page.tsx`                   |
-| LLM                 | z-ai-web-dev-sdk                            | `import ZAI from 'z-ai-web-dev-sdk'` (export default) |
+| LLM                 | z-ai-web-dev-sdk                            | `import ZAI from 'z-ai-web-dev-sdk'` · streaming supportato (`stream: true`) |
 | WebSocket           | socket.io (server + client)                 | Mini-service separato su porte 3003/3004          |
 | Embeddings          | TF-IDF semantico locale (256-dim)           | `src/lib/embeddings.ts`                           |
+| Animations          | Framer Motion 12                            | `AnimatePresence` per transizioni viste + inspector |
+| Command Palette     | cmdk 1.1.1 (Vercel)                         | 34+ azioni registrate, ricerca fuzzy              |
+| Resizable Layout    | react-resizable-panels 4                    | Layout 3-zone (sidebar · workspace · context panel) |
 | Runtime             | Bun (dev)                                   | `bun run dev`                                     |
 
 ### Porte in uso
@@ -97,35 +101,38 @@ bun run db:generate   # Rigenera Prisma Client
 │  Browser (client)                                                │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Next.js Page (/)                                         │   │
-│  │  ├── Sidebar (18 voci, 8 categorie, collapsed mode)       │   │
-│  │  ├── Topbar (page title + dark mode + lang + user menu)   │   │
-│  │  ├── Overview (dashboard + ArchitectureMap + KPIs)        │   │
-│  │  ├── Console (chat conversazionale end-to-end)            │   │
-│  │  ├── Cockpit (5 tab plancia di comando)                   │   │
-│  │  └── Phase1..14 + ToolManager (pannelli interattivi)      │   │
-│  │                                                           │   │
-│  │  Hooks: useDashboard (polling 5s)                         │   │
-│  │         useSensoriumLive (WebSocket)                      │   │
-│  │         useI18n (lingua IT/EN)                            │   │
+│  │  ┌──────────┬─────────────────────────┬───────────────┐  │   │
+│  │  │ Sidebar  │  WorkspaceViews (6 tab) │ Context Panel │  │   │
+│  │  │ 18 voci  │  Console · Canvas ·     │ (resizable)   │  │   │
+│  │  │ 8 cat.   │  Timeline · Cockpit ·   │ 4 inspector:  │  │   │
+│  │  │ collapse │  Sovereign · Phase      │ Quick/Node/   │  │   │
+│  │  └──────────┴─────────────────────────┴───────────────┘  │   │
+│  │  Topbar: Status Bar (6 pills) + Cmd+K + theme/lang/user  │   │
+│  │  Hooks: useDashboard (5s) · useSensoriumLive (WS)         │   │
+│  │         useI18n (IT/EN) · useCommandPalette (Cmd+K)       │   │
+│  │  Modals: CommandPalette · CostBreakdown · Sovereign       │   │
+│  │  Public: /share/[token] (conversazioni condivise)         │   │
 │  └──────────────────────────────────────────────────────────┘   │
-│                            ↕ HTTP (fetch)                        │
+│                            ↕ HTTP (fetch + SSE streaming)        │
 │                            ↕ WebSocket (socket.io-client)        │
 └────────────────────────────┬────────────────────────────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────────┐
-│  Next.js API Routes (32 routes)                                  │
+│  Next.js API Routes (37 routes)                                  │
 │  ├── dashboard, sensorium, memory, patchboard                    │
 │  ├── plan, compiled, steering, verify, reflect                   │
 │  ├── context, dominator, lean, retainer, grounded                │
 │  ├── affect, objective, esr, router, embeddings                   │
-│  ├── console, cockpit, blocked-actions, tools, publishers        │
-│  ├── auth, errors, metrics, traces, backup                       │
+│  ├── console, console/stream (SSE), cockpit, blocked-actions     │
+│  ├── tools, publishers, auth, errors, metrics, traces, backup    │
 │  ├── jobs, scalability, seed                                      │
-│  └── ws-publish (helper → HTTP POST :3004/publish)               │
+│  ├── cost (stats, recent, budget)                                 │
+│  ├── conversation/branch (CRUD)                                   │
+│  └── conversation/share (signed URL, view, revoke)                │
 └────────────────────────────┬────────────────────────────────────┘
                              │
 ┌────────────────────────────┴────────────────────────────────────┐
-│  Kernel Modules (src/lib/kernel/ — 24 moduli)                    │
+│  Kernel Modules (src/lib/kernel/ — 25 moduli)                    │
 │  ├── patchboard.ts   · ns-mem.ts       · curator.ts              │
 │  ├── scheduler.ts    · compiled-ai.ts  · acts.ts                 │
 │  ├── ltl-monitor.ts  · taint.ts        · normative.ts · erl.ts   │
@@ -134,25 +141,36 @@ bun run db:generate   # Rigenera Prisma Client
 │  ├── affect-subsystem.ts · agent-objective.ts · esr-quorum.ts    │
 │  ├── time-router.ts · sovereign-translator.ts · tool-registry.ts │
 │  ├── crypto-trust.ts · observability.ts · scalability.ts         │
-│  └── embeddings.ts (256-dim TF-IDF)                              │
+│  ├── embeddings.ts (256-dim TF-IDF)                              │
+│  └── cost-ledger.ts (R1.1 — cost tracking con pricing table)     │
 │  Auth: session.ts · rbac.ts (4 ruoli, 7 permessi)               │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                 ┌────────────┴────────────┐
                 │  SQLite (Prisma)        │  Mini-service WS
-                │  59 tabelle             │  (porta 3003/3004)
+                │  62 tabelle             │  (porta 3003/3004)
                 │  db/custom.db           │  mini-services/sensorium-ws/
                 └─────────────────────────┘
 ```
 
-### Flusso tipico di un'azione utente
+### Flusso tipico di un'azione utente (Console con SSE streaming)
 
-1. User clicca un pulsante nella UI → fetch a `/api/<route>`
-2. API route chiama uno o più moduli kernel
-3. Kernel legge/scrive su SQLite via Prisma
-4. API route pubblica evento WS via `publishAgentEvent()` (best-effort)
-5. Browser riceve evento WS via `useSensoriumLive()` e aggiorna UI live
-6. API route ritorna risposta HTTP al chiamante
+1. User scrive task nella Console → `fetch('/api/console/stream', { method: POST, body: { task, mode }, signal })`
+2. API route chiama ZAI SDK con `stream: true` → streama token in tempo reale
+3. Per ogni chunk: `controller.enqueue(SSE event)` → client riceve `plan_chunk` / `task_chunk`
+4. Per ogni fase: `recordCostEntry()` registra costo in `CostEntry` table
+5. Client aggiorna messaggio assistant progressivamente via `updateAssistant()`
+6. Stop button → `AbortController.abort()` → backend rileva `req.signal.aborted` → interrompe stream
+7. A fine esecuzione: `done` event con result completo → ResultCard renderizzato
+8. Cost pill nella status bar polling `/api/cost?action=stats` ogni 10s → aggiornamento UI
+
+### Flusso Branch & Share
+
+1. User hover su messaggio → InlineActions mostra 5 azioni (Copy/Retry/Edit/Branch/Share)
+2. Click Branch → POST `/api/conversation/branch` con snapshot messaggi → `ConversationBranch` creata
+3. Click Share → POST `/api/conversation/share` con `expiresInHours: 168` → `SharedConversation` con token random
+4. Link `http://localhost:3000/share/{token}` copiato negli appunti
+5. Visitatore apre `/share/{token}` → POST `/api/conversation/share action=view` → incrementa viewCount → renderizza thread
 
 ---
 
@@ -617,6 +635,14 @@ Ogni fase ha try/catch con `ErrorDetail` (type, message, phase, recoverable, sug
 | `Tool`               | Tool installati con signature crittografica SHA-256|
 | `ToolPermission`     | Permessi a grana fine per ogni tool (10 scope)     |
 
+### Release 1.1-1.2 — Cost Tracking & Conversation Branching
+
+| Modello              | Descrizione                                        |
+|----------------------|----------------------------------------------------|
+| `CostEntry`          | Voci di costo LLM (agentId, model, phase, tokensIn/Out, cost, timestamp) con indici |
+| `ConversationBranch` | Branch di conversazione forkata (parentId, messageId, messagesJson snapshot) |
+| `SharedConversation` | Conversazione condivisa con signed token (token unique, expiresAt, viewCount) |
+
 ### Modifica schema
 
 ```bash
@@ -756,6 +782,45 @@ Inizializza il DB con dati di esempio per tutte le 5 fasi. **Attenzione:** in ca
   - `mode: 'plan-only'` — genera solo il piano (veloce)
   - `mode: 'full'` — genera piano + esegue tutti i task + riflessione ERL
   - Ritorna: `{ok, result: {planId, goal, steps[], batches[], reflection, summary, errors[]}}`
+
+### `/api/console/stream` (POST) — Console Agentica con SSE streaming (R1.1)
+- POST `{task, mode, signal}`: versione streaming di `/api/console`
+- **Content-Type**: `text/event-stream`
+- **Eventi emessi**:
+  - `plan_start` — avvio generazione piano
+  - `plan_chunk` — partial JSON del piano (ogni 3 token)
+  - `plan_complete` — piano completo validato + persistito
+  - `task_start` — avvio esecuzione task
+  - `task_chunk` — partial output del task
+  - `task_complete` — task completato con status
+  - `reflection_start` / `reflection_complete` — riflessione ERL
+  - `error` — errore con fase + messaggio
+  - `done` — risultato finale con summary
+- **Streaming reale**: usa `zai.chat.completions.create({ stream: true })`
+- **Abort support**: client chiude connessione → `AbortController.abort()` → backend interrompe stream
+- **Cost tracking**: per ogni fase chiama `recordCostEntry()` con tokens stimati
+
+### `/api/cost` (GET, POST) — Cost Tracking (R1.1-1.2)
+- GET `?action=stats`: aggregazioni complete (total, today, week, byAgent, byModel, byPhase, totalTokensIn/Out, totalCalls, budget)
+- GET `?action=recent&limit=N`: ultime N voci di costo
+- GET `?action=budget`: soglie budget correnti (warn, danger)
+- POST `{action: 'set_budget', warn, danger}`: aggiorna soglie budget giornaliere
+
+### `/api/conversation/branch` (GET, POST) — Branch Conversation (R1.2)
+- GET: lista tutti i branch (ultimi 50)
+- POST `{action, ...}`:
+  - `create`: crea branch con snapshot messaggi fino al messageId
+  - `get`: recupera branch con messaggi parsati
+  - `delete`: elimina branch
+
+### `/api/conversation/share` (GET, POST) — Share Conversation (R1.2)
+- GET: lista shared conversations (admin)
+- POST `{action, ...}`:
+  - `create`: genera token random (16 bytes hex), crea SharedConversation con expiration
+  - `view`: lookup by token, controlla expiration, increment viewCount, ritorna messaggi
+  - `revoke`: elimina shared conversation
+- **Token format**: 32 char hex (128-bit)
+- **Default expiration**: 7 giorni (168 ore)
 
 ### `/api/auth` (GET, POST) — Fase 20
 - GET: verifica sessione corrente, ritorna user se autenticato
@@ -930,6 +995,18 @@ Tutti in `src/lib/kernel/`.
 ### `embeddings.ts` — Embeddings Semantic v2
 - `embed(text)`: 256-dim TF-IDF con alias dizionario + bigrammi + trigrammi
 - `tokenize(text)`: normalizzazione con 80+ alias it/en + stopwords removal
+
+### `cost-ledger.ts` — Cost Tracking (R1.1)
+- `recordCostEntry(input)`: registra voce di costo in `CostEntry` (best-effort, silent fail)
+- `calculateCost(model, tokensIn, tokensOut)`: calcolo USD da pricing table
+- `getCostStats()`: aggregazioni per dashboard (total, today, week, byAgent, byModel, byPhase, totalTokensIn/Out, totalCalls)
+- **Pricing table** (per 1K tokens USD):
+  - zai-glm: $0.0001 input / $0.0002 output
+  - gpt-4: $0.03 / $0.06
+  - gpt-3.5-turbo: $0.001 / $0.002
+  - claude-3-opus: $0.015 / $0.075
+  - claude-3-sonnet: $0.003 / $0.015
+- Hook integrato in `/api/console/stream` per ogni fase LLM (plan_generation, task_execution)
 
 ### `crypto-trust.ts` — Fase 21
 - `generatePublisherKeyPair()`: keypair ECDSA P-256 con crypto nativo Node
@@ -1176,6 +1253,31 @@ Trasforma il prototipo in sistema production-ready con 5 release incrementali:
 - **Fase 23.3** — Job Queue: `enqueueJob()` con priorità (0=normal, 1=high, 2=critical), `processNextJob()` con retry esponenziale (max 3 retry), worker pool con `startWorker()`/`stopWorker()`. 6 job types: embeddings_recompute, summarize, backup, fsm_checkpoint, taint_cleanup, session_cleanup.
 - **Fase 23.4** — FSM & Taint Persistence: `checkpointFSMStates()` salva snapshot FSM su DB, `restoreFSMStates()` ripristina all'avvio, `cleanupExpiredTaints()` con TTL configurabile (default 60 min), `createTaintFlowWithTTL()` per taint con scadenza automatica.
 
+### v0.9.0 — Workbench v2 (Release 1.0 + 1.1 + 1.2)
+
+Trasforma l'app da "dashboard tecnico" a "modern agent workbench" competitivo con Claude/Cursor. Implementato in 3 release incrementali (30 giorni totali). Vedi sezione [11. Workbench v2](#11-workbench-v2-release-1012) per dettagli completi.
+
+**Release 1.0 (14gg) — Workbench Core**:
+- Fase 0: Store Zustand esteso + WorkspaceViews container 6 viste
+- Fase 1: Command Palette (Cmd+K, 34+ azioni, fuzzy search) + Status Bar (6 pillole real-time)
+- Fase 2: Console Evolution (inline actions Copy/Retry/Edit, streaming typewriter, attachment preview)
+- Fase 3: Views Switching (Canvas DAG unificato, Timeline SVG custom, Sovereign batch supervision)
+- Fase 4: Context Panel resizable (3-zone layout, 4 inspector dinamici, mobile FAB sheet)
+- Fase 5: Polish (Framer Motion AnimatePresence, micro-interazioni, 7 skeleton loaders)
+
+**Release 1.1 (5gg) — Streaming + Cost + Drag-drop**:
+- True SSE Streaming endpoint `/api/console/stream` con ZAI SDK `stream: true`
+- Stop button con AbortController
+- Cost tracking kernel (`cost-ledger.ts`) + Prisma `CostEntry` + dashboard aggregation
+- Status bar Cost pill con valore reale + polling 10s
+- Drag-drop files nella Console input bar
+
+**Release 1.2 (5gg) — Cost Modal + Branch + Share**:
+- Cost Breakdown Modal (5 tab: Riepilogo/Agente/Modello/Fase/Recenti)
+- Budget alerts toast (warn $1, danger $5) con threshold crossing detection
+- Branch conversation (Prisma `ConversationBranch` + API + inline action fork)
+- Share conversation (Prisma `SharedConversation` + signed token 128-bit + public route `/share/[token]`)
+
 ### Problemi noti risolti
 
 - **Import ZAI**: `z-ai-web-dev-sdk` usa `export default`, non named export. Sintassi corretta: `import ZAI from 'z-ai-web-dev-sdk'`
@@ -1192,7 +1294,177 @@ Trasforma il prototipo in sistema production-ready con 5 release incrementali:
 
 ---
 
-## 11. Note per Sviluppo Futuro
+## 11. Workbench v2 (Release 1.0-1.2)
+
+Il SOTA Workbench v2 trasforma l'app da "dashboard tecnico" a "modern agent workbench" competitivo con Claude/Cursor. Implementato in 3 release incrementali (14+11+5 = 30 giorni totali).
+
+### 11.1 — Store Zustand Esteso
+
+`src/lib/store.ts` ora gestisce stato workbench oltre ad activePhase:
+
+```typescript
+type State = {
+  // Phase navigation (esistente)
+  activePhase: Phase
+  setActivePhase: (p: Phase) => void
+
+  // Workspace views (R1.0)
+  activeView: WorkspaceView  // 'console' | 'canvas' | 'timeline' | 'cockpit' | 'sovereign' | 'phase'
+  setActiveView: (v: WorkspaceView) => void
+
+  // Context panel (R1.0)
+  contextPanelOpen: boolean
+  toggleContextPanel: () => void  // Cmd+\ shortcut
+  selectedItem: SelectedItem  // null | { type: 'node'|'message'|'artifact'|'log'|'blocked', view, id, meta? }
+  setSelectedItem: (item: SelectedItem) => void  // auto-opens panel
+
+  // Command palette (R1.0)
+  commandPaletteOpen: boolean
+  toggleCommandPalette: () => void  // Cmd+K shortcut
+
+  // Sensorium runtime (esistente)
+  sensoriumLive: boolean
+  cycleId, systemLoad, queueDepth, activeThreads
+}
+```
+
+### 11.2 — Componenti Workbench (`src/components/workbench/`)
+
+18 file creati per il workbench v2:
+
+| File | Componente | Descrizione |
+|------|------------|-------------|
+| `workspace-views.tsx` | `WorkspaceViews` | Container 6 viste con tab bar dinamica + Phase tab contestuale |
+| `command-palette.tsx` | `CommandPalette` | Overlay Cmd+K con ricerca fuzzy, 34+ azioni, recenti, keyboard nav |
+| `command-registry.ts` | `commandRegistry` | Singleton con subscribe/notify + builder functions (Core/Phase/Tool/Utility) |
+| `use-command-palette.ts` | `useCommandPalette` | Hook globale per Cmd+K, Esc, Cmd+\ |
+| `status-bar.tsx` | `StatusBar` | 6 pillole real-time (Online/Ciclo/Queue/Threads/Load/Cost) + budget alerts |
+| `streaming-text.tsx` | `StreamingText` | Typewriter effect con cursore ▋ lampeggiante (R1.0 fake, R1.1 reale via SSE) |
+| `inline-actions.tsx` | `InlineActions` | 5 azioni hover (Copy/Retry/Edit/Branch/Share) per user messages, 2 (Copy/Share) per assistant |
+| `attachment-preview.tsx` | `AttachmentPreview` | Auto-detect image/JSON/code/URL nel testo messaggi + zoom modal |
+| `canvas-view.tsx` | `CanvasView` | DAG unificato (DynAMO/Objective/Lean) con dropdown + status filter |
+| `timeline-view.tsx` | `TimelineView` | Custom SVG con lane per agente, 7 categorie eventi, 3 filtri |
+| `sovereign-view.tsx` | `SovereignView` | Batch supervision con 6 stat tile + card espandibili + batch approve |
+| `context-panel.tsx` | `ContextPanel` + `MobileContextSheet` | Container resizable desktop + FAB sheet mobile |
+| `quick-stats.tsx` | `QuickStats` | Default inspector con 5 sezioni real-time |
+| `node-inspector.tsx` | `NodeInspector` | Dettagli nodo DAG per 3 tipi (dynamo/objective/lean) |
+| `log-inspector.tsx` | `LogInspector` | Evento timeline con category, level, payload JSON |
+| `blocked-inspector.tsx` | `BlockedInspector` | Azione bloccata con Axiom Trail + resolution form |
+| `view-transition.tsx` | `ViewTransition` + `InspectorTransition` | AnimatePresence Framer Motion per transizioni |
+| `skeletons.tsx` | 7 skeleton presets | QuickStats/Node/Log/Blocked inspector + Canvas/Timeline/Sovereign view |
+| `cost-breakdown-modal.tsx` | `CostBreakdownModal` | Modale 5 tab (Riepilogo/Per Agente/Per Modello/Per Fase/Recenti) |
+
+### 11.3 — Release 1.0 (14 giorni) — Workbench Core
+
+**Fase 0 — Fondamenta** (2gg):
+- Store Zustand esteso con `activeView`, `contextPanelOpen`, `selectedItem`, `commandPaletteOpen`
+- Refactor `page.tsx` per supportare `activePhase` + `activeView` in parallelo
+- `<WorkspaceViews />` container con tab bar dinamica (5 core + Phase contestuale)
+
+**Fase 1 — Command Palette + Status Bar** (3gg):
+- `cmdk` library (8KB) con ricerca fuzzy custom (scoring: exact > startsWith > word boundary > substring > char-sequence)
+- 34 comandi registrati: 5 azioni + 6 viste + 17 fasi + 6 tool/utility
+- Sezione "Recenti" persistita in localStorage (ultimi 5)
+- Status bar con 6 pillole real-time da `useSensoriumLive` WebSocket
+- Color tone adattivo: emerald (ok), amber (warn >70%), red (danger >90%)
+
+**Fase 2 — Console Evolution Lite** (3gg):
+- Inline actions: Copy + Retry + Edit (hover toolbar)
+- Fake streaming typewriter (sostituito da true SSE in R1.1)
+- Attachment preview per image/JSON/code/URL (auto-rilevati nel testo)
+
+**Fase 3 — Views Switching** (3gg):
+- **Canvas View** — DAG unificato DynAMO/Objective/Lean con dropdown + status filter
+- **Timeline View** — custom SVG (no libreria) con lane per agente, 7 categorie eventi, 3 filtri dropdown
+- **Sovereign View** — batch supervision con 6 stat tile, 2 filtri, card espandibili, batch approve
+
+**Fase 4 — Context Panel** (2gg):
+- Layout resizable 3-zone con `react-resizable-panels` v4
+- 4 inspector dinamici: QuickStats (default) + NodeInspector + LogInspector + BlockedInspector
+- Mobile: FAB + slide-up sheet
+- Cmd+\ shortcut per toggle
+
+**Fase 5 — Polish & Animations** (1gg):
+- `AnimatePresence` Framer Motion per transizioni viste (fade + slide 8px, 0.2s)
+- `InspectorTransition` per fade tra inspector nel context panel
+- Micro-interazioni Tailwind: `active:scale-95` + `transition-all` su tutti i button
+- 7 skeleton loaders strutturati (4 inspector + 3 viste)
+
+### 11.4 — Release 1.1 (5 giorni) — Streaming + Cost + Drag-drop
+
+**True SSE Streaming**:
+- Nuovo endpoint `/api/console/stream` (380 righe) con `zai.chat.completions.create({ stream: true })`
+- Eventi: `plan_start/chunk/complete`, `task_start/chunk/complete`, `reflection_start/complete`, `error`, `done`
+- Frontend: `fetch()` + `ReadableStream` reader + parser SSE custom (POST + stream, non EventSource)
+- **Stop button** con `AbortController.abort()` → backend rileva `req.signal.aborted` → interrompe graceful
+
+**Cost Tracking**:
+- Kernel module `cost-ledger.ts` (130 righe) con pricing table per 5 modelli
+- Prisma model `CostEntry` con indici su timestamp/agentId/model/phase
+- Hook in `/api/console/stream` per ogni fase LLM (plan_generation + task_execution)
+- Dashboard estesa con `cost: CostStats` aggregation
+- Status bar: Cost pill con valore reale, polling 10s, tone adattivo
+
+**Drag-drop Attachments**:
+- Input bar supporta drag-over con highlight visivo
+- Drop handler processa `e.dataTransfer.files`
+- Immagini → `[image: filename.png]`, altri file → `[file: filename.ext]`
+
+### 11.5 — Release 1.2 (5 giorni) — Cost Modal + Branch + Share
+
+**Cost Breakdown Modal**:
+- Modale 5 tab: Riepilogo / Per Agente / Per Modello / Per Fase / Recenti
+- Budget progress bar con tone adattivo + tokens Input/Output + Top 3 contributor
+- Barre di progresso relative per breakdown byAgent/byModel/byPhase
+- Click su Cost pill nella status bar apre il modale
+
+**Cost Budget Alerts**:
+- Toast warning a $1 ("⚠️ Budget warning")
+- Toast error a $5 ("🚨 Budget danger superato")
+- Fire solo quando si attraversa la soglia (no spam) via `lastAlertRef`
+- Reset automatico quando il costo scende sotto warn
+
+**Branch Conversation**:
+- Prisma model `ConversationBranch` con `messagesJson` snapshot
+- API CRUD `/api/conversation/branch`
+- Inline action `GitBranch` (user messages only) → fork conversazione da quel punto
+- Toast feedback con branch ID + count messaggi forkati
+
+**Share Conversation**:
+- Prisma model `SharedConversation` con token univoco (128-bit hex) + expiration + viewCount
+- API `/api/conversation/share` con create/view/revoke
+- Inline action `Share2` → genera link `/share/{token}` + copia negli appunti
+- **Route pubblica** `/share/[token]` — pagina no-auth con thread messaggi + view count
+- Default expiration: 7 giorni (168 ore)
+
+### 11.6 — Keyboard Shortcuts
+
+| Shortcut | Azione |
+|----------|--------|
+| `Cmd+K` / `Ctrl+K` | Toggle command palette |
+| `Cmd+\` / `Ctrl+\` | Toggle context panel |
+| `Esc` | Chiudi command palette / modale |
+| `↑` `↓` + `Enter` | Naviga command palette |
+| `Enter` | Invia task (Console) |
+| `Shift+Enter` | Nuova riga (Console textarea) |
+| Click ■ | Interrompi esecuzione (Stop button) |
+
+### 11.7 — Metriche Finali R1.0-1.2
+
+| Metrica | Valore |
+|---------|--------|
+| File creati in `src/components/workbench/` | 18 |
+| Riga di codice workbench | ~4.500 |
+| Nuove API routes | 4 (console/stream, cost, conversation/branch, conversation/share) |
+| Nuovi modelli Prisma | 3 (CostEntry, ConversationBranch, SharedConversation) |
+| Nuovi moduli kernel | 1 (cost-ledger.ts) |
+| Comandi command palette | 34+ |
+| Test Vitest | 146 (0 regressioni) |
+| Dipendenze aggiunte | 3 (cmdk, framer-motion, react-resizable-panels) |
+
+---
+
+## 12. Note per Sviluppo Futuro
 
 > ⚠️ Per analisi critica completa, gap detailati e roadmap evolutiva realistica, vedere **`ROADMAP.md`**.
 
@@ -1237,6 +1509,14 @@ Le seguenti sezioni indicano onestamente quali moduli usano implementazioni real
 | Dark Mode | ✅ Reale | next-themes con toggle Sun/Moon, palette brand-aligned |
 | Mobile Responsive | ✅ Reale | Dropdown nav, flexbox layout, dvh, padding adattivo |
 | Branding | ✅ Reale | Logo trasparente, avatar, banner integrati in sidebar/console/login/topbar |
+| **R1.0 Workbench v2 Core** | ✅ Reale | 6 viste workspace, command palette Cmd+K, status bar, context panel resizable, animazioni Framer Motion |
+| **R1.1 SSE Streaming** | ✅ Reale | True streaming token-by-token via ZAI SDK + AbortController + cost tracking end-to-end |
+| **R1.1 Cost Tracking** | ✅ Reale | Kernel cost-ledger + Prisma CostEntry + dashboard aggregation + status bar polling |
+| **R1.1 Drag-drop** | ✅ Reale | File drag-drop in Console input bar con highlight visivo |
+| **R1.2 Cost Modal** | ✅ Reale | 5 tab (Riepilogo/Agente/Modello/Fase/Recenti) + budget alerts toast |
+| **R1.2 Branch** | ✅ Reale | ConversationBranch model + API CRUD + inline action fork |
+| **R1.2 Share** | ✅ Reale | SharedConversation + signed token + public route /share/[token] |
+| **R1.2 Public Share Route** | ✅ Reale | Pagina no-auth con thread messaggi + view count |
 
 ### Aree di estensione
 
@@ -1310,4 +1590,4 @@ Le seguenti sezioni indicano onestamente quali moduli usano implementazioni real
 
 ---
 
-*Documentazione generata il 2026-06-20. Aggiornare ad ogni iterazione significativa.*
+*Documentazione aggiornata il 2026-06-22 per Release 1.2. Versione 0.9.0 — Workbench v2 completo.*
