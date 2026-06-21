@@ -65,6 +65,8 @@ export type SelectedItem =
   | { type: 'node'; view: 'canvas'; id: string; meta?: Record<string, unknown> }
   | { type: 'message'; view: 'console'; id: string; meta?: Record<string, unknown> }
   | { type: 'artifact'; view: 'console'; id: string; meta?: Record<string, unknown> }
+  | { type: 'log'; view: 'timeline'; id: string; meta?: Record<string, unknown> }
+  | { type: 'blocked'; view: 'sovereign'; id: string; meta?: Record<string, unknown> }
   | null
 
 type State = {

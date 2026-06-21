@@ -2,7 +2,7 @@
 
 import { useStore, Phase, WorkspaceView } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Terminal, GitFork, Clock, Gauge, ShieldAlert, LayoutPanelTop } from 'lucide-react'
+import { Terminal, GitFork, Clock, Gauge, ShieldAlert } from 'lucide-react'
 import { AgentConsole } from '@/components/agentic/agent-console'
 import { Cockpit } from '@/components/agentic/cockpit'
 import { Phase1 } from '@/components/agentic/phase1'
@@ -23,6 +23,9 @@ import { ToolManager } from '@/components/agentic/tool-manager'
 import { Overview } from '@/components/agentic/overview'
 import { PHASES } from '@/lib/store'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
+import { CanvasView } from '@/components/workbench/canvas-view'
+import { TimelineView } from '@/components/workbench/timeline-view'
+import { SovereignView } from '@/components/workbench/sovereign-view'
 
 // === View metadata ===
 type ViewMeta = {
@@ -66,35 +69,77 @@ function PhaseView() {
   }
 }
 
-// === Stub views (to be implemented in Fase 3) ===
-function ComingSoonView({ title, description }: { title: string; description: string }) {
+// === Main WorkspaceViews container ===
+export function WorkspaceViews() {
+  const { activeView, activePhase, setActiveView, setActivePhase } = useStore()
+  const { events } = useSensoriumLive()
+
+  // Count pending blocked actions for Sovereign badge
+  // (looking at recent action_blocked events in the live stream)
+  const blockedCount = events.filter(
+    (e) => e.event === 'action_blocked'
+  ).length
+
+  // Show Phase tab when activePhase is a real phase
+  const isPhaseActive = activePhase !== 'overview' && activePhase !== 'console' && activePhase !== 'cockpit'
+
+  const handlePhaseTabClick = () => {
+    // Switch to phase view, keeping current activePhase
+    setActiveView('phase')
+  }
+
   return (
-    <div className="h-full flex items-center justify-center p-8">
-      <div className="text-center max-w-md space-y-3">
-        <div className="size-12 mx-auto rounded-xl bg-primary/10 flex items-center justify-center">
-          <LayoutPanelTop className="size-6 text-primary" />
+    <div className="flex flex-col h-full min-h-0">
+      {/* Tab bar */}
+      <div className="shrink-0 border-b bg-background/95 backdrop-blur">
+        <div className="flex items-center overflow-x-auto no-scrollbar h-9">
+          {VIEWS.map((view) => (
+            <ViewTab
+              key={view.id}
+              view={view}
+              active={activeView === view.id}
+              badge={view.badgeKey === 'sovereign' ? blockedCount : undefined}
+              onClick={() => {
+                if (view.id === 'phase') {
+                  handlePhaseTabClick()
+                } else {
+                  setActiveView(view.id)
+                }
+              }}
+            />
+          ))}
+          {isPhaseActive && (
+            <PhaseTab
+              active={activeView === 'phase'}
+              onClick={handlePhaseTabClick}
+            />
+          )}
+          {/* Spacer to push right-aligned content if needed in future */}
+          <div className="flex-1" />
         </div>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium">
-          <Clock className="size-3" />
-          In arrivo · Fase 3
+      </div>
+
+      {/* Content area */}
+      <div className="flex-1 overflow-hidden min-h-0">
+        <div className={cn(
+          'h-full',
+          // Console needs full-height flex layout
+          (activeView === 'console' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col'
+        )}>
+          {activeView === 'console' && <AgentConsole />}
+          {activeView === 'canvas' && <CanvasView />}
+          {activeView === 'timeline' && <TimelineView />}
+          {activeView === 'cockpit' && <Cockpit />}
+          {activeView === 'sovereign' && <SovereignView />}
+          {activeView === 'phase' && (
+            <div className="h-full overflow-y-auto">
+              <PhaseView />
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
-}
-
-function CanvasView() {
-  return <ComingSoonView title="Canvas" description="DAG visualizer unificato — switch tra DynAMO, Objective Tree e Lean Workflow con dettagli nodo selezionato nel context panel." />
-}
-
-function TimelineView() {
-  return <ComingSoonView title="Timeline" description="Timeline scrubbable degli eventi agent con filtri per fase, agente e livello. Click su evento per saltare al punto nella conversazione." />
-}
-
-function SovereignView() {
-  return <ComingSoonView title="Sovereign" description="Supervisione batch delle azioni bloccate pending e recenti. Filtri per sorgente (LTL, Taint, Normative, HITL) e risoluzione multipla in sequenza." />
 }
 
 // === Tab button ===
@@ -157,75 +202,6 @@ function PhaseTab({ active, onClick }: { active: boolean; onClick: () => void })
         {phase.number > 0 ? `P${phase.number} ` : ''}{phase.name}
       </span>
     </button>
-  )
-}
-
-// === Main WorkspaceViews container ===
-export function WorkspaceViews() {
-  const { activeView, activePhase, setActiveView, setActivePhase } = useStore()
-  const { events } = useSensoriumLive()
-
-  // Count pending blocked actions for Sovereign badge
-  // (looking at recent action_blocked events in the live stream)
-  const blockedCount = events.filter(
-    (e) => e.event === 'action_blocked'
-  ).length
-
-  // Show Phase tab when activePhase is a real phase
-  const isPhaseActive = activePhase !== 'overview' && activePhase !== 'console' && activePhase !== 'cockpit'
-
-  const handlePhaseTabClick = () => {
-    // Switch to phase view, keeping current activePhase
-    setActiveView('phase')
-  }
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Tab bar */}
-      <div className="shrink-0 border-b bg-background/95 backdrop-blur">
-        <div className="flex items-center overflow-x-auto no-scrollbar h-9">
-          {VIEWS.map((view) => (
-            <ViewTab
-              key={view.id}
-              view={view}
-              active={activeView === view.id}
-              badge={view.badgeKey === 'sovereign' ? blockedCount : undefined}
-              onClick={() => {
-                if (view.id === 'phase') {
-                  handlePhaseTabClick()
-                } else {
-                  setActiveView(view.id)
-                }
-              }}
-            />
-          ))}
-          {isPhaseActive && (
-            <PhaseTab
-              active={activeView === 'phase'}
-              onClick={handlePhaseTabClick}
-            />
-          )}
-          {/* Spacer to push right-aligned content if needed in future */}
-          <div className="flex-1" />
-        </div>
-      </div>
-
-      {/* Content area */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className={cn(
-          'h-full',
-          // Console needs full-height flex layout
-          (activeView === 'console' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col'
-        )}>
-          {activeView === 'console' && <AgentConsole />}
-          {activeView === 'canvas' && <CanvasView />}
-          {activeView === 'timeline' && <TimelineView />}
-          {activeView === 'cockpit' && <Cockpit />}
-          {activeView === 'sovereign' && <SovereignView />}
-          {activeView === 'phase' && <PhaseView />}
-        </div>
-      </div>
-    </div>
   )
 }
 

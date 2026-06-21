@@ -181,8 +181,8 @@ function JsonPreview({ content }: { content: string }) {
 
 function countNodes(value: unknown): number {
   if (value === null || typeof value !== 'object') return 1
-  if (Array.isArray(value)) return value.reduce((acc, v) => acc + countNodes(v), 1)
-  return Object.values(value as Record<string, unknown>).reduce((acc, v) => acc + countNodes(v), 1)
+  if (Array.isArray(value)) return value.reduce<number>((acc: number, v: unknown) => acc + countNodes(v), 1)
+  return Object.values(value as Record<string, unknown>).reduce<number>((acc: number, v: unknown) => acc + countNodes(v), 1)
 }
 
 // === Code preview ===
