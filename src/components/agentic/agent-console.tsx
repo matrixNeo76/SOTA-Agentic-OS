@@ -367,6 +367,7 @@ export function AgentConsole() {
                 <MessageBubble
                   key={msg.id}
                   msg={msg}
+                  allMessages={messages}
                   onRetry={handleRetry}
                   onEdit={handleEdit}
                 />
@@ -537,10 +538,12 @@ function WelcomeScreen({ onSuggestion }: { onSuggestion: (s: string) => void }) 
 
 function MessageBubble({
   msg,
+  allMessages,
   onRetry,
   onEdit,
 }: {
   msg: Message
+  allMessages: Message[]
   onRetry?: () => void
   onEdit?: () => void
 }) {
@@ -556,6 +559,8 @@ function MessageBubble({
         <InlineActions
           content={msg.content}
           isUser
+          messageId={msg.id}
+          messages={allMessages}
           onRetry={onRetry}
           onEdit={onEdit}
         />
@@ -589,6 +594,8 @@ function MessageBubble({
       <InlineActions
         content={msg.content}
         isUser={false}
+        messageId={msg.id}
+        messages={allMessages}
       />
     </div>
   )

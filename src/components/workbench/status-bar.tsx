@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, Layers, Cpu, Gauge, DollarSign, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { CostBreakdownModal } from './cost-breakdown-modal'
 
 // === Status pill (single metric) ===
 type Tone = 'ok' | 'warn' | 'danger' | 'muted'
@@ -71,16 +73,40 @@ export function StatusBar() {
   const { sensorium, connected } = useSensoriumLive()
   const { setActiveView, setCommandPaletteOpen } = useStore()
   const [cost, setCost] = useState<number | null>(null)
+  const [budget, setBudget] = useState<{ warn: number; danger: number }>({ warn: 1, danger: 5 })
+  const [showCostModal, setShowCostModal] = useState(false)
+  const lastAlertRef = useRef<{ level: 'warn' | 'danger' | null; cost: number }>({ level: null, cost: 0 })
 
-  // Fetch cost from /api/dashboard (which now includes cost aggregation)
+  // Fetch cost from /api/cost (specific endpoint with budget info)
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
-        const r = await fetch('/api/dashboard')
+        const r = await fetch('/api/cost?action=stats')
         const d = await r.json()
-        if (!cancelled && d?.cost) {
-          setCost(d.cost.today ?? 0)
+        if (!cancelled) {
+          setCost(d.today ?? 0)
+          if (d.budget) setBudget(d.budget)
+
+          // === Budget alerts ===
+          // Only fire when crossing a threshold (not on every poll)
+          const prev = lastAlertRef.current
+          if (d.today >= d.budget.danger && prev.level !== 'danger') {
+            toast.error(`🚨 Budget danger superato: $${d.today.toFixed(4)} / $${d.budget.danger}`, {
+              description: 'Le chiamate LLM hanno superato la soglia di spesa giornaliera critica.',
+              duration: 10000,
+            })
+            lastAlertRef.current = { level: 'danger', cost: d.today }
+          } else if (d.today >= d.budget.warn && d.today < d.budget.danger && prev.level !== 'warn' && prev.level !== 'danger') {
+            toast.warning(`⚠️ Budget warning: $${d.today.toFixed(4)} / $${d.budget.warn}`, {
+              description: 'Stai superando la soglia di spesa giornaliera consigliata.',
+              duration: 8000,
+            })
+            lastAlertRef.current = { level: 'warn', cost: d.today }
+          } else if (d.today < d.budget.warn && prev.level !== null) {
+            // Reset alert state when cost drops below warn (e.g. new day)
+            lastAlertRef.current = { level: null, cost: d.today }
+          }
         }
       } catch {
         // silent
@@ -183,7 +209,7 @@ export function StatusBar() {
         onClick={() => setActiveView('cockpit')}
       />
 
-      {/* Cost — real value from cost-ledger */}
+      {/* Cost — click to open breakdown modal */}
       <Separator />
       <StatusPill
         icon={DollarSign}
@@ -192,9 +218,13 @@ export function StatusBar() {
         tone={costTone}
         title={cost === null
           ? 'Cost tracking non disponibile'
-          : `Spesa LLM totale di oggi: ${formatCost(cost)} USD`
+          : `Spesa LLM totale di oggi: ${formatCost(cost)} USD · Click per dettagli`
         }
+        onClick={() => setShowCostModal(true)}
       />
+
+      {/* Cost breakdown modal */}
+      {showCostModal && <CostBreakdownModal onClose={() => setShowCostModal(false)} />}
     </div>
   )
 }

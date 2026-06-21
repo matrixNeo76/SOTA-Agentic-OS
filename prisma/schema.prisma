@@ -836,3 +836,31 @@ model CostEntry {
   @@index([model])
   @@index([phase])
 }
+
+// === Release 1.2: Branch & Share conversations ===
+model ConversationBranch {
+  id            String   @id @default(cuid())
+  parentId      String   // parent branch id (root has "root")
+  messageId     String   // message id from which we forked
+  title         String   // branch label (auto-generated or user-provided)
+  taskText      String   // original task text
+  messagesJson  String   // JSON array of messages snapshot
+  createdAt     DateTime @default(now())
+
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+model SharedConversation {
+  id            String   @id @default(cuid())
+  token         String   @unique // signed URL token
+  branchId      String   // reference to ConversationBranch
+  title         String
+  messagesJson  String   // snapshot of messages at share time
+  createdBy     String
+  expiresAt     DateTime?  // null = never expires
+  viewCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([token])
+}
