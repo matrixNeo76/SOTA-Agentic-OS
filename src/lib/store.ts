@@ -58,26 +58,77 @@ export const PHASES: PhaseMeta[] = [
   { id: 'phase14', name: 'Model Router', subtitle: 'Adaptive routing · Ensemble', category: 'infrastructure', icon: 'Shuffle', number: 14 },
 ]
 
+// === Workspace Views (SOTA Workbench v2) ===
+export type WorkspaceView = 'console' | 'canvas' | 'timeline' | 'cockpit' | 'sovereign' | 'phase'
+
+export type SelectedItem =
+  | { type: 'node'; view: 'canvas'; id: string; meta?: Record<string, unknown> }
+  | { type: 'message'; view: 'console'; id: string; meta?: Record<string, unknown> }
+  | { type: 'artifact'; view: 'console'; id: string; meta?: Record<string, unknown> }
+  | null
+
 type State = {
   activePhase: Phase
+  activeView: WorkspaceView
+  contextPanelOpen: boolean
+  selectedItem: SelectedItem
+  commandPaletteOpen: boolean
   sensoriumLive: boolean
   cycleId: number
   systemLoad: number
   queueDepth: number
   activeThreads: number
   setActivePhase: (p: Phase) => void
+  setActiveView: (v: WorkspaceView) => void
+  setContextPanelOpen: (open: boolean) => void
+  toggleContextPanel: () => void
+  setSelectedItem: (item: SelectedItem) => void
+  setCommandPaletteOpen: (open: boolean) => void
+  toggleCommandPalette: () => void
   toggleSensorium: () => void
   setRuntime: (s: { cycleId?: number; systemLoad?: number; queueDepth?: number; activeThreads?: number }) => void
 }
 
 export const useStore = create<State>((set) => ({
   activePhase: 'overview',
+  activeView: 'console',
+  contextPanelOpen: false,
+  selectedItem: null,
+  commandPaletteOpen: false,
   sensoriumLive: false,
   cycleId: 0,
   systemLoad: 0,
   queueDepth: 0,
   activeThreads: 0,
-  setActivePhase: (p) => set({ activePhase: p }),
+  setActivePhase: (p) => set({
+    activePhase: p,
+    // Auto-derive activeView based on phase:
+    // - core phases keep their dedicated view
+    // - phase1..phase14 / tools activate the "phase" view
+    activeView: (p === 'console' || p === 'cockpit')
+      ? (p as WorkspaceView)
+      : (p === 'overview' ? 'console' : 'phase'),
+    // Reset selection when leaving a view
+    selectedItem: null,
+  }),
+  setActiveView: (v) => set({
+    activeView: v,
+    // When user picks a core view from tab bar, sync activePhase accordingly
+    activePhase: v === 'console' ? 'console'
+      : v === 'cockpit' ? 'cockpit'
+      : v === 'phase' ? 'phase1'  // default phase if switching from core
+      : 'console',  // canvas/timeline/sovereign stay on console context
+    selectedItem: null,
+  }),
+  setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
+  toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
+  setSelectedItem: (item) => set((state) => ({
+    selectedItem: item,
+    // Auto-open context panel when something is selected, leave as-is otherwise
+    contextPanelOpen: item !== null ? true : state.contextPanelOpen,
+  })),
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
   toggleSensorium: () => set((s) => ({ sensoriumLive: !s.sensoriumLive })),
   setRuntime: (s) => set((state) => ({ ...state, ...s })),
 }))

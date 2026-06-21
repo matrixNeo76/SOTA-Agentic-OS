@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useStore, PHASES } from '@/lib/store'
-import { LogOut, Moon, Sun, ChevronDown } from 'lucide-react'
+import { LogOut, Moon, Sun, ChevronDown, Command } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import { useI18n } from '@/lib/use-i18n'
@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { StatusBar } from '@/components/workbench/status-bar'
 
 type AuthUser = {
   userId: string
@@ -24,7 +25,7 @@ type AuthUser = {
 } | null
 
 export function Topbar() {
-  const { activePhase } = useStore()
+  const { activePhase, toggleCommandPalette } = useStore()
   const [user, setUser] = useState<AuthUser>(null)
   const router = useRouter()
   const { lang, setLang } = useI18n()
@@ -53,16 +54,41 @@ export function Topbar() {
   }
 
   return (
-    <header className="h-14 border-b flex items-center justify-between px-4 shrink-0">
-      {/* Page title as breadcrumb */}
-      <h2 className="text-sm font-semibold text-muted-foreground truncate">{pageTitle}</h2>
+    <header className="h-14 border-b flex items-center justify-between gap-3 px-3 sm:px-4 shrink-0">
+      {/* === Left: page title (mobile-only, since desktop has tab bar) + StatusBar (desktop) === */}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {/* Mobile: page title */}
+        <h2 className="text-sm font-semibold text-muted-foreground truncate md:hidden">
+          {pageTitle}
+        </h2>
 
-      {/* Right: only essential controls */}
-      <div className="flex items-center gap-1">
+        {/* Desktop: persistent status bar with real-time metrics */}
+        <div className="hidden md:flex items-center min-w-0 flex-1">
+          <StatusBar />
+        </div>
+      </div>
+
+      {/* === Right: Cmd+K trigger + theme + lang + user === */}
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Command palette trigger — visible on all screens */}
+        <button
+          onClick={toggleCommandPalette}
+          className={cn(
+            'flex items-center gap-1.5 h-8 px-2 rounded-lg',
+            'hover:bg-accent transition-colors text-muted-foreground'
+          )}
+          title="Apri command palette (Cmd+K)"
+          aria-label="Apri command palette"
+        >
+          <Command className="size-3.5" />
+          <kbd className="hidden sm:inline text-[10px] font-mono">K</kbd>
+        </button>
+
         {mounted && (
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="size-8 flex items-center justify-center rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+            aria-label="Cambia tema"
           >
             {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
@@ -71,6 +97,7 @@ export function Topbar() {
         <button
           onClick={() => setLang(lang === 'it' ? 'en' : 'it')}
           className="h-8 px-2 flex items-center justify-center rounded-lg hover:bg-accent transition-colors text-xs font-medium text-muted-foreground"
+          aria-label="Cambia lingua"
         >
           {lang.toUpperCase()}
         </button>
