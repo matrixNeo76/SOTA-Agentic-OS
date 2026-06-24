@@ -14,16 +14,16 @@ import { CostBreakdownModal } from './cost-breakdown-modal'
 type Tone = 'ok' | 'warn' | 'danger' | 'muted'
 
 const TONE_CLASSES: Record<Tone, string> = {
-  ok: 'text-emerald-600 dark:text-emerald-400',
-  warn: 'text-amber-600 dark:text-amber-400',
-  danger: 'text-red-600 dark:text-red-400',
+  ok: 'text-status-ok',
+  warn: 'text-status-warn',
+  danger: 'text-status-danger',
   muted: 'text-muted-foreground',
 }
 
 const TONE_DOT: Record<Tone, string> = {
-  ok: 'bg-emerald-500',
-  warn: 'bg-amber-500',
-  danger: 'bg-red-500',
+  ok: 'bg-status-ok',
+  warn: 'bg-status-warn',
+  danger: 'bg-status-danger',
   muted: 'bg-muted-foreground/40',
 }
 
@@ -50,7 +50,7 @@ function StatusPill({
       title={title || `${label}: ${value}`}
       className={cn(
         'group flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono transition-all active:scale-95',
-        onClick ? 'hover:bg-accent/60 cursor-pointer' : 'cursor-default'
+        onClick ? 'hover:bg-muted/60 cursor-pointer' : 'cursor-default'
       )}
     >
       <span className={cn('size-1.5 rounded-full shrink-0', TONE_DOT[tone])} />
@@ -230,5 +230,5 @@ export function StatusBar() {
 }
 
 function Separator() {
-  return <span className="h-4 w-px bg-border mx-1 shrink-0" aria-hidden />
+  return <span className="h-4 w-px bg-border/60 mx-0.5 shrink-0" aria-hidden />
 }
