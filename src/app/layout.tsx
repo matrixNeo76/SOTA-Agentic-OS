@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SOTA Agentic OS — Sistema Operativo Agentico",
-  description: "INTELLIGENT · SECURE · AUTONOMOUS — 23 fasi · kernel transazionale + LTL + ERL + Lean4 + Sovereign + Cockpit",
+  description: "INTELLIGENT · SECURE · AUTONOMOUS — 17 fasi · kernel transazionale + LTL + ERL + Lean4 + Sovereign + Cockpit",
   keywords: ["Agentic OS", "LTL", "ACTS", "ERL", "Lean4", "Sovereign Validator", "Cockpit", "Tool Ecosystem"],
   authors: [{ name: "SOTA Agentic OS" }],
   icons: {
@@ -45,6 +45,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
+        <a href="#main-content" className="skip-link">Salta al contenuto principale</a>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>

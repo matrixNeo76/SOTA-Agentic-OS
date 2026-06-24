@@ -27,6 +27,12 @@ import { CanvasView } from '@/components/workbench/canvas-view'
 import { TimelineView } from '@/components/workbench/timeline-view'
 import { SovereignView } from '@/components/workbench/sovereign-view'
 import { ViewTransition } from '@/components/workbench/view-transition'
+import dynamic from 'next/dynamic'
+
+const MemoryContextDomain = dynamic(() => import('@/components/domains/memory-context/memory-context-domain').then(m => ({ default: m.MemoryContextDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+const PlanExecuteDomain = dynamic(() => import('@/components/domains/plan-execute/plan-execute-domain').then(m => ({ default: m.PlanExecuteDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+const VerifyTrustDomain = dynamic(() => import('@/components/domains/verify-trust/verify-trust-domain').then(m => ({ default: m.VerifyTrustDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+const LearnRouteDomain = dynamic(() => import('@/components/domains/learn-route/learn-route-domain').then(m => ({ default: m.LearnRouteDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 
 // === View metadata ===
 type ViewMeta = {
@@ -51,6 +57,10 @@ function PhaseView() {
 
   switch (activePhase) {
     case 'overview': return <Overview />
+    case 'domain-memory': return <MemoryContextDomain />
+    case 'domain-plan': return <PlanExecuteDomain />
+    case 'domain-verify': return <VerifyTrustDomain />
+    case 'domain-learn': return <LearnRouteDomain />
     case 'phase1': return <Phase1 />
     case 'phase2': return <Phase2 />
     case 'phase3': return <Phase3 />

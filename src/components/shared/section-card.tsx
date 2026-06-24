@@ -1,0 +1,5 @@
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
+export function SectionCard({ title, description, icon: Icon, action, children, className, contentClassName, noPadding }: { title?: string; description?: string; icon?: React.ComponentType<{ className?: string }>; action?: React.ReactNode; children: React.ReactNode; className?: string; contentClassName?: string; noPadding?: boolean }) {
+  return <Card className={className}>{(title || description || action || Icon) && (<CardHeader className="pb-3"><div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2 min-w-0">{Icon && <Icon className="size-4 text-primary shrink-0" />}<div className="min-w-0">{title && <CardTitle className="text-sm truncate">{title}</CardTitle>}{description && <CardDescription className="text-xs">{description}</CardDescription>}</div></div>{action && <div className="shrink-0">{action}</div>}</div></CardHeader>)}<CardContent className={cn(noPadding && 'p-0', contentClassName)}>{children}</CardContent></Card>
+}

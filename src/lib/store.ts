@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-export type Phase = 'overview' | 'console' | 'cockpit' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5' | 'phase6' | 'phase7' | 'phase8' | 'phase9' | 'phase10' | 'phase11' | 'phase12' | 'phase13' | 'phase14' | 'tools'
+export type Phase = 'overview' | 'console' | 'cockpit' | 'phase1' | 'phase2' | 'phase3' | 'phase4' | 'phase5' | 'phase6' | 'phase7' | 'phase8' | 'phase9' | 'phase10' | 'phase11' | 'phase12' | 'phase13' | 'phase14' | 'tools' | 'domain-memory' | 'domain-plan' | 'domain-verify' | 'domain-learn'
 
 export type PhaseCategory = 'foundation' | 'orchestration' | 'cognitive' | 'trust' | 'learning' | 'governance' | 'infrastructure'
 
@@ -41,6 +41,10 @@ export const PHASES: PhaseMeta[] = [
   { id: 'overview', name: 'Dashboard', subtitle: 'Mappa architetturale + KPI + activity feed', category: 'core', icon: 'LayoutDashboard', number: 0 },
   { id: 'console', name: 'Console', subtitle: 'Invia task · flusso end-to-end', category: 'core', icon: 'Terminal', number: 0 },
   { id: 'cockpit', name: 'Cockpit', subtitle: 'Plancia di comando · 5 tab', category: 'core', icon: 'Gauge', number: 15 },
+  { id: 'domain-memory', name: 'Memory & Context', subtitle: 'Memoria episodica · Context · Sessioni LLM', category: 'foundation', icon: 'Database', number: 1 },
+  { id: 'domain-plan', name: 'Plan & Execute', subtitle: 'DynAMO planner · Steering · Objective tree', category: 'orchestration', icon: 'Workflow', number: 2 },
+  { id: 'domain-verify', name: 'Verify & Trust', subtitle: 'LTL · Trace · Lean4 · Swarm quorum', category: 'trust', icon: 'ShieldCheck', number: 4 },
+  { id: 'domain-learn', name: 'Learn & Route', subtitle: 'Reflect · Affect · Router · Retainer', category: 'learning', icon: 'Sparkles', number: 5 },
   { id: 'phase1', name: 'Memory & State', subtitle: 'NS-Mem · PatchBoard · Sensorium', category: 'foundation', icon: 'Database', number: 1 },
   { id: 'phase6', name: 'Context Manager', subtitle: 'Ring buffer · Summaries', category: 'foundation', icon: 'Scissors', number: 6 },
   { id: 'phase2', name: 'Planner & Compiler', subtitle: 'DynAMO · Compiled AI', category: 'orchestration', icon: 'Workflow', number: 2 },
@@ -54,7 +58,7 @@ export const PHASES: PhaseMeta[] = [
   { id: 'phase13', name: 'Swarm Coherence', subtitle: 'Belief sync · Quorum', category: 'trust', icon: 'Network', number: 13 },
   { id: 'phase5', name: 'Reflective Learning', subtitle: 'ERL · Red Lines', category: 'learning', icon: 'Sparkles', number: 5 },
   { id: 'phase9', name: 'Human Retainer', subtitle: 'Delegation · HITL · Audit', category: 'governance', icon: 'UserCog', number: 9 },
-  { id: 'tools', name: 'Tool Manager', subtitle: 'Package manager · Permessi', category: 'governance', icon: 'Package', number: 18 },
+  { id: 'tools' | 'domain-memory' | 'domain-plan' | 'domain-verify' | 'domain-learn', name: 'Tool Manager', subtitle: 'Package manager · Permessi', category: 'governance', icon: 'Package', number: 18 },
   { id: 'phase14', name: 'Model Router', subtitle: 'Adaptive routing · Ensemble', category: 'infrastructure', icon: 'Shuffle', number: 14 },
 ]
 
@@ -69,10 +73,13 @@ export type SelectedItem =
   | { type: 'blocked'; view: 'sovereign'; id: string; meta?: Record<string, unknown> }
   | null
 
+export type ContextPanelMode = 'quickstats' | 'phase' | 'inspector' | 'help'
+
 type State = {
   activePhase: Phase
   activeView: WorkspaceView
   contextPanelOpen: boolean
+  contextPanelMode: ContextPanelMode
   selectedItem: SelectedItem
   commandPaletteOpen: boolean
   sensoriumLive: boolean
@@ -83,6 +90,7 @@ type State = {
   setActivePhase: (p: Phase) => void
   setActiveView: (v: WorkspaceView) => void
   setContextPanelOpen: (open: boolean) => void
+  setContextPanelMode: (mode: ContextPanelMode) => void
   toggleContextPanel: () => void
   setSelectedItem: (item: SelectedItem) => void
   setCommandPaletteOpen: (open: boolean) => void
@@ -95,6 +103,7 @@ export const useStore = create<State>((set) => ({
   activePhase: 'overview',
   activeView: 'console',
   contextPanelOpen: false,
+  contextPanelMode: 'quickstats',
   selectedItem: null,
   commandPaletteOpen: false,
   sensoriumLive: false,
@@ -107,9 +116,7 @@ export const useStore = create<State>((set) => ({
     // Auto-derive activeView based on phase:
     // - core phases keep their dedicated view
     // - phase1..phase14 / tools activate the "phase" view
-    activeView: (p === 'console' || p === 'cockpit')
-      ? (p as WorkspaceView)
-      : (p === 'overview' ? 'console' : 'phase'),
+    activeView: (p === 'console') ? 'console' : (p === 'cockpit') ? 'cockpit' : 'phase',
     // Reset selection when leaving a view
     selectedItem: null,
   }),
@@ -123,6 +130,7 @@ export const useStore = create<State>((set) => ({
     selectedItem: null,
   }),
   setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
+  setContextPanelMode: (mode) => set({ contextPanelMode: mode }),
   toggleContextPanel: () => set((s) => ({ contextPanelOpen: !s.contextPanelOpen })),
   setSelectedItem: (item) => set((state) => ({
     selectedItem: item,

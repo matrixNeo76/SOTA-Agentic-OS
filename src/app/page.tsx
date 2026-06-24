@@ -1,4 +1,5 @@
 'use client'
+import { Suspense } from 'react'
 
 import { Sidebar, MobileNav } from '@/components/agentic/sidebar'
 import { Topbar } from '@/components/agentic/topbar'
@@ -8,6 +9,8 @@ import { CommandPalette } from '@/components/workbench/command-palette'
 import { useCommandPalette } from '@/components/workbench/use-command-palette'
 import { ContextPanel, MobileContextSheet } from '@/components/workbench/context-panel'
 import { useStore } from '@/lib/store'
+import { useUrlSync } from '@/hooks/use-url-sync'
+import { OnboardingTour } from '@/components/onboarding/onboarding-tour'
 import { Toaster } from 'sonner'
 import {
   ResizableHandle,
@@ -15,9 +18,10 @@ import {
   ResizablePanelGroup,
 } from '@/components/ui/resizable'
 
-export default function Home() {
+function HomeContent() {
   // Wire up global Cmd+K listener
   useCommandPalette()
+  useUrlSync()
   const { activeView, activePhase, contextPanelOpen, selectedItem } = useStore()
 
   // Console-like views hide the footer to maximize vertical space
@@ -71,7 +75,17 @@ export default function Home() {
       <MobileContextSheet />
       <SovereignModalContainer />
       <CommandPalette />
+      <OnboardingTour />
       <Toaster richColors position="top-right" />
     </div>
+  )
+}
+
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
   )
 }
