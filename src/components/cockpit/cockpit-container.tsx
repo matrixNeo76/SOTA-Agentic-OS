@@ -14,7 +14,7 @@ import type { Narrative, LogEntry, SchedulerTask, CycleSnapshot, SteeringEvent, 
 export function Cockpit() {
   const [tab, setTab] = useState<CockpitTab>('narrative')
   const [narratives, setNarratives] = useState<Narrative[]>([])
-  const [logs, setLogs] = useState<LogEntry[]>([])
+  
   const [tasks, setTasks] = useState<SchedulerTask[]>([])
   const [snapshots, setSnapshots] = useState<CycleSnapshot[]>([])
   const [steeringEvents, setSteeringEvents] = useState<SteeringEvent[]>([])
@@ -24,7 +24,7 @@ export function Cockpit() {
 
   const refresh = async (t?: string) => {
     const tabName = t || tab
-    if (tabName === 'log') { await fetchLogs(true); setLogs(sharedLogs as any); return }
+    if (tabName === 'log') { await fetchLogs(true); return }
     const r = await fetch(`/api/cockpit?tab=${tabName}`); const d = await r.json()
     if (tabName === 'narrative') setNarratives(d.items || [])
     else if (tabName === 'scheduler') setTasks(d.tasks || [])
@@ -33,6 +33,7 @@ export function Cockpit() {
   }
 
   useEffect(() => { fetchAffect() }, [fetchAffect])
+  {/* eslint-disable react-hooks/set-state-in-effect */}
   useEffect(() => { void refresh(tab) }, [tab])
 
   return (
@@ -42,7 +43,7 @@ export function Cockpit() {
       <Tabs value={tab} onValueChange={v => { setTab(v as CockpitTab); void refresh(v) }} className="w-full">
         <TabsList className="grid grid-cols-5 w-full"><TabsTrigger value="narrative"><Activity className="size-3.5 mr-1.5" />Narrative</TabsTrigger><TabsTrigger value="log"><History className="size-3.5 mr-1.5" />Log</TabsTrigger><TabsTrigger value="scheduler"><ListChecks className="size-3.5 mr-1.5" />Scheduler</TabsTrigger><TabsTrigger value="cycles"><Clock className="size-3.5 mr-1.5" />Cycles</TabsTrigger><TabsTrigger value="safety"><AlertTriangle className="size-3.5 mr-1.5" />Safety</TabsTrigger></TabsList>
         <TabsContent value="narrative" className="mt-4"><NarrativeTab narratives={narratives} /></TabsContent>
-        <TabsContent value="log" className="mt-4"><LogTab logs={logs} /></TabsContent>
+        <TabsContent value="log" className="mt-4"><LogTab logs={sharedLogs as any} /></TabsContent>
         <TabsContent value="scheduler" className="mt-4"><SchedulerTab tasks={tasks} /></TabsContent>
         <TabsContent value="cycles" className="mt-4"><CyclesTab snapshots={snapshots} steeringEvents={steeringEvents} /></TabsContent>
         <TabsContent value="safety" className="mt-4"><SafetyTab safetyItems={safetyItems} /></TabsContent>
