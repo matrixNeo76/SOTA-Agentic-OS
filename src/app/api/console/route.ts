@@ -312,15 +312,15 @@ Regole:
           })
         } else {
           step.status = 'failed'
-          step.result = execResult.error
+          step.result = execResult.error ?? 'Errore sconosciuto'
           step.error = {
             type: 'task_execution',
-            message: execResult.error,
+            message: execResult.error ?? 'Errore sconosciuto',
             phase: 'F3-Execution',
             recoverable: true,
             suggestion: execResult.suggestion || 'Riprova con un task più specifico.',
           }
-          errors.push(step.error)
+          if (step.error) errors.push(step.error)
           lastCheckPassed = false
           errorsConsecutive++
 

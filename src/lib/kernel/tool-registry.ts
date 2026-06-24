@@ -184,7 +184,7 @@ export async function listTools(includeRevoked = false) {
     where: includeRevoked ? {} : { active: true },
     orderBy: { installedAt: 'desc' },
   })
-  const result = []
+  const result: Array<Record<string, unknown>> = []
   for (const t of tools) {
     const perms = await db.toolPermission.findMany({ where: { toolId: t.id } })
     result.push({

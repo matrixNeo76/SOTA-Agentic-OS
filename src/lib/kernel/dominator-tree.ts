@@ -195,7 +195,7 @@ function computeDominators(graph: PTAGraph): string[] {
       let newDom: Set<string> | null = null
       for (const p of preds) {
         if (newDom === null) newDom = new Set(doms[p])
-        else newDom = new Set([...newDom].filter((x) => doms[p].has(x)))
+        else newDom = new Set<string>([...newDom].filter((x: string) => doms[p].has(x)))
       }
       newDom = newDom || new Set()
       newDom.add(id) // ogni nodo domina se stesso
@@ -215,7 +215,7 @@ function computeDominators(graph: PTAGraph): string[] {
     let intersection: Set<string> | null = null
     for (const acceptId of graph.acceptNodeIds) {
       if (intersection === null) intersection = new Set(doms[acceptId])
-      else intersection = new Set([...intersection].filter((x) => doms[acceptId].has(x)))
+      else intersection = new Set<string>([...intersection].filter((x: string) => doms[acceptId].has(x)))
     }
     if (intersection) {
       for (const id of intersection) {

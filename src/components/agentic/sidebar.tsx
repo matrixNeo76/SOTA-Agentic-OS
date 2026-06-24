@@ -6,6 +6,12 @@ import { getIcon } from '@/lib/phase-icons'
 import { cn } from '@/lib/utils'
 import { useDashboard } from './use-dashboard'
 import { PanelLeftClose, PanelLeft, ChevronDown } from 'lucide-react'
+import {
+  LayoutDashboard, Database, Workflow, Compass, ShieldCheck, Sparkles,
+  Scissors, GitFork, FunctionSquare, UserCog,
+  Boxes, HeartPulse, Target, Network, Shuffle,
+  Gauge, Package, Terminal,
+} from 'lucide-react'
 
 const CATEGORY_ORDER: (PhaseCategory | 'core')[] = [
   'core', 'foundation', 'orchestration', 'cognitive', 'trust', 'learning', 'governance', 'infrastructure',
@@ -111,7 +117,7 @@ export function MobileNav() {
   const { activePhase, setActivePhase } = useStore()
   const [open, setOpen] = useState(false)
   const current = PHASES.find(p => p.id === activePhase)
-  const currentIcon = current ? getIcon(current.icon) : null
+  const currentIconName = current?.icon
 
   return (
     <div className="md:hidden border-b bg-sidebar sticky top-0 z-40">
@@ -119,7 +125,7 @@ export function MobileNav() {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2 px-4 py-3"
       >
-        {currentIcon && <currentIcon className="size-4 text-primary" />}
+        {currentIconName && <DynamicIconNav name={currentIconName} className="size-4 text-primary" />}
         <img src="/logo-transparent.png" alt="" className="size-5 rounded object-contain shrink-0 md:hidden" />
         <span className="text-sm font-medium flex-1 text-left">{current?.name || 'Dashboard'}</span>
         <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
@@ -181,4 +187,29 @@ function getLiveBadge(phaseId: string, data: any): { value: string | number; ton
       default: return null
     }
   } catch { return null }
+}
+
+// Helper: renderizza icona dinamica con switch (lint-compliant)
+function DynamicIconNav({ name, className }: { name: string; className?: string }) {
+  switch (name) {
+    case 'LayoutDashboard': return <LayoutDashboard className={className} />
+    case 'Database': return <Database className={className} />
+    case 'Workflow': return <Workflow className={className} />
+    case 'Compass': return <Compass className={className} />
+    case 'ShieldCheck': return <ShieldCheck className={className} />
+    case 'Sparkles': return <Sparkles className={className} />
+    case 'Scissors': return <Scissors className={className} />
+    case 'GitFork': return <GitFork className={className} />
+    case 'FunctionSquare': return <FunctionSquare className={className} />
+    case 'UserCog': return <UserCog className={className} />
+    case 'Boxes': return <Boxes className={className} />
+    case 'HeartPulse': return <HeartPulse className={className} />
+    case 'Target': return <Target className={className} />
+    case 'Network': return <Network className={className} />
+    case 'Shuffle': return <Shuffle className={className} />
+    case 'Gauge': return <Gauge className={className} />
+    case 'Package': return <Package className={className} />
+    case 'Terminal': return <Terminal className={className} />
+    default: return <LayoutDashboard className={className} />
+  }
 }

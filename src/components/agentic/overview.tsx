@@ -1,10 +1,8 @@
 'use client'
 
 import { useDashboard } from './use-dashboard'
-import { useStore } from '@/lib/store'
 import { LiveFeed } from './live-feed'
 import { ArchitectureMap } from './architecture-map'
-import { CategoryKpis } from './category-kpis'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, Rocket } from 'lucide-react'
 import { useState } from 'react'
@@ -62,9 +60,6 @@ export function Overview() {
 
       {/* Architecture map — primary navigation */}
       <ArchitectureMap />
-
-      {/* Category KPIs — compact metrics */}
-      <CategoryKpis data={data} />
 
       {/* Live feed — real-time events */}
       <LiveFeed />

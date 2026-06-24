@@ -85,7 +85,6 @@ const ALIASES: Record<string, string> = {
   'acts': 'acts',
   'budget': 'budget',
   'token': 'token',
-  'plan': 'plan',
   'execute': 'execute',
   'check': 'check',
   'reflect': 'reflect',

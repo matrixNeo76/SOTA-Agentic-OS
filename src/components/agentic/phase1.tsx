@@ -87,7 +87,7 @@ export function Phase1() {
     const r = await fetch('/api/memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'entity', name: newEntName, type: newEntType, description: newEntDesc }),
+      body: JSON.stringify({ action: 'entity', name: newEntName, type: newEntType, description: newEntDesc }),
     })
     const d = await r.json()
     if (d.ok) { toast.success('Entità creata'); setNewEntName(''); setNewEntDesc(''); refreshAll() }

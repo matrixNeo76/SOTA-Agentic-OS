@@ -368,18 +368,28 @@ export async function checkpointFSMStates(): Promise<{ snapshotted: number }> {
   const rules = await db.lTLRule.findMany({ where: { active: true } })
   let count = 0
   for (const rule of rules) {
-    await db.fSMSnapshot.upsert({
-      where: { ruleId_state: { ruleId: rule.ruleId, state: 'IDLE' } },
-      create: {
-        ruleId: rule.ruleId,
-        state: 'IDLE',
-        historyJson: '[]',
-        eventCount: 0,
-      },
-      update: {
-        snapshotAt: new Date(),
-      },
+    const existing = await db.fSMSnapshot.findFirst({
+      where: { ruleId: rule.ruleId, state: 'IDLE' },
     })
+    if (existing) {
+      await db.fSMSnapshot.update({
+        where: { id: existing.id },
+        data: {
+          historyJson: '[]',
+          eventCount: 0,
+          snapshotAt: new Date(),
+        },
+      })
+    } else {
+      await db.fSMSnapshot.create({
+        data: {
+          ruleId: rule.ruleId,
+          state: 'IDLE',
+          historyJson: '[]',
+          eventCount: 0,
+        },
+      })
+    }
     count++
   }
   return { snapshotted: count }
