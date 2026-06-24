@@ -58,7 +58,7 @@ export const PHASES: PhaseMeta[] = [
   { id: 'phase13', name: 'Swarm Coherence', subtitle: 'Belief sync · Quorum', category: 'trust', icon: 'Network', number: 13 },
   { id: 'phase5', name: 'Reflective Learning', subtitle: 'ERL · Red Lines', category: 'learning', icon: 'Sparkles', number: 5 },
   { id: 'phase9', name: 'Human Retainer', subtitle: 'Delegation · HITL · Audit', category: 'governance', icon: 'UserCog', number: 9 },
-  { id: 'tools' | 'domain-memory' | 'domain-plan' | 'domain-verify' | 'domain-learn', name: 'Tool Manager', subtitle: 'Package manager · Permessi', category: 'governance', icon: 'Package', number: 18 },
+  { id: 'tools', name: 'Tool Manager', subtitle: 'Package manager · Permessi', category: 'governance', icon: 'Package', number: 18 },
   { id: 'phase14', name: 'Model Router', subtitle: 'Adaptive routing · Ensemble', category: 'infrastructure', icon: 'Shuffle', number: 14 },
 ]
 
