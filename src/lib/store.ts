@@ -15,27 +15,8 @@ export type PhaseMeta = {
   number: number      // fase originale (1-14), 0 per overview
 }
 
-export const CATEGORY_LABELS: Record<string, string> = {
-  core: 'CORE',
-  foundation: 'FOUNDATION',
-  orchestration: 'ORCHESTRATION',
-  cognitive: 'COGNITIVE CONTROL',
-  trust: 'TRUST & VERIFY',
-  learning: 'LEARNING',
-  governance: 'GOVERNANCE',
-  infrastructure: 'INFRASTRUCTURE',
-}
-
-export const CATEGORY_COLORS: Record<string, string> = {
-  core: 'text-primary',
-  foundation: 'text-sky-600 dark:text-sky-400',
-  orchestration: 'text-emerald-600 dark:text-emerald-400',
-  cognitive: 'text-violet-600 dark:text-violet-400',
-  trust: 'text-red-600 dark:text-red-400',
-  learning: 'text-amber-600 dark:text-amber-400',
-  governance: 'text-pink-600 dark:text-pink-400',
-  infrastructure: 'text-cyan-600 dark:text-cyan-400',
-}
+// Re-export da design-tokens (singola fonte di verita)
+export { CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/design-tokens'
 
 export const PHASES: PhaseMeta[] = [
   { id: 'overview', name: 'Dashboard', subtitle: 'Mappa architetturale + KPI + activity feed', category: 'core', icon: 'LayoutDashboard', number: 0 },
