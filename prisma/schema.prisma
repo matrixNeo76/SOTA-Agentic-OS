@@ -710,6 +710,29 @@ model Session {
   userAgent     String?
 }
 
+// === IO-0: API Key per auth machine-to-machine ===
+model ApiKey {
+  id            String    @id @default(cuid())
+  keyId         String    @unique // prefisso pubblico (es. "sak_abc123")
+  keyHash       String    @unique // hash del secret (SHA-256)
+  name          String    // nome descrittivo
+  scopes        String    @default("read") // JSON array: ["read","exec","admin"]
+  userId        String?   // utente associato (null = service account)
+  tenantId      String    @default("default")
+  active        Boolean   @default(true)
+  rateLimitPerMin Int     @default(60)
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  createdBy     String    // email o "system"
+  createdAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  revokeReason  String?
+
+  @@index([keyId])
+  @@index([tenantId])
+  @@index([active])
+}
+
 // =====================================================
 // FASE 21: Cryptographic Trust Layer
 // =====================================================

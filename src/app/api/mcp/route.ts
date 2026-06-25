@@ -34,7 +34,7 @@
  *   - sota_llm_health: check LLM availability
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { meshStats } from '@/lib/agent-mesh/topology'
 import { worldModelStats, captureWorldState, createPrediction, getLatestWorldState } from '@/lib/world-model/engine'
@@ -751,7 +751,12 @@ function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> | JsonRpcR
 
 // === HTTP entry point ================================================
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // IO-0: Auth M2M — accept API key or session cookie
+  const { requireApiAuth } = await import('@/lib/auth/api-key')
+  const auth = await requireApiAuth(req, 'read')
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json() as JsonRpcRequest | JsonRpcRequest[]
 
