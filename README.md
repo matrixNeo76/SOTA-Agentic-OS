@@ -24,8 +24,9 @@ SOTA Agentic OS è un **Cognitive Operating System** che orchestra agenti AI aut
 - [Credenziali Default](#credenziali-default)
 - [Struttura del Progetto](#struttura-del-progetto)
 - [API Endpoints](#api-endpoints)
+- [MCP Server](#mcp-server)
 - [Testing](#testing)
-- [Fase 4 — Production Hardening](#fase-4--production-hardening--integration)
+- [Fasi di Evoluzione](#fasi-di-evoluzione)
 - [Licenza](#licenza)
 
 ---
@@ -432,43 +433,88 @@ bun run test:watch
 bun run test:coverage
 ```
 
-I test coprono i moduli kernel critici: LTL monitor, normative, taint tracking, ERL, patchboard, embeddings, e i nuovi moduli Fase 1-4 (Context Graph, GraphRAG, Memory Fabric, Event Mesh, Cognitive Router, Code Intelligence, Skill Registry, Observability v2, Evaluation Layer, Conflict Resolution, Cognitive GC, World Model, Digital Twin, Agent Lifecycle, Agent Mesh, Skill Synthesis, Autonomous Org, Integration Layer).
+I test coprono:
 
-**Stato attuale: 496 test passing su 31 file.**
+- **Moduli kernel critici** — LTL monitor, normative, taint tracking, ERL, patchboard, embeddings
+- **Fase 1-6 moduli** — Context Graph, GraphRAG, Memory Fabric, Event Mesh, Cognitive Router, Code Intelligence, Skill Registry, Observability v2, Evaluation Layer, Conflict Resolution, Cognitive GC, World Model, Digital Twin, Agent Lifecycle, Agent Mesh, Skill Synthesis, Autonomous Org, Integration Layer, LLM Client, Skill Sandbox, Cache Layer
+- **E2E integration tests** — pipeline completa (router → events → graph → mesh → skills → conflicts → evaluation → memory → autonomous org)
 
----
-
-## Fase 4 — Production Hardening & Integration
-
-La Fase 4 completa la transizione da MVP a sistema production-ready, integrando il kernel esistente con i moduli delle Fasi 1-3:
-
-### Moduli Fase 4
-
-- **API Routes** — 13 nuovi endpoint REST espongono tutti i moduli Fase 1-3 (mesh, world-model, digital-twin, autonomous-org, agent-lifecycle, evaluation, conflict-resolution, cognitive-gc, cognitive-router, code-intelligence, skill-registry, skill-synthesis, knowledge-extraction)
-- **Integration Layer** — `src/lib/integration/bridges.ts` collega il kernel esistente ai nuovi moduli:
-  - AgentLog → Event Mesh → Context Graph (TaskCreated/Completed/Failed events diventano GraphNode)
-  - ERL Heuristics → Skill Registry (euristiche mature diventano Skill auto-generate)
-  - Autonomous Org → Sovereign Validator (proposals diventano BlockedAction per HITL)
-- **Cockpit UI** — `/autonomous` page con dashboard unificata (mesh topology, world state, pending proposals, memory tiers)
+**Stato attuale: 533 test passing su 34 file.**
 
 ---
 
-## Fase 5 — Real LLM Integration & MCP Exposure
+## MCP Server
 
-### Moduli Fase 5
+Il sistema espone un **MCP Server** (Model Context Protocol) su `/api/mcp` per consentire a client esterni (Claude Desktop, Cursor, VS Code) di interrogare e controllare l'organizzazione autonoma.
 
-- **LLM Client unificato** (`src/lib/llm-client/client.ts`) — façade per ZAI SDK con retry, fallback, cost tracking, 5 helper specializzati (skill generation, task classification, heuristic extraction, prediction, conflict explanation)
-- **Cognitive Router LLM** — `classifyTask()` ora LLM-based con fallback rule-based; prova prima LLM, fallback al rule-based classifier se LLM non disponibile
-- **ERL LLM** — `extractHeuristic()` ora LLM-based con fallback rule-based; parsaggio output "When X, I should Y"
-- **MCP Server** (`/api/mcp`) — JSON-RPC 2.0 server con 20 tools, 5 resources, 4 prompts, completions; compatibile con Claude Desktop, Cursor, VS Code
+### Metodi supportati (JSON-RPC 2.0)
+
+| Metodo | Descrizione |
+|--------|-------------|
+| `initialize` | Handshake con capabilities + serverInfo |
+| `tools/list` | Elenco di 20 tool disponibili |
+| `tools/call` | Esecuzione tool con argomenti |
+| `resources/list` | Elenco di 5 risorse (world-state, proposals, conflicts, mesh, skills) |
+| `resources/read` | Lettura risorsa per URI |
+| `prompts/list` | Elenco di 4 prompt template |
+| `prompts/get` | Builda messaggi contextualized per il prompt richiesto |
+| `completion/complete` | Auto-completamento argomenti (conflict URIs, agent URIs) |
+
+### Tool principali
+
+- **Monitoring**: `sota_mesh_stats`, `sota_world_model_latest`, `sota_cognitive_gc_stats`, `sota_llm_health`, `sota_context_graph_stats`
+- **Actions**: `sota_world_model_capture`, `sota_world_model_predict`, `sota_digital_twin_whatif`, `sota_autonomous_org_approve`, `sota_conflict_resolution_resolve`, `sota_cognitive_gc_consolidate`, `sota_knowledge_extraction`
+- **Queries**: `sota_autonomous_org_proposals`, `sota_agent_mesh_topology`, `sota_evaluation_stats`, `sota_conflict_resolution_list`, `sota_cognitive_router_classify`, `sota_skill_registry_search`, `sota_skill_synthesis_detect`, `sota_memory_search`
+
+### Esempio di utilizzo
+
+```bash
+# List tools
+curl -X POST http://localhost:3000/api/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Capture WorldState
+curl -X POST http://localhost:3000/api/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sota_world_model_capture","arguments":{}}}'
+```
+
+Per configurare Claude Desktop o Cursor, aggiungi l'endpoint `http://localhost:3000/api/mcp` come MCP server nelle impostazioni del client.
+
+---
+
+## Fasi di Evoluzione
+
+Il progetto evolve attraverso 7 livelli architetturali. Ogni fase estende il kernel esistente senza riscriverlo.
+
+### Fase 0.5 — Governance Foundation
+
+Schema-first: Entity Registry (25 entity types), Naming URI (`agent://`, `task://`, `skill://`), Provenance Schema (obbligatoria), Event Taxonomy (33 event types), Agent Lifecycle schema, Knowledge-as-Claims schema.
+
+### Fase 1 — MVP Core (6 moduli)
+
+PostgreSQL + pgvector + Apache AGE (Docker Compose ready), Context Graph (façade graph-age.ts), GraphRAG (hybrid retrieval), Memory Fabric (4 layers + consolidation), Checkpointing (resume/replay/rollback), db-runtime + vector-store façades.
+
+### Fase 2 — Enterprise Core (9 moduli)
+
+Event Mesh (NATS/Redis/in-memory), Knowledge Extraction, Cognitive Router (task classifier + local-first), Code Intelligence (AST + Call Graph), Skill Registry (versioning + 3 defaults), Observability v2 (Langfuse export + dashboard), Evaluation Layer (8 metrics), Conflict Resolution (5 strategies), Cognitive GC (consolidation + decay + archival).
+
+### Fase 3 — AGI-Oriented (6 moduli)
+
+World Model (WorldState + Prediction + Risk + Opportunity), Digital Twin (Fork + Simulation + 6 what-if presets), Agent Lifecycle (versioning + roles + capabilities + policies + permission check), Agent Mesh (10 agenti in 3 tier: CEO + 4 strategic + 5 operational), Skill Synthesis (Meta Agent + sandbox + validation + HITL), Autonomous Org (proposals + auto-generators + HITL gates).
+
+### Fase 4 — Production Hardening (3 componenti)
+
+13 API routes REST per esporre tutti i moduli Fase 1-3, Integration Layer (`src/lib/integration/bridges.ts` con 3 bridge: ContextGraph populator, ERL→Skill, AutonomousOrg→Sovereign), Cockpit UI (`/autonomous` page con dashboard unificata + Digital Twin panel + Conflict Queue panel).
+
+### Fase 5 — Real LLM Integration & MCP Exposure
+
+LLM Client unificato (`src/lib/llm-client/client.ts`) con retry, fallback, cost tracking, 5 helper specializzati (skill generation, task classification, heuristic extraction, prediction, conflict explanation). Cognitive Router ed ERL ora LLM-based con fallback rule-based. MCP Server su `/api/mcp` con 20 tools, 5 resources, 4 prompts.
 
 ### Fase 6 — Production Readiness & E2E Validation
 
-- **E2E Tests** (`tests/e2e/pipeline.test.ts`) — 10 test end-to-end che esercitano la pipeline completa (router → events → graph → mesh → skills → conflicts → evaluation → memory → autonomous org)
-- **Skill Sandbox** (`src/lib/skill-sandbox/sandbox.ts`) — esecuzione isolata con resource limits (timeout, max output, max iterations), forbidden patterns, audit trail
-- **MCP Completions** — `prompts/get` + `completion/complete` per full MCP spec compliance; 4 prompts predefiniti (analyze-system-health, propose-optimization, investigate-conflict, evaluate-agent)
-- **Production Deployment** (`scripts/prod-bootstrap.sh` + `docker-compose.yml`) — Docker Compose completo con AgensGraph + NATS + Langfuse + Redis (opzionale); script bootstrap automatizzato
-- **Cache Layer** (`src/lib/cache/cache.ts`) — LRU cache con TTL, 4 presets (SHORT/MEDIUM/LONG/VERY_LONG), invalidation automatica per entità, stats hit/miss
+E2E integration tests (`tests/e2e/pipeline.test.ts` — 10 test pipeline completa), Skill Sandbox (`src/lib/skill-sandbox/sandbox.ts` con resource limits + forbidden patterns + audit trail), MCP Completions (`prompts/get` + `completion/complete` per full MCP spec compliance), Production Deployment (`scripts/prod-bootstrap.sh` + `docker-compose.yml` con AgensGraph + NATS + Langfuse + Redis), Cache Layer (`src/lib/cache/cache.ts` LRU con TTL + invalidation automatica).
 
 ### Avvio dell'Integration Layer
 
@@ -483,23 +529,21 @@ await startIntegrationLayer()
 // → context-graph-populator, erl-skill-bridge, autonomous-org-sovereign-bridge
 ```
 
-### Endpoint API principali
+### Production Deployment
 
-| Endpoint | Metodo | Descrizione |
-|----------|--------|-------------|
-| `/api/agent-mesh` | GET, POST | Mesh topology + bootstrap/delegate/escalate/quorum |
-| `/api/world-model` | GET, POST | WorldState capture + predictions |
-| `/api/digital-twin` | GET, POST | Scenarios + run simulation + what-if presets |
-| `/api/autonomous-org` | GET, POST | Proposals + approve/reject + auto-generate |
-| `/api/agent-lifecycle` | GET, POST | Agent registration + versioning + permissions |
-| `/api/evaluation` | GET, POST | Benchmarks + run evaluation + agent evaluations |
-| `/api/conflict-resolution` | GET, POST | Pending conflicts + resolve + auto-resolve |
-| `/api/cognitive-gc` | GET, POST | Memory stats + consolidate + decay + archive |
-| `/api/cognitive-router` | GET, POST | Router stats + classify + plan + route |
-| `/api/skill-registry` | GET, POST | Skills CRUD + search + version + seed |
-| `/api/skill-synthesis` | GET, POST | Detect gaps + run pipeline |
-| `/api/code-intelligence` | GET, POST | Parse + sync + analyze git diff |
-| `/api/knowledge-extraction` | GET, POST | Extract document → Context Graph |
+```bash
+# Avvio completo stack produzione (PostgreSQL + NATS + Langfuse + opzionale Redis)
+./scripts/prod-bootstrap.sh [--with-redis]
+
+# Health check di tutti i servizi
+./scripts/health-check.sh
+
+# Stack Docker Compose completo
+docker compose up -d
+# → sota-postgres (AgensGraph) + sota-nats (JetStream) + sota-langfuse
+```
+
+Vedi `docker-compose.yml` per la configurazione completa e `scripts/prod-bootstrap.sh` per l'automazione.
 
 ---
 
