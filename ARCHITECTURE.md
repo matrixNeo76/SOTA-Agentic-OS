@@ -317,3 +317,125 @@ Tutti i token sono mappati come `--color-*` in `@theme inline` per generare clas
 - N+1 queries in `/api/dashboard` (15 query separate, non ottimizzato)
 - No rate limiting sistematico (solo spot)
 - 5 kernel modules con stub LLM (F7, F8, F10, F12, F14)
+
+---
+
+## 9. Architettura Fase 1-4 (Agentic OS Evolution)
+
+Le Fasi 1-4 estendono il kernel F1-F23 con capacità cognitive, autonome e di produzione.
+
+### Layer aggiuntivi
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ FASE 4  Production Hardening & Integration                   │
+│         Cockpit UI (/autonomous) · 13 API routes ·           │
+│         Integration bridges (kernel ↔ Event Mesh ↔ Graph)    │
+├──────────────────────────────────────────────────────────────┤
+│ FASE 3  Autonomous Organization Layer                        │
+│         Skill Synthesis (Meta Agent + Sandbox + Validation)  │
+│         Hierarchical Agent Mesh (CEO + 4 strategic + 5 ops)  │
+│         Agent Lifecycle (versioning + roles + policies)      │
+│         Digital Twin Engine (Fork + Simulation + What-if)    │
+│         World Model (WorldState + Prediction + Risk + Opp)   │
+├──────────────────────────────────────────────────────────────┤
+│ FASE 2  Cognitive Garbage Collection (Memory Curator)        │
+│         Knowledge Conflict Resolution (5 strategies)         │
+│         Agent Evaluation Layer (8 metrics + benchmarks)      │
+│         Skill Registry (versioning + 3 default skills)       │
+│         Code Intelligence (regex AST + Call Graph)           │
+│         Knowledge Extraction (chunking + entity/relation)    │
+│         Cognitive Router (classifier + local-first)          │
+│         Event Mesh (NATS / Redis / in-memory)                │
+│         Observability v2 (Langfuse export + dashboard)       │
+├──────────────────────────────────────────────────────────────┤
+│ FASE 1  Agent Runtime Kernel + Checkpointing (resume/replay) │
+│         Memory Fabric (4 layers + semantic search)           │
+│         GraphRAG (vector + graph + subgraph ranking)         │
+│         Knowledge Provenance (enforced on every node)        │
+│         Universal Context Graph (AGE + relational fallback)  │
+│         PostgreSQL + AGE + pgvector (Docker Compose ready)   │
+├──────────────────────────────────────────────────────────────┤
+│ FASE 0.5  Entity Registry · Naming (URI scheme)              │
+│           Provenance Schema · Event Taxonomy                 │
+│           Agent Lifecycle schema · Knowledge-as-Claims       │
+├──────────────────────────────────────────────────────────────┤
+│ KERNEL   F1-F23 · LTL · ERL · ACTS · DynAMO · Sovereign     │
+│ ESISTE   MCP · ECDSA · Next.js 16 · Prisma 6 · 158 test     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Moduli per fase
+
+#### Fase 1 — MVP Core (6 moduli)
+| Modulo | Path | Funzione |
+|--------|------|----------|
+| PostgreSQL + pgvector + AGE | `prisma/schema.postgres.prisma` + `docker-compose.yml` | Database unificato per relazionale + grafo + semantica |
+| db-runtime | `src/lib/db-runtime.ts` | Provider detection + native pgvector/AGE ops |
+| vector-store | `src/lib/vector-store.ts` | Façade embeddings (JSON-string su SQLite, pgvector su Postgres) |
+| graph-age | `src/lib/graph-age.ts` | Façade Context Graph (Cypher via AGE, Prisma fallback) |
+| GraphRAG | `src/lib/graphrag/engine.ts` | Hybrid retrieval: vector + graph + subgraph ranking |
+| Memory Fabric | `src/lib/memory-fabric/fabric.ts` | 4 layers (episodic/semantic/procedural/reasoning) + consolidation |
+| Checkpointing | `src/lib/checkpoint/checkpoint.ts` | Resume/Replay/Rollback per Agent Runtime Kernel |
+
+#### Fase 2 — Enterprise Core (9 moduli)
+| Modulo | Path | Funzione |
+|--------|------|----------|
+| Event Mesh | `src/lib/event-mesh/` | NATS/Redis/in-memory pub/sub con audit trail |
+| Knowledge Extraction | `src/lib/knowledge-extraction/` | Document → chunks → entities/relations → Graph |
+| Cognitive Router | `src/lib/cognitive-router/` | Task classifier + local-first routing |
+| Code Intelligence | `src/lib/code-intelligence/` | TS/JS/Python AST + Call Graph in Context Graph |
+| Skill Registry | `src/lib/skill-registry/` | Catalogo skill con versioning + 3 default |
+| Observability v2 | `src/lib/observability-v2/` | Langfuse-compatible trace export + dashboard |
+| Evaluation Layer | `src/lib/evaluation/` | Benchmark + 8 metriche + regression detection |
+| Conflict Resolution | `src/lib/conflict-resolution/` | Detect + 5 strategies + auto-resolver |
+| Cognitive GC | `src/lib/cognitive-gc/` | Consolidation + decay + cold archival + scheduler |
+
+#### Fase 3 — AGI-Oriented (6 moduli)
+| Modulo | Path | Funzione |
+|--------|------|----------|
+| World Model | `src/lib/world-model/` | WorldState + Prediction + Risk + Opportunity |
+| Digital Twin | `src/lib/digital-twin/` | Fork + Simulation + 6 what-if presets |
+| Agent Lifecycle | `src/lib/agent-lifecycle/` | Versioning + roles + capabilities + policies + permissions |
+| Agent Mesh | `src/lib/agent-mesh/` | 10 agenti in 3 tier + delegation + escalation + quorum |
+| Skill Synthesis | `src/lib/skill-synthesis/` | Meta Agent + sandbox + validation + HITL approval |
+| Autonomous Org | `src/lib/autonomous-org/` | Proposals + auto-generators + HITL gates |
+
+#### Fase 4 — Production Hardening (3 componenti)
+| Componente | Path | Funzione |
+|-----------|------|----------|
+| API Routes | `src/app/api/{mesh,world-model,digital-twin,autonomous-org,agent-lifecycle,evaluation,conflict-resolution,cognitive-gc,cognitive-router,code-intelligence,skill-registry,skill-synthesis,knowledge-extraction}/route.ts` | 13 endpoint REST per esporre tutti i moduli |
+| Integration Layer | `src/lib/integration/bridges.ts` | Kernel ↔ Event Mesh ↔ Context Graph bridges |
+| Cockpit UI | `src/components/autonomous-dashboard/` + `src/app/autonomous/page.tsx` | Dashboard unificata per Autonomous Org |
+
+### Flusso di integrazione (Fase 4.2)
+
+```
+   Kernel esistente                  Integration Layer              Moduli Fase 1-3
+   ──────────────────                ──────────────────              ──────────────
+   AgentLog ──────────────►  syncAgentLogToEventMesh  ──────►  Event Mesh
+                                                                         │
+                                                                         ▼
+                                          startContextGraphPopulator
+                                                  │
+                                                  ▼
+                                          createNode (Task/Agent/Experience)
+                                                  │
+                                                  ▼
+                                          Context Graph (GraphNode)
+                                                                          │
+   ERL Heuristics ─────────────►  startErlToSkillBridge  ──────►  Skill Registry
+                                                                          │
+   Autonomous Org ──────────────►  startAutonomousOrgToSovereignBridge  ──────►  BlockedAction
+                                                                          │
+   Conflict Resolution ─────────►  recordPolicyViolation  ──────►  Observability v2
+```
+
+### Numeri finali
+
+- **496 test** in **31 file** (tutti passing)
+- **+25 nuovi moduli** tra Fase 1+2+3+4
+- **+13 nuove API routes** (totale 49 endpoint)
+- **+1 nuova UI page** (`/autonomous`)
+- **0 TypeScript errors** nei moduli nuovi
+- **0 dipendenze native** aggiunte (tree-sitter sostituito con parser regex, NATS/Redis lazy-loaded opzionali)

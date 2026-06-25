@@ -309,7 +309,55 @@ bun run test:watch
 bun run test:coverage
 ```
 
-I test coprono i moduli kernel critici: LTL monitor, normative, taint tracking, ERL, patchboard, embeddings.
+I test coprono i moduli kernel critici: LTL monitor, normative, taint tracking, ERL, patchboard, embeddings, e i nuovi moduli Fase 1-4 (Context Graph, GraphRAG, Memory Fabric, Event Mesh, Cognitive Router, Code Intelligence, Skill Registry, Observability v2, Evaluation Layer, Conflict Resolution, Cognitive GC, World Model, Digital Twin, Agent Lifecycle, Agent Mesh, Skill Synthesis, Autonomous Org, Integration Layer).
+
+**Stato attuale: 496 test passing su 31 file.**
+
+---
+
+## Fase 4 — Production Hardening & Integration
+
+La Fase 4 completa la transizione da MVP a sistema production-ready, integrando il kernel esistente con i moduli delle Fasi 1-3:
+
+### Moduli Fase 4
+
+- **API Routes** — 13 nuovi endpoint REST espongono tutti i moduli Fase 1-3 (mesh, world-model, digital-twin, autonomous-org, agent-lifecycle, evaluation, conflict-resolution, cognitive-gc, cognitive-router, code-intelligence, skill-registry, skill-synthesis, knowledge-extraction)
+- **Integration Layer** — `src/lib/integration/bridges.ts` collega il kernel esistente ai nuovi moduli:
+  - AgentLog → Event Mesh → Context Graph (TaskCreated/Completed/Failed events diventano GraphNode)
+  - ERL Heuristics → Skill Registry (euristiche mature diventano Skill auto-generate)
+  - Autonomous Org → Sovereign Validator (proposals diventano BlockedAction per HITL)
+- **Cockpit UI** — `/autonomous` page con dashboard unificata (mesh topology, world state, pending proposals, memory tiers)
+
+### Avvio dell'Integration Layer
+
+In produzione, avviare l'Integration Layer all'avvio del server:
+
+```typescript
+// next.config.ts o modulo bootstrap
+import { startIntegrationLayer } from '@/lib/integration/bridges'
+
+// Avvia i bridge di integrazione (Event Mesh subscribers)
+await startIntegrationLayer()
+// → context-graph-populator, erl-skill-bridge, autonomous-org-sovereign-bridge
+```
+
+### Endpoint API principali
+
+| Endpoint | Metodo | Descrizione |
+|----------|--------|-------------|
+| `/api/agent-mesh` | GET, POST | Mesh topology + bootstrap/delegate/escalate/quorum |
+| `/api/world-model` | GET, POST | WorldState capture + predictions |
+| `/api/digital-twin` | GET, POST | Scenarios + run simulation + what-if presets |
+| `/api/autonomous-org` | GET, POST | Proposals + approve/reject + auto-generate |
+| `/api/agent-lifecycle` | GET, POST | Agent registration + versioning + permissions |
+| `/api/evaluation` | GET, POST | Benchmarks + run evaluation + agent evaluations |
+| `/api/conflict-resolution` | GET, POST | Pending conflicts + resolve + auto-resolve |
+| `/api/cognitive-gc` | GET, POST | Memory stats + consolidate + decay + archive |
+| `/api/cognitive-router` | GET, POST | Router stats + classify + plan + route |
+| `/api/skill-registry` | GET, POST | Skills CRUD + search + version + seed |
+| `/api/skill-synthesis` | GET, POST | Detect gaps + run pipeline |
+| `/api/code-intelligence` | GET, POST | Parse + sync + analyze git diff |
+| `/api/knowledge-extraction` | GET, POST | Extract document → Context Graph |
 
 ---
 
