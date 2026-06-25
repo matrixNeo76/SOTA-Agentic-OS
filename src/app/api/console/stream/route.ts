@@ -22,6 +22,7 @@ import { db } from '@/lib/db'
 import { recordCostEntry, calculateCost } from '@/lib/kernel/cost-ledger'
 import ZAI from 'z-ai-web-dev-sdk'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { safeParse, consoleTaskSchema } from '@/lib/validation/schemas'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,11 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
   const body = await req.json()
-  const { task, mode } = body
+  const parsed = safeParse(consoleTaskSchema, body)
+  if (!parsed.success) {
+    return new Response(JSON.stringify({ error: parsed.error }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
+  const { task, mode } = parsed.data
   const planOnly = mode === 'plan-only'
 
   if (!task || typeof task !== 'string') {

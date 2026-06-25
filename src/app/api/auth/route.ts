@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateUser, createSession, verifySession, revokeSession } from '@/lib/auth/session'
 import { ensureDefaultAdmin } from '@/lib/auth/session'
+import { safeParse, loginSchema } from '@/lib/validation/schemas'
 
 // Auto-create default admin on first load
 let adminEnsured = false
@@ -16,6 +17,12 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { action } = body
+  if (action === 'login') {
+    const parsed = safeParse(loginSchema, body)
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
+    }
+  }
 
   if (action === 'login') {
     const { email, password } = body
