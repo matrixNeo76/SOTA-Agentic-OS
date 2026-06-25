@@ -625,6 +625,55 @@ export async function runRuleBasedPredictor(worldState: WorldState): Promise<{
   risks: Risk[]
   opportunities: Opportunity[]
 }> {
+  // C1 — Try LLM-based predictor first, fallback to rule-based.
+  // Pattern: "reale con fallback" — LLM quando disponibile, regole deterministiche altrimenti.
+  try {
+    const { generatePredictionWithLLM } = await import('@/lib/llm-client/client')
+    const llmResult = await generatePredictionWithLLM({
+      worldStateSnapshot: worldState.snapshot as unknown as Record<string, unknown>,
+      anomalies: worldState.snapshot.anomalies || [],
+      horizon: '24h',
+    })
+
+    if (llmResult.source === 'llm' && llmResult.statement.length > 10) {
+      // LLM ha prodotto una predizione reale — usala
+      const provenance = createProvenance({
+        agent: 'agent://world-model',
+        source: 'agent-reasoning',
+        confidence: 0.85, // LLM = higher confidence than rule-based
+      })
+
+      const { prediction } = await createPrediction({
+        statement: llmResult.statement,
+        probability: llmResult.probability,
+        horizon: '24h',
+        basedOnWorldStateUri: worldState.uri,
+        provenance,
+      })
+
+      // Esegui anche le regole per arricchire (risks/opportunities che l'LLM non genera)
+      const ruleResult = await runRuleBasedPredictorInternal(worldState)
+      return {
+        predictions: [prediction, ...ruleResult.predictions],
+        risks: ruleResult.risks,
+        opportunities: ruleResult.opportunities,
+      }
+    }
+  } catch {
+    // LLM non disponibile → fallback rule-based
+  }
+
+  return runRuleBasedPredictorInternal(worldState)
+}
+
+/**
+ * Rule-based predictor interno (l'implementazione originale, ora come fallback).
+ */
+async function runRuleBasedPredictorInternal(worldState: WorldState): Promise<{
+  predictions: Prediction[]
+  risks: Risk[]
+  opportunities: Opportunity[]
+}> {
   const predictions: Prediction[] = []
   const risks: Risk[] = []
   const opportunities: Opportunity[] = []

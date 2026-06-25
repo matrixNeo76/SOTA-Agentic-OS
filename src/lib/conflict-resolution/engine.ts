@@ -347,11 +347,31 @@ export async function resolveConflict(params: {
     }),
   ).catch(() => {})
 
+  // C1 — Use LLM to generate human-readable explanation (with fallback).
+  let llmExplanation: string | undefined
+  try {
+    const { explainConflictResolutionWithLLM } = await import('@/lib/llm-client/client')
+    const claimA = await getClaimNode(claimAUri)
+    const claimB = await getClaimNode(claimBUri)
+    const llmResult = await explainConflictResolutionWithLLM({
+      claimA: claimA?.statement || claimAUri,
+      claimB: claimB?.statement || claimBUri,
+      strategy: params.strategy,
+      winner: winnerUri,
+      reason,
+    })
+    if (llmResult.source === 'llm' && llmResult.explanation.length > 10) {
+      llmExplanation = llmResult.explanation
+    }
+  } catch {
+    // LLM non disponibile → fallback (usa il reason rule-based)
+  }
+
   return {
     strategy: params.strategy,
     winnerUri,
     loserUri,
-    reason,
+    reason: llmExplanation || reason, // prefer LLM explanation if available
     decisionUri,
     resolvedAt: new Date().toISOString(),
     resolvedBy: params.resolvedBy,

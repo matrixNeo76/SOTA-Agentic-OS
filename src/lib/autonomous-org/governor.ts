@@ -464,8 +464,10 @@ async function executeLearnFromExperience(provenance: Provenance): Promise<strin
 export async function generateAutoProposals(options?: {
   maxProposals?: number
   provenance?: Provenance
+  useLLM?: boolean
 }): Promise<AutonomousProposal[]> {
   const maxProposals = options?.maxProposals ?? 5
+  const useLLM = options?.useLLM !== false // C1: default true
   const provenance = options?.provenance || createProvenance({
     agent: 'agent://autonomous-org',
     source: 'agent-reasoning',
@@ -477,7 +479,75 @@ export async function generateAutoProposals(options?: {
   // Capture WorldState
   const { worldState } = await captureWorldState({ provenance })
 
-  // Rule 1: high error rate → propose process optimization
+  // C1 — LLM-enhanced proposal generation.
+  // Use LLM to analyze WorldState and suggest proposals, with rule-based fallback.
+  if (useLLM && proposals.length < maxProposals) {
+    try {
+      const { llmComplete } = await import('@/lib/llm-client/client')
+      const systemPrompt = `You are an autonomous organization governor for SOTA Agentic OS. Analyze the current system state and propose 1-3 optimization actions.
+
+Output as JSON array:
+[{
+  "type": "optimize_process|create_agent|reorganize_memory",
+  "description": "concise description",
+  "rationale": "why this action",
+  "costDelta": number,
+  "performanceDelta": number,
+  "riskLevel": "low|medium|high"
+}]
+
+Only propose actions that address real issues in the system state.`
+
+      const userPrompt = `Current WorldState:
+- Error rate: ${(worldState.snapshot.errorRate * 100).toFixed(1)}%
+- Cost 24h: $${worldState.snapshot.totalCostLast24h.toFixed(2)}
+- Pending tasks: ${worldState.snapshot.pendingTasks}
+- Blocked actions: ${worldState.snapshot.blockedActions}
+- Avg latency: ${worldState.snapshot.avgLatencyMs.toFixed(0)}ms
+- Anomalies: ${worldState.snapshot.anomalies.length}
+- Active agents: ${worldState.snapshot.activeAgents}
+
+Propose up to ${maxProposals} actions:`
+
+      const result = await llmComplete({
+        prompt: userPrompt,
+        systemPrompt,
+        agentId: 'agent://autonomous-org',
+        phase: 'proposal_generation',
+        fallback: '[]', // empty array = no proposals from LLM
+      })
+
+      if (result.source === 'llm') {
+        // Parse LLM proposals
+        const jsonMatch = result.output.match(/\[[\s\S]*\]/)
+        if (jsonMatch) {
+          const llmProposals = JSON.parse(jsonMatch[0]) as Array<any>
+          for (const lp of llmProposals.slice(0, maxProposals)) {
+            if (!lp.type || !lp.description) continue
+            try {
+              const { proposal } = await createProposal({
+                type: lp.type,
+                description: lp.description,
+                rationale: lp.rationale || 'LLM-generated proposal',
+                expectedImpact: {
+                  costDelta: lp.costDelta || 0,
+                  performanceDelta: lp.performanceDelta || 0,
+                  riskLevel: lp.riskLevel || 'medium',
+                },
+                payload: {},
+                provenance,
+              })
+              proposals.push(proposal)
+            } catch {}
+          }
+        }
+      }
+    } catch {
+      // LLM non disponibile → fallback rule-based
+    }
+  }
+
+  // Rule-based proposals (sempre eseguiti come arricchimento o fallback)
   if (worldState.snapshot.errorRate > 0.2 && proposals.length < maxProposals) {
     const { proposal } = await createProposal({
       type: 'optimize_process',

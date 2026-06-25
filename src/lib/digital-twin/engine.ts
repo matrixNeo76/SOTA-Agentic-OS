@@ -297,7 +297,70 @@ export async function runSimulation(params: {
     }
 
     // 3. Apply parameter overrides and project metrics
-    const projectedMetrics = projectMetrics(baseWorldState.snapshot, scenario.parameters, events)
+    // C1 — Try LLM-enhanced projection first, fallback to rule-based.
+    let projectedMetrics: ProjectedMetrics
+    try {
+      const { llmComplete } = await import('@/lib/llm-client/client')
+      const systemPrompt = `You are a Digital Twin simulation engine for SOTA Agentic OS. Project the impact of the given scenario parameters on system metrics.
+
+Output as JSON:
+{
+  "expectedSuccessRate": 0.0-1.0,
+  "expectedErrorRate": 0.0-1.0,
+  "expectedAvgLatencyMs": number,
+  "expectedCost": number,
+  "expectedThroughput": number,
+  "reasoning": "brief explanation"
+}`
+
+      const userPrompt = `Scenario parameters:
+${JSON.stringify(scenario.parameters, null, 2)}
+
+Current system state:
+- Success rate: ${baseWorldState.snapshot.completedTasksLast24h > 0 ? (baseWorldState.snapshot.completedTasksLast24h / (baseWorldState.snapshot.completedTasksLast24h + baseWorldState.snapshot.failedTasksLast24h)).toFixed(2) : 'N/A'}
+- Error rate: ${(baseWorldState.snapshot.errorRate * 100).toFixed(1)}%
+- Cost 24h: $${baseWorldState.snapshot.totalCostLast24h.toFixed(2)}
+- Avg latency: ${baseWorldState.snapshot.avgLatencyMs.toFixed(0)}ms
+
+Project the metrics after applying the scenario parameters:`
+
+      const result = await llmComplete({
+        prompt: userPrompt,
+        systemPrompt,
+        agentId: 'agent://digital-twin',
+        phase: 'simulation_projection',
+        fallback: '{}',
+      })
+
+      if (result.source === 'llm') {
+        const jsonMatch = result.output.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const llmMetrics = JSON.parse(jsonMatch[0])
+          projectedMetrics = {
+            expectedSuccessRate: Math.min(1, Math.max(0, Number(llmMetrics.expectedSuccessRate) || 0.5)),
+            expectedErrorRate: Math.min(1, Math.max(0, Number(llmMetrics.expectedErrorRate) || 0.05)),
+            expectedAvgLatencyMs: Number(llmMetrics.expectedAvgLatencyMs) || 500,
+            expectedCost: Number(llmMetrics.expectedCost) || 5,
+            expectedThroughput: Number(llmMetrics.expectedThroughput) || 1,
+            successRateCI: [0, 1],
+            errorRateCI: [0, 1],
+            costCI: [0, 10],
+          }
+          events.push({
+            timestamp: new Date().toISOString(),
+            type: 'checkpoint',
+            details: { source: 'llm', reasoning: llmMetrics.reasoning || '' },
+          })
+        } else {
+          projectedMetrics = projectMetrics(baseWorldState.snapshot, scenario.parameters, events)
+        }
+      } else {
+        projectedMetrics = projectMetrics(baseWorldState.snapshot, scenario.parameters, events)
+      }
+    } catch {
+      // LLM non disponibile → fallback rule-based
+      projectedMetrics = projectMetrics(baseWorldState.snapshot, scenario.parameters, events)
+    }
 
     // 4. Generate anomalies based on parameter interactions
     const anomalies = detectSimulationAnomalies(scenario.parameters, projectedMetrics)
