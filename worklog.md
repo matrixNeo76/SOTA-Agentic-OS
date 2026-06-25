@@ -90,3 +90,30 @@ Stage Summary:
 - TypeScript: 0 errori nei file Fase 2
 - Architettura: tutti i moduli Fase 2 si integrano con Fase 1 (Context Graph via graph-age, Memory Fabric, Event Mesh) e riusano kernel esistente (time-router, observability, cost-ledger, governance)
 - Production-ready: switch via env vars (NATS_URL, REDIS_URL, LANGFUSE_URL+KEY) — in dev tutto funziona con fallback in-memory/SQLite
+
+---
+Task ID: 3
+Agent: main (Fase 3 — AGI-Oriented)
+Task: Fase 3 — 6 sotto-task: World Model, Digital Twin, Agent Lifecycle enforcement, Hierarchical Mesh, Skill Synthesis, Autonomous Org
+
+Work Log:
+- Fase 3.1 — Creato `src/lib/world-model/engine.ts`: captureWorldState (12 metriche da dati live, anomaly detection rule-based, embedding per similarity search tra world states), createPrediction + verifyPrediction con edges BASED_ON/VERIFIED_BY, identifyRisk + mitigateRisk, identifyOpportunity + exploitOpportunity, runRuleBasedPredictor con 6 regole (error rate, cost, blocked actions, anomalies, graph growth), worldModelStats.
+- Fase 3.2 — Creato `src/lib/digital-twin/engine.ts`: createScenario con parameters (concurrency, routing, memory budget, removed agents, disabled tools), forkRuntimeState (checkpoint marked come simulation), runSimulation con projectMetrics rule-based (8 metriche con confidence intervals ±15%), compareScenarios per regression detection, 6 WHAT_IF_PRESETS (double-concurrency, local-only-routing, api-only-routing, remove-reflective-agent, reduce-memory-budget-50, disable-consolidation), runWhatIf helper.
+- Fase 3.3 — Creato `src/lib/agent-lifecycle/manager.ts`: registerAgent con bind di ruoli/capabilities/policies (edges HAS_ROLE/POSSESSES/BOUND_BY/USES_SKILL), upgradeAgentVersion (deprecated la vecchia + active la nuova + edge UPGRADED_FROM), listAgentVersions, compareAgentVersions con recommendation promote/rollback/inconclusive basata su evaluationScore, suspend/resume/deprecate, checkPermission con wildcard pattern matching su roles + policies.
+- Fase 3.4 — Creato `src/lib/agent-mesh/topology.ts`: DEFAULT_MESH_PRESET con 10 agenti in 3 tier (1 executive CEO, 4 strategic architect/planner/research/world-model, 5 operational coding/qa/security/data/support), bootstrapDefaultMesh idempotente con edges REPORTS_TO + COORDINATES_WITH, getMeshTopology/getMeshByTier/getReportingChain, delegateTask con permission check (task:assign), escalateIssue (verifica reporting chain), requestPeerQuorum con rule-based voting basato su domain keywords.
+- Fase 3.5 — Creato `src/lib/skill-synthesis/pipeline.ts`: detectSkillGaps (analizza AgentLog TaskFailed, raggruppa per pattern, exclude se skill esistente copre), generateSkillForGap (Meta Agent rule-based: prompt template con {{task}} placeholder, few-shot examples, test cases con expectedContains + assertFn), testSkillInSandbox (simula esecuzione, verifica expectedContains + assertFn output.length > N), validateSkill (crea benchmark ad-hoc + runEvaluation Fase 2.7), runSynthesisPipeline completa con approval gate (publishApprovalRequested se non autoApprove).
+- Fase 3.6 — Creato `src/lib/autonomous-org/governor.ts`: createProposal (7 tipi: create_agent/skill/workflow, optimize_process, reorganize_memory, upgrade_agent, learn_from_experience), approveProposal + executeProposal (esegue l'azione dopo approval), rejectProposal, generateAutoProposals (5 regole basate su WorldState: error rate, cost, pending tasks, memory growth, anomalies), getProposal/listPendingProposals, autonomousOrgStats.
+- Fix TypeScript: import `Provenance` da governance (non da graph-age), `payload: unknown` invece di `Record<string, unknown>` per tipi strutturati, cast `as unknown as T` per evitare errori di sovrapposizione tipi, worldState.provenance ricostruito dai campi del GraphNode Prisma.
+- Fix agent name length: 2 caratteri min (era 3) per supportare nomi come 'qa' e 'ceo'.
+- Fix digital-twin projectMetrics: fallback a 0.5 se baseSuccessRate = 0 (tutti failed).
+- Test creati: world-model (16), digital-twin (18), agent-lifecycle (21), agent-mesh (20), skill-synthesis (15), autonomous-org (14) = 104 nuovi test.
+
+Stage Summary:
+- Deliverable Fase 3:
+  - 6 nuovi moduli in `src/lib/{world-model,digital-twin,agent-lifecycle,agent-mesh,skill-synthesis,autonomous-org}`
+  - 6 nuovi file di test in `tests/unit/`
+- Test: 487/487 passing (30 file, +104 test nuovi)
+- TypeScript: 0 errori nei file Fase 3
+- Architettura: tutti i moduli Fase 3 si integrano con Fase 1+2 (Context Graph, Memory Fabric, Event Mesh, Evaluation Layer, Skill Registry, Cognitive GC)
+- Governance-first: ogni azione autonoma passa per Human Approval Gate (Sovereign Validator); skill synthesis richiede approval esplicita; upgrade agent raccomanda promote/rollback ma non auto-esegue
+- Production-ready: la mesh gerarchica ha 10 agenti predefiniti pronti al bootstrap; digital twin ha 6 preset what-if; autonomous org ha 5 regole di auto-proposal
