@@ -61,3 +61,32 @@ Stage Summary:
 - TypeScript: 0 errori nei file nuovi/modificati
 - In dev: SQLite continua a funzionare senza modifiche a .env
 - In prod: switch via DATABASE_URL=postgresql://... + db:push con schema.postgres.prisma + psql -f scripts/pg-bootstrap.sql
+
+---
+Task ID: 2
+Agent: main (Fase 2 — Enterprise Core)
+Task: Fase 2 — 9 sotto-task: Event Mesh, Knowledge Extraction, Cognitive Router, Code Intelligence, Skill Registry, Observability, Evaluation, Conflict Resolution, Cognitive GC
+
+Work Log:
+- Fase 2.1 — Creato `src/lib/event-mesh/mesh.ts` (3 backend: NATS JetStream, Redis Streams, in-memory) con selezione automatica via env vars. Audit trail su AgentLog. `src/lib/event-mesh/publishers.ts` con helper tipizzati per tutti gli eventi principali (TaskCreated/Completed/Failed/Blocked, ClaimCreated, ConflictDetected/Resolved, DocumentUploaded, ApprovalRequested/Granted, AgentSpawned/Stopped, CodeChanged).
+- Fase 2.2 — Creato `src/lib/knowledge-extraction/extractor.ts`: pipeline completa (text extractor pluggable, sliding-window chunking con overlap, entity extraction regex-based con 6 tipi, relation extraction con pattern espliciti + co-occorrenza, sync al Context Graph con nodi Document/Claim + embeddings per chunk).
+- Fase 2.3 — Creato `src/lib/cognitive-router/router.ts`: Task Classifier (Simple/Medium/Complex/Critical con keyword critiche safety-first), registry modelli local-first (4 locali + 3 API), planRouting strategico, routeCognitive integration con TimeRouter esistente, health check endpoint locali.
+- Fase 2.4 — Creato `src/lib/code-intelligence/parser.ts`: parser AST semplificato (regex-based robusto) per TS/JS/Python con function/class/import/call extraction, syncToGraph che crea nodi Document per File/Function e edges CONTAINS/CALLS/IMPORTS, analyzeGitDiff per incremental sync con publishCodeChanged event.
+- Fase 2.5 — Creato `src/lib/skill-registry/registry.ts`: catalogo strutturato con schema completo (name/description/tools/memory/constraints/examples/tests/tags), registerSkill con validazione (name, description, promptTemplate, tests, tools esistenti, provenance), getSkill/searchSkills/listSkills, versionSkill con deprecation automatica, lifecycle management, 3 skill di default seedabili (code-review, task-planner, incident-responder).
+- Fase 2.6 — Creato `src/lib/observability-v2/dashboard.ts`: Langfuse-compatible trace export (startTrace/addSpan/addGeneration/endTrace), exportToLangfuse con env-based config, real-time metrics aggregator via Event Mesh subscription, getDashboardData unificato (cost/latency/tokens/errors/tools/tasks), recordPolicyViolation con escalation a ApprovalRequested per severity block.
+- Fase 2.7 — Creato `src/lib/evaluation/runner.ts`: registerBenchmark/getBenchmark/listBenchmarks, runEvaluation che crea nodi Evaluation + Metric + relazioni ACHIEVED/BASED_ON/MEASURED_BY, computeMetrics con 8 metriche (task_success_rate, tool_accuracy, policy_compliance, hallucination_rate, reasoning_quality, avg_latency_ms, avg_cost_usd, token_efficiency), compareEvaluations per regression detection, 2 benchmark di default (basic-reasoning, tool-use).
+- Fase 2.8 — Creato `src/lib/conflict-resolution/engine.ts`: detectConflictsForClaim che trova claim con stesso domain e confidence diff > 0.3 (medium) o > 0.5 (high), crea nodi Conflict + edges CONFLICTS_WITH bidirezionali + publishConflictDetected, resolveConflict con 5 strategie (higher-confidence, more-evidence, more-reliable-source, formal-proof, human-decision), crea Decision node + edge RESOLVED_BY, markClaimSuperseded, autoResolveConflicts che skip high severity (HITL required), createClaimAndDetectConflicts helper.
+- Fase 2.9 — Creato `src/lib/cognitive-gc/curator.ts`: consolidateEpisodicToProcedural con clustering greedy per similarità, genera procedural memory con embedding medio, marca episodic originali come cold, apply decay alle non consolidate, updateDecayScores giornaliero (recencyScore = max(0, 1 - daysSinceLastAccess/30)), archiveColdMemories (weight < 0.05 + > 30gg → cold tier con embedding rimosso), classifyTier (hot/warm/cold), startGCScheduler con job daily+weekly.
+- Fix TypeScript: `m.avgLatencyMs ?? 0` per optional, import `Provenance` da governance (non da graph-age), cast `any` per event.provenance/payload, dichiarazioni modulo per nats/redis in `src/types/optional-deps.d.ts`.
+- Allineamento schema: CodeChanged event payload con `filesChanged: number` (non array), Evaluation attributes con `score` + `metrics` (required da ENTITY_REGISTRY), ResolutionStrategy con kebab-case ('higher-confidence', non 'highest_confidence').
+- Test creati: event-mesh (12), knowledge-extraction (13), cognitive-router (20), code-intelligence (20), skill-registry (23), observability-v2 (18), evaluation (20), conflict-resolution (13), cognitive-gc (13) = 152 nuovi test.
+
+Stage Summary:
+- Deliverable Fase 2:
+  - 9 nuovi moduli in `src/lib/{event-mesh,knowledge-extraction,cognitive-router,code-intelligence,skill-registry,observability-v2,evaluation,conflict-resolution,cognitive-gc}`
+  - 9 nuovi file di test in `tests/unit/`
+  - 1 file dichiarazioni tipi in `src/types/optional-deps.d.ts`
+- Test: 383/383 passing (24 file, +152 test nuovi)
+- TypeScript: 0 errori nei file Fase 2
+- Architettura: tutti i moduli Fase 2 si integrano con Fase 1 (Context Graph via graph-age, Memory Fabric, Event Mesh) e riusano kernel esistente (time-router, observability, cost-ledger, governance)
+- Production-ready: switch via env vars (NATS_URL, REDIS_URL, LANGFUSE_URL+KEY) — in dev tutto funziona con fallback in-memory/SQLite
