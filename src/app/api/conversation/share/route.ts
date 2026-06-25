@@ -15,8 +15,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { randomBytes } from 'crypto'
+import { requireAuth } from '@/lib/auth/require-auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const shared = await db.sharedConversation.findMany({
     orderBy: { createdAt: 'desc' },
     take: 50,
@@ -35,6 +38,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 

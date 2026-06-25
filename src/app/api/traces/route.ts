@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTrace, listTraces, traceStats } from '@/lib/kernel/observability'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action') || 'list'
   if (action === 'stats') {

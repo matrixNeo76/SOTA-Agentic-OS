@@ -7,8 +7,11 @@ import { taintInput, checkSink, listTaintRecords, propagateTaint } from '@/lib/k
 import { evaluateIntent, listAxioms, addAxiom, deleteAxiom, type Intent } from '@/lib/kernel/normative'
 import { db } from '@/lib/db'
 import { publishAgentEvent } from '@/lib/ws-publish'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { searchParams } = new URL(req.url)
   const section = searchParams.get('section') || 'all'
 
@@ -40,6 +43,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 

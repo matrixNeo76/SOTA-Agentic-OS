@@ -8,12 +8,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCostStats } from '@/lib/kernel/cost-ledger'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 // === In-memory budget config (would be DB in production) ===
 let dailyBudgetUSD: number = 1.0  // default $1/day warn threshold
 let dangerBudgetUSD: number = 5.0  // $5/day danger threshold
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action') || 'stats'
 
@@ -48,6 +51,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 

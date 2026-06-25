@@ -1,7 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { exportMetricsPrometheus, metricStats } from '@/lib/kernel/observability'
+import { requireAuth } from '@/lib/auth/require-auth'
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const url = new URL(req.url)
   const format = url.searchParams.get('format')
   if (format === 'prometheus') {

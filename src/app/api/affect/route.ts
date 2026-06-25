@@ -4,8 +4,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { computeAffect, updateThreshold, affectHistory, affectStats } from '@/lib/kernel/affect-subsystem'
 import { publishAgentEvent } from '@/lib/ws-publish'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action') || 'stats'
   const agentId = searchParams.get('agentId') || ''
@@ -24,6 +27,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 

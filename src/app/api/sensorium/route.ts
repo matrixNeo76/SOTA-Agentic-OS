@@ -2,12 +2,15 @@
  * API: /api/sensorium
  * GET  - produce e ritorna il Sensorium per il ciclo corrente (e pubblica su WS)
  */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { produceSensorium } from '@/lib/kernel/curator'
 import { db } from '@/lib/db'
 import { publishSensorium, publishAgentEvent } from '@/lib/ws-publish'
+import { requireAuth } from '@/lib/auth/require-auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { data, xml } = await produceSensorium()
   await db.agentLog.create({
     data: {
@@ -33,7 +36,9 @@ export async function GET() {
   return NextResponse.json({ data, xml })
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   await db.sensoriumSnapshot.deleteMany({})
   return NextResponse.json({ ok: true })
 }

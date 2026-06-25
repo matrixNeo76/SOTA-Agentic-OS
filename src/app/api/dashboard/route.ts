@@ -2,7 +2,7 @@
  * API: /api/dashboard
  * Aggrega metriche per il dashboard overview (14 fasi).
  */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { memoryStats } from '@/lib/kernel/ns-mem'
 import { contextStats } from '@/lib/kernel/context-engineering'
@@ -19,8 +19,11 @@ import { blockedStats } from '@/lib/kernel/sovereign-translator'
 import { errorStats, traceStats, backupStats, metricStats } from '@/lib/kernel/observability'
 import { scalabilityStats } from '@/lib/kernel/scalability'
 import { getCostStats } from '@/lib/kernel/cost-ledger'
+import { requireAuth } from '@/lib/auth/require-auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const [
     episodic, semantic, logical,
     patches, accepted, rejected,

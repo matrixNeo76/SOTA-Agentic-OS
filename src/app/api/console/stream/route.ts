@@ -21,6 +21,7 @@ import { publishAgentEvent } from '@/lib/ws-publish'
 import { db } from '@/lib/db'
 import { recordCostEntry, calculateCost } from '@/lib/kernel/cost-ledger'
 import ZAI from 'z-ai-web-dev-sdk'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,6 +52,8 @@ function encodeSSE({ event, data }: SSEEvent): string {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { task, mode } = body
   const planOnly = mode === 'plan-only'

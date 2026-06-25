@@ -18,6 +18,7 @@ import { recordNarrative } from '@/lib/kernel/sovereign-translator'
 import { publishAgentEvent, publishSensorium } from '@/lib/ws-publish'
 import { db } from '@/lib/db'
 import ZAI from 'z-ai-web-dev-sdk'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 type ExecutionStep = {
   taskId: string
@@ -64,6 +65,8 @@ type ConsoleResult = {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { task, mode } = body as { task: string; mode?: 'full' | 'plan-only' }
   const errors: ErrorDetail[] = []

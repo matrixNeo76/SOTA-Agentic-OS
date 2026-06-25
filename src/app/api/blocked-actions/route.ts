@@ -7,8 +7,11 @@ import {
   listPendingBlocked, listRecentBlocked, blockedStats,
   type BlockedActionInput, type ResolutionChoice,
 } from '@/lib/kernel/sovereign-translator'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const { searchParams } = new URL(req.url)
   const action = searchParams.get('action') || 'pending'
 
@@ -31,6 +34,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 

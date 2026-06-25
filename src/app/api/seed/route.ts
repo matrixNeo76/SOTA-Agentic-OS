@@ -10,8 +10,11 @@ import { addAxiom, DEFAULT_AXIOMS } from '@/lib/kernel/normative'
 import { reflectAndLearn } from '@/lib/kernel/erl'
 import { BUILTIN_TEMPLATES } from '@/lib/kernel/compiled-ai'
 import { STEERING_VOCABULARY } from '@/lib/kernel/acts'
+import { requireAuth } from '@/lib/auth/require-auth'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     // 1) Stato globale iniziale (PatchBoard) - bootstrap diretto
     // Il seed scrive direttamente nel DB per il setup iniziale,

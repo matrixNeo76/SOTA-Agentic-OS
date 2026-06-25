@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { registerPublisher, listPublishers, revokePublisher, installSignedTool, verifyInstalledTool } from '@/lib/kernel/crypto-trust'
 import { publishAgentEvent } from '@/lib/ws-publish'
+import { requireAuth } from '@/lib/auth/require-auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const publishers = await listPublishers()
   return NextResponse.json({ publishers })
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 
