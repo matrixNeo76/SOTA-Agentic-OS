@@ -40,6 +40,10 @@ const LearnRouteDomain = dynamic(() => import('@/components/domains/learn-route/
 // Admin page loaded dynamically (WS2)
 const AdminPage = dynamic(() => import('@/app/admin/page'), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 
+// UX-2: Module page views
+const MemoryKnowledgeView = dynamic(() => import('@/components/module-pages/memory-knowledge-view').then(m => ({ default: m.MemoryKnowledgeView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+const AgentsOrgView = dynamic(() => import('@/components/module-pages/agents-org-view').then(m => ({ default: m.AgentsOrgView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+
 // === View metadata ===
 type ViewMeta = {
  id: WorkspaceView
@@ -65,16 +69,8 @@ function PhaseView() {
  // UX-1: 6 aree per obiettivo
  case 'dashboard': case 'overview': return <Overview />
  case 'runs': case 'console': return <AgentConsole />
- case 'memory': case 'domain-memory': return <MemoryContextDomain />
- case 'agents': return (
-   <div className="space-y-6 p-6">
-     <AutonomousDashboard />
-     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-       <DigitalTwinDashboard />
-       <ConflictQueuePanel />
-     </div>
-   </div>
- )
+ case 'memory': case 'domain-memory': return <MemoryKnowledgeView />
+ case 'agents': return <AgentsOrgView />
  case 'governance': return (
    <div className="space-y-6 p-6">
      <ConflictQueuePanel />
