@@ -53,11 +53,21 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'register') {
-    const { toolId, name, version, description, publisher } = await req.json()
+    const { toolId, name, version, description, publisher, transport, endpoint, apiKey } = await req.json()
     if (!toolId || !name) return NextResponse.json({ error: 'Missing toolId or name' }, { status: 400 })
 
     const tool = await db.tool.create({
-      data: { toolId, name, version: version || '1.0.0', description, publisher, signature: 'admin-registered', active: true },
+      data: {
+        toolId, name,
+        version: version || '1.0.0',
+        description, publisher,
+        signature: 'admin-registered',
+        active: true,
+        // C2 — Campi per esecuzione tool esterni
+        ...(transport && { transport }),
+        ...(endpoint && { endpoint }),
+        ...(apiKey && { apiKey }),
+      },
     })
     return NextResponse.json({ registered: true, tool })
   }

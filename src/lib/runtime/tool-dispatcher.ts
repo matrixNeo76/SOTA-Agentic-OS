@@ -127,10 +127,10 @@ async function executeBuiltin(
   }
 }
 
-// === Registered tool execution (HTTP-based) ==========================
+// === Registered tool execution (HTTP + MCP) — C2 ====================
 
 async function executeRegistered(
-  tool: { toolId: string; name: string; description: string | null },
+  tool: { toolId: string; name: string; description: string | null; transport?: string | null; endpoint?: string | null; apiKey?: string | null },
   call: ToolCallRequest,
   options: DispatchOptions,
   startTime: number,
@@ -151,15 +151,109 @@ async function executeRegistered(
     }
   }
 
-  // Per ora i tool registrati non hanno un endpoint HTTP configurato.
-  // In produzione: cercare un campo `endpoint` nel tool record e fare fetch.
-  // WS1.4d aggiungerà supporto MCP client per tool esterni.
-  return {
-    toolName: call.name,
-    success: false,
-    output: '',
-    error: `Registered tool '${tool.toolId}' has no execution endpoint configured. Use builtin tools or MCP client (WS1.4d).`,
-    durationMs: Date.now() - startTime,
+  // C2 — Dispatch basato sul transport
+  const transport = tool.transport
+  const endpoint = tool.endpoint
+
+  if (!transport || !endpoint) {
+    return {
+      toolName: call.name,
+      success: false,
+      output: '',
+      error: `Tool '${tool.toolId}' has no transport/endpoint configured. Set transport='http'|'mcp' and endpoint URL via Admin → Tools.`,
+      durationMs: Date.now() - startTime,
+    }
+  }
+
+  try {
+    let result: ToolResult
+
+    if (transport === 'http') {
+      result = await executeHttpTool(endpoint, call.arguments, tool.apiKey || undefined, timeout)
+    } else if (transport === 'mcp') {
+      result = await executeMcpTool(endpoint, call.name, call.arguments, tool.apiKey || undefined, timeout)
+    } else {
+      result = {
+        success: false,
+        output: '',
+        error: `Unknown transport: ${transport}. Use 'http' or 'mcp'.`,
+      }
+    }
+
+    await auditToolCall(call.name, options, result, Date.now() - startTime)
+    return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
+  } catch (err: any) {
+    const errorResult: ToolResult = {
+      success: false,
+      output: '',
+      error: err.message,
+    }
+    await auditToolCall(call.name, options, errorResult, Date.now() - startTime)
+    return { ...errorResult, toolName: call.name, durationMs: Date.now() - startTime }
+  }
+}
+
+/**
+ * C2 — Esegue un tool HTTP: POST con JSON body all'endpoint configurato.
+ */
+async function executeHttpTool(
+  endpoint: string,
+  args: Record<string, unknown>,
+  apiKey: string | undefined,
+  timeout: number,
+): Promise<ToolResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+      },
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(timeout),
+    })
+
+    const text = await response.text()
+    const truncated = text.length > 50000
+    const output = truncated ? text.slice(0, 50000) + '\n...[truncated]' : text
+
+    return {
+      success: response.ok,
+      output,
+      error: response.ok ? undefined : `HTTP ${response.status}: ${response.statusText}`,
+      metadata: { status: response.status, size: text.length, truncated },
+    }
+  } catch (err: any) {
+    return { success: false, output: '', error: err.message }
+  }
+}
+
+/**
+ * C2 — Esegue un tool MCP: usa mcp-client per tools/call sul server esterno.
+ */
+async function executeMcpTool(
+  serverUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  apiKey: string | undefined,
+  timeout: number,
+): Promise<ToolResult> {
+  try {
+    const { callExternalTool } = await import('@/lib/mcp-client/client')
+    const result = await callExternalTool({
+      serverUrl,
+      toolName,
+      args,
+      apiKey,
+    })
+
+    return {
+      success: result.success,
+      output: result.output,
+      error: result.error,
+    }
+  } catch (err: any) {
+    return { success: false, output: '', error: err.message }
   }
 }
 

@@ -669,6 +669,11 @@ model Tool {
   installedBy  String?
   revokedAt    DateTime?
   revokeReason String?
+  // C2 — Campi per esecuzione tool esterni
+  transport    String?  // "http" | "mcp" | null (null = builtin/no exec)
+  endpoint     String?  // URL per http, o server MCP URL per mcp
+  apiKey       String?  // API key per il server esterno (opzionale)
+  inputSchema  String?  // JSON schema per i parametri (opzionale, per MCP tool discovery)
 }
 
 // Permessi a grana fine per ogni tool
