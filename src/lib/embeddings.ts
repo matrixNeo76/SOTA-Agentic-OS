@@ -264,32 +264,41 @@ export const EMBED_DIM = DIM
 /**
  * Helper: ricalcola l'embedding di tutti i record esistenti (episodi + entità + euristiche)
  * dopo un cambio di modello embedding. Da chiamare via API.
+ *
+ * C3 — Ora usa il embedding-provider attivo (local/ollama/openai) con fallback.
  */
-export async function recomputeAllEmbeddings(): Promise<{ episodes: number; entities: number; heuristics: number }> {
+export async function recomputeAllEmbeddings(): Promise<{ episodes: number; entities: number; heuristics: number; provider: string }> {
+  // C3 — Usa il provider attivo se disponibile, fallback a local embed()
+  const { getEmbeddingProvider } = await import('@/lib/embedding-provider')
+  const provider = await getEmbeddingProvider()
+  const useProvider = provider.name !== 'local-tfidf' // local uses sync embed() directly
+
   // Lazy import per evitare circular dep
   const { db } = await import('@/lib/db')
   let episodes = 0, entities = 0, heuristics = 0
 
   const eps = await db.episodicMemory.findMany()
   for (const e of eps) {
-    const emb = embed(e.observation)
+    const emb = useProvider ? await provider.embed(e.observation) : embed(e.observation)
     await db.episodicMemory.update({ where: { id: e.id }, data: { embedding: serialize(emb) } })
     episodes++
   }
 
   const ents = await db.semanticEntity.findMany()
   for (const e of ents) {
-    const emb = embed(`${e.name} ${e.type} ${e.description || ''}`)
+    const text = `${e.name} ${e.type} ${e.description || ''}`
+    const emb = useProvider ? await provider.embed(text) : embed(text)
     await db.semanticEntity.update({ where: { id: e.id }, data: { embedding: serialize(emb) } })
     entities++
   }
 
   const heurs = await db.heuristic.findMany()
   for (const h of heurs) {
-    const emb = embed(`${h.trigger} ${h.action} ${h.context}`)
+    const text = `${h.trigger} ${h.action} ${h.context}`
+    const emb = useProvider ? await provider.embed(text) : embed(text)
     await db.heuristic.update({ where: { id: h.id }, data: { embedding: serialize(emb) } })
     heuristics++
   }
 
-  return { episodes, entities, heuristics }
+  return { episodes, entities, heuristics, provider: provider.name }
 }

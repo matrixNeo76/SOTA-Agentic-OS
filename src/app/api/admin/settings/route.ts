@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
     Promise.resolve(integrationLayerStatus()),
   ])
 
+  const { getProviderInfo } = await import('@/lib/embedding-provider')
+  const embeddingInfo = await getProviderInfo()
+
   return NextResponse.json({
     database: {
       provider,
@@ -39,6 +42,7 @@ export async function GET(req: NextRequest) {
       latencyMs: (llmHealth as any).latencyMs,
       apiKeyConfigured: Boolean(process.env.ZAI_API_KEY),
     },
+    embedding: embeddingInfo,
     eventMesh: meshHealth,
     observability: {
       langfuseEnabled: Boolean(process.env.LANGFUSE_URL),
