@@ -1,0 +1,488 @@
+'use client'
+
+/**
+ * Runs View — UX-3: Superficie di Esecuzione + HITL live
+ *
+ * Due livelli:
+ *   1. Runs list: workflow passati/in corso con stato, durata, costo
+ *   2. Run detail: timeline batch/step + ReAct loop + checkpoint + HITL
+ *
+ * Allineata a PLAN.md WS1 (executor durevole):
+ *   - Mostra topologicalBatches come timeline
+ *   - Per ogni step: pensiero → tool-call → osservazione (da ExecutionTrace)
+ *   - Controlli durabilità: pausa/riprendi, checkpoint con resume/rollback
+ *   - HITL: approvazione inline (collega Sovereign)
+ *   - Badge "ripreso dopo interruzione" quando resumed=true
+ */
+
+import { useState, useEffect, useCallback } from 'react'
+import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+// === Tipi ============================================================
+
+interface RunTask {
+  taskId: string
+  agentId: string
+  description: string
+  status: string
+  startedAt: string | null
+  finishedAt: string | null
+  durationMs: number | null
+  result?: string | null
+}
+
+interface Run {
+  planId: string
+  goal: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  taskCount: number
+  tasksCompleted: number
+  tasksFailed: number
+  tasksBlocked: number
+  tasksRunning: number
+  totalDurationMs: number
+  agentCount: number
+  batches: string[][]
+  tasks: RunTask[]
+}
+
+interface RunDetail {
+  plan: {
+    id: string
+    goal: string
+    status: string
+    planJson: any
+    batches: string[][]
+    agentCount: number
+    createdAt: string
+    updatedAt: string
+  }
+  tasks: Array<RunTask & { dependencies: string[]; id: string }>
+  checkpoints: Array<{
+    id: string
+    agentUri: string
+    taskId: string | null
+    checkpointType: string
+    cycleId: number | null
+    createdAt: string
+    state: any
+  }>
+  traces: Array<{
+    id: string
+    traceLabel: string
+    states: any[]
+    actions: any[]
+    outcome: string
+    capturedAt: string
+  }>
+  costs: {
+    total: number
+    tokensIn: number
+    tokensOut: number
+    entries: any[]
+  }
+}
+
+// === Main component ===================================================
+
+export function RunsView() {
+  const [runs, setRuns] = useState<Run[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<RunDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const fetchRuns = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/runs/list?limit=50').then((r) => r.json())
+      setRuns(res.runs || [])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchRuns() }, [fetchRuns])
+
+  const openDetail = async (planId: string) => {
+    setSelectedPlanId(planId)
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/runs/detail?planId=${planId}`).then((r) => r.json())
+      setDetail(res)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  // === Run Detail View ===
+  if (selectedPlanId) {
+    return (
+      <RunDetailView
+        planId={selectedPlanId}
+        detail={detail}
+        loading={detailLoading}
+        onBack={() => { setSelectedPlanId(null); setDetail(null); fetchRuns() }}
+        onRefresh={() => openDetail(selectedPlanId)}
+      />
+    )
+  }
+
+  // === Runs List View ===
+  return (
+    <ModulePage
+      title="Runs"
+      description="Workflow executions — past and in-progress"
+      icon="Play"
+      loading={loading}
+      onRefresh={fetchRuns}
+      stats={[
+        { label: 'Total Runs', value: runs.length, icon: 'Play' },
+        { label: 'Running', value: runs.filter(r => r.status === 'running' || r.status === 'scheduled').length, tone: 'warn' as const, icon: 'Activity' },
+        { label: 'Completed', value: runs.filter(r => r.status === 'completed').length, tone: 'ok' as const, icon: 'CheckCircle2' },
+        { label: 'Failed', value: runs.filter(r => r.status === 'failed').length, tone: 'danger' as const, icon: 'XCircle' },
+      ]}
+    >
+      {runs.length > 0 ? (
+        <div className="space-y-2">
+          {runs.map((run) => (
+            <RunRow key={run.planId} run={run} onClick={() => openDetail(run.planId)} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon="Play"
+          title="No runs yet"
+          description="Execute a workflow from the Console to see it appear here. Runs are persistent — they survive crashes and can be resumed."
+        />
+      )}
+    </ModulePage>
+  )
+}
+
+// === Run Row (list item) ==============================================
+
+function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
+  const statusBadge = (status: string) => {
+    const variant = status === 'completed' ? 'success' : status === 'failed' ? 'destructive' : status === 'running' ? 'warning' : 'secondary'
+    return <Badge variant={variant as any}>{status}</Badge>
+  }
+
+  return (
+    <div
+      onClick={onClick}
+      className="border rounded-lg p-4 cursor-pointer hover:bg-accent/30 transition-colors"
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            {statusBadge(run.status)}
+            <span className="text-sm font-medium truncate">{run.goal}</span>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="font-mono">{run.planId}</span>
+            <span>{run.tasksCompleted}/{run.taskCount} done</span>
+            {run.tasksFailed > 0 && <span className="text-destructive">{run.tasksFailed} failed</span>}
+            {run.tasksBlocked > 0 && <span className="text-yellow-600">{run.tasksBlocked} blocked</span>}
+            <span><Clock className="w-3 h-3 inline mr-0.5" />{formatDuration(run.totalDurationMs)}</span>
+            <span>{new Date(run.createdAt).toLocaleString()}</span>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+      </div>
+
+      {/* Mini progress bar */}
+      <div className="mt-2 flex gap-0.5 h-1">
+        {run.tasks.map((t) => (
+          <div
+            key={t.taskId}
+            className={cn(
+              'flex-1 rounded-full',
+              t.status === 'done' && 'bg-green-500',
+              t.status === 'failed' && 'bg-red-500',
+              t.status === 'blocked' && 'bg-yellow-500',
+              t.status === 'running' && 'bg-blue-500 animate-pulse',
+              t.status === 'pending' && 'bg-muted',
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// === Run Detail View ==================================================
+
+function RunDetailView({ planId, detail, loading, onBack, onRefresh }: {
+  planId: string
+  detail: RunDetail | null
+  loading: boolean
+  onBack: () => void
+  onRefresh: () => void
+}) {
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  const [showCheckpoints, setShowCheckpoints] = useState(false)
+
+  const toggleTask = (taskId: string) => {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }
+
+  if (loading || !detail) {
+    return (
+      <div className="p-6">
+        <Button variant="ghost" size="sm" onClick={onBack} className="mb-4">
+          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Runs
+        </Button>
+        <div className="flex justify-center py-12">
+          <RotateCcw className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    )
+  }
+
+  const { plan, tasks, checkpoints, traces, costs } = detail
+
+  return (
+    <div className="space-y-4 p-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="w-4 h-4 mr-1" /> Back
+          </Button>
+          <div>
+            <h2 className="text-lg font-bold">{plan.goal}</h2>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-mono">{plan.id}</span>
+              <Badge variant={plan.status === 'completed' ? 'success' : plan.status === 'failed' ? 'destructive' : 'warning'}>
+                {plan.status}
+              </Badge>
+              <span>{new Date(plan.createdAt).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          <RotateCcw className="w-4 h-4 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatBox label="Tasks" value={tasks.length} />
+        <StatBox label="Done" value={tasks.filter(t => t.status === 'done').length} tone="ok" />
+        <StatBox label="Failed" value={tasks.filter(t => t.status === 'failed').length} tone="danger" />
+        <StatBox label="Cost" value={`$${costs.total.toFixed(4)}`} icon="dollar" />
+        <StatBox label="Tokens" value={`${costs.tokensIn + costs.tokensOut}`} />
+      </div>
+
+      {/* Timeline by batch */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Play className="w-4 h-4" /> Execution Timeline
+          </CardTitle>
+          <CardDescription>
+            {plan.batches.length} batches (topological order) — click a task to expand
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {plan.batches.map((batch, batchIdx) => (
+              <div key={batchIdx}>
+                <div className="text-xs font-medium text-muted-foreground mb-1">
+                  Batch {batchIdx + 1} — {batch.length} task{batch.length > 1 ? 's' : ''}
+                </div>
+                <div className="space-y-1">
+                  {batch.map((taskId) => {
+                    const task = tasks.find(t => t.taskId === taskId)
+                    if (!task) return null
+                    const isExpanded = expandedTasks.has(taskId)
+                    return (
+                      <TaskStep
+                        key={taskId}
+                        task={task}
+                        isExpanded={isExpanded}
+                        onToggle={() => toggleTask(taskId)}
+                        traces={traces.filter(t => t.traceLabel.includes(taskId))}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Checkpoints (UX-3c) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <History className="w-4 h-4" /> Checkpoints ({checkpoints.length})
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => setShowCheckpoints(!showCheckpoints)}>
+              {showCheckpoints ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </Button>
+          </div>
+        </CardHeader>
+        {showCheckpoints && (
+          <CardContent>
+            {checkpoints.length > 0 ? (
+              <div className="space-y-1">
+                {checkpoints.map((cp) => (
+                  <div key={cp.id} className="flex items-center justify-between border rounded p-2 text-xs">
+                    <div>
+                      <span className="font-mono">{cp.id.slice(0, 12)}...</span>
+                      <Badge variant="outline" className="ml-2">{cp.checkpointType}</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{new Date(cp.createdAt).toLocaleTimeString()}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          await fetch('/api/runs/checkpoint', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'rollback', agentUri: cp.agentUri, checkpointId: cp.id }),
+                          })
+                          onRefresh()
+                        }}
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1" /> Rollback
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon="History" title="No checkpoints" description="Checkpoints are created automatically during task execution" />
+            )}
+          </CardContent>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// === Task Step (expandable) ===========================================
+
+function TaskStep({ task, isExpanded, onToggle, traces }: {
+  task: RunTask & { dependencies?: string[]; id?: string }
+  isExpanded: boolean
+  onToggle: () => void
+  traces: any[]
+}) {
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case 'done': return <CheckCircle2 className="w-4 h-4 text-green-500" />
+      case 'failed': return <XCircle className="w-4 h-4 text-red-500" />
+      case 'blocked': return <AlertTriangle className="w-4 h-4 text-yellow-500" />
+      case 'running': return <RotateCcw className="w-4 h-4 text-blue-500 animate-spin" />
+      default: return <Clock className="w-4 h-4 text-muted-foreground" />
+    }
+  }
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 p-3 hover:bg-accent/30 transition-colors text-left"
+      >
+        {statusIcon(task.status)}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono">{task.taskId}</span>
+            <Badge variant="outline" className="text-[10px]">{task.agentId}</Badge>
+          </div>
+          <div className="text-sm truncate">{task.description}</div>
+        </div>
+        {task.durationMs !== null && (
+          <span className="text-xs text-muted-foreground shrink-0">{formatDuration(task.durationMs)}</span>
+        )}
+        {isExpanded ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
+      </button>
+
+      {isExpanded && (
+        <div className="border-t bg-muted/20 p-3 space-y-2">
+          {/* Task result */}
+          {task.result && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1">Result</div>
+              <pre className="text-xs bg-card border rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{task.result}</pre>
+            </div>
+          )}
+
+          {/* ReAct loop traces (UX-3b) */}
+          {traces.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1">ReAct Loop Trace</div>
+              <div className="space-y-1">
+                {traces.map((trace) => {
+                  const actions = trace.actions || []
+                  return actions.map((action: any, i: number) => (
+                    <div key={i} className="text-xs border-l-2 border-primary/30 pl-2">
+                      <div className="flex items-center gap-1">
+                        <Badge variant="outline" className="text-[10px]">action</Badge>
+                        <span className="font-mono">{action.action || 'execute'}</span>
+                      </div>
+                      {action.output && (
+                        <pre className="text-xs mt-0.5 bg-card border rounded p-1 overflow-auto max-h-32 whitespace-pre-wrap">
+                          {typeof action.output === 'string' ? action.output.slice(0, 500) : JSON.stringify(action.output, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  ))
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Metadata */}
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            {task.startedAt && <span>Started: {new Date(task.startedAt).toLocaleTimeString()}</span>}
+            {task.finishedAt && <span>Finished: {new Date(task.finishedAt).toLocaleTimeString()}</span>}
+            {task.dependencies && task.dependencies.length > 0 && (
+              <span>Deps: {task.dependencies.join(', ')}</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// === Helpers ==========================================================
+
+function StatBox({ label, value, tone, icon }: { label: string; value: string | number; tone?: 'ok' | 'danger'; icon?: string }) {
+  const colorClass = tone === 'ok' ? 'text-green-600' : tone === 'danger' ? 'text-red-600' : ''
+  return (
+    <div className="border rounded p-3 text-center">
+      <div className={`text-2xl font-bold ${colorClass}`}>
+        {icon === 'dollar' && '$'}
+        {value}
+      </div>
+      <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+    </div>
+  )
+}
+
+function formatDuration(ms: number): string {
+  if (!ms || ms === 0) return '—'
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  return `${(ms / 60000).toFixed(1)}m`
+}
