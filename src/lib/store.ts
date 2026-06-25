@@ -55,15 +55,15 @@ export const ADMIN_AREAS: PhaseMeta[] = [
 
 // === Advanced / Internals (vecchie fasi, come vista debug) ===
 export const ADVANCED_PHASES: PhaseMeta[] = [
-  { id: 'domain-memory', name: 'Memory Domain', subtitle: 'Phase 1 + 6 + 10', category: 'advanced', icon: 'Database', number: 1 },
-  { id: 'domain-plan', name: 'Plan Domain', subtitle: 'Phase 2 + 7 + 12', category: 'advanced', icon: 'Workflow', number: 2 },
-  { id: 'domain-verify', name: 'Verify Domain', subtitle: 'Phase 4 + 7 + 8 + 13', category: 'advanced', icon: 'ShieldCheck', number: 4 },
-  { id: 'domain-learn', name: 'Learn Domain', subtitle: 'Phase 5 + 11 + 14 + 9', category: 'advanced', icon: 'Sparkles', number: 5 },
-  { id: 'phase1', name: 'NS-Mem · PatchBoard', subtitle: 'F1: Memory & State', category: 'advanced', icon: 'Database', number: 1 },
-  { id: 'phase2', name: 'DynAMO · Compiled AI', subtitle: 'F2: Planner & Compiler', category: 'advanced', icon: 'Workflow', number: 2 },
+  { id: 'domain-memory', name: 'Memory Domain', subtitle: 'Phase 1 + 6 + 10', category: 'advanced', icon: 'Layers', number: 1 },
+  { id: 'domain-plan', name: 'Plan Domain', subtitle: 'Phase 2 + 7 + 12', category: 'advanced', icon: 'ListChecks', number: 2 },
+  { id: 'domain-verify', name: 'Verify Domain', subtitle: 'Phase 4 + 7 + 8 + 13', category: 'advanced', icon: 'BadgeCheck', number: 4 },
+  { id: 'domain-learn', name: 'Learn Domain', subtitle: 'Phase 5 + 11 + 14 + 9', category: 'advanced', icon: 'Lightbulb', number: 5 },
+  { id: 'phase1', name: 'NS-Mem · PatchBoard', subtitle: 'F1: Memory & State', category: 'advanced', icon: 'Save', number: 1 },
+  { id: 'phase2', name: 'DynAMO · Compiled AI', subtitle: 'F2: Planner & Compiler', category: 'advanced', icon: 'Code2', number: 2 },
   { id: 'phase3', name: 'ACTS Controller', subtitle: 'F3: Cognitive Steering', category: 'advanced', icon: 'Compass', number: 3 },
-  { id: 'phase4', name: 'LTL · Taint · Normative', subtitle: 'F4: Verification & Taint', category: 'advanced', icon: 'ShieldCheck', number: 4 },
-  { id: 'phase5', name: 'ERL · Red Lines', subtitle: 'F5: Reflective Learning', category: 'advanced', icon: 'Sparkles', number: 5 },
+  { id: 'phase4', name: 'LTL · Taint · Normative', subtitle: 'F4: Verification & Taint', category: 'advanced', icon: 'Lock', number: 4 },
+  { id: 'phase5', name: 'ERL · Red Lines', subtitle: 'F5: Reflective Learning', category: 'advanced', icon: 'BookOpen', number: 5 },
   { id: 'phase6', name: 'Context Manager', subtitle: 'F6: Ring buffer · Summaries', category: 'advanced', icon: 'Scissors', number: 6 },
   { id: 'phase7', name: 'PTA · Dominators', subtitle: 'F7: Trace Validator', category: 'advanced', icon: 'GitFork', number: 7 },
   { id: 'phase8', name: 'Lean4 · LeanEvolve', subtitle: 'F8: Formal Verifier', category: 'advanced', icon: 'FunctionSquare', number: 8 },
