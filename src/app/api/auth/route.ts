@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
     })
     res.cookies.set('sota_session', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60, // 7 giorni
       path: '/',
     })
