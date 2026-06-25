@@ -14,6 +14,7 @@
 6. [Sicurezza e Trust](#6-sicurezza-e-trust)
 7. [Design system](#7-design-system)
 8. [Performance e scalabilità](#8-performance-e-scalabilità)
+9. [Architettura Fase 1-4 (Agentic OS Evolution)](#9-architettura-fase-1-4-agentic-os-evolution)
 
 ---
 
@@ -27,7 +28,7 @@
                          │ HTTPS + WebSocket
 ┌────────────────────────▼────────────────────────────────┐
 │              NEXT.JS APP (SSR + API Routes)              │
-│  37 API routes · Middleware auth · SSE streaming         │
+│  49 API routes (36 kernel + 13 Fase 4) · Middleware auth · SSE streaming         │
 ├──────────────────────────────────────────────────────────┤
 │                    KERNEL (25 moduli)                    │
 │  F1 Memory · F2 Planner · F3 Steering · F4 Verify       │
@@ -36,9 +37,18 @@
 │  F12 Objective · F13 Swarm · F14 Router                  │
 │  + MCP · Cost · Crypto · Scheduler · Scalability         │
 ├──────────────────────────────────────────────────────────┤
+│           FASE 1-4 (Agentic OS Evolution)                │
+│  Context Graph (AGE) · GraphRAG · Memory Fabric (4 layers)│
+│  Event Mesh (NATS/Redis) · Cognitive Router · Skill Registry│
+│  Evaluation Layer · Conflict Resolution · Cognitive GC    │
+│  World Model · Digital Twin · Agent Mesh (10 agents)      │
+│  Skill Synthesis · Autonomous Org · Integration Layer     │
+├──────────────────────────────────────────────────────────┤
 │              INFRASTRUCTURE LAYER                        │
-│  SQLite/PostgreSQL (62 models) · Redis · ZAI SDK (LLM)  │
+│  SQLite (dev) / PostgreSQL+pgvector+AGE (prod, AgensGraph)│
+│  NATS JetStream / Redis (Event Mesh) · ZAI SDK (LLM)     │
 │  Xenova Transformers (embeddings) · Socket.IO (WS)       │
+│  Langfuse self-host (observability, opzionale)           │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -89,7 +99,22 @@ src/app/api/
 ├── mcp-client/      # MCP Client (external connections)
 ├── skills/          # Skill management CRUD
 ├── tools/           # Tool registry
-└── ... (24 altre route)
+├── ... (23 altre route kernel)
+├── runtime/         # Fase 1.1 — DB runtime info
+├── mesh/            # Fase 2.1 — Event Mesh stats + publish
+├── world-model/     # Fase 3.1 — WorldState + predictions
+├── digital-twin/    # Fase 3.2 — Scenarios + what-if
+├── autonomous-org/  # Fase 3.6 — Proposals + HITL
+├── agent-mesh/      # Fase 3.4 — Mesh topology + delegate
+├── agent-lifecycle/ # Fase 3.3 — Agent versioning + permissions
+├── evaluation/      # Fase 2.7 — Benchmarks + run evaluation
+├── conflict-resolution/ # Fase 2.8 — Conflicts + resolve
+├── cognitive-gc/    # Fase 2.9 — Memory consolidation + archival
+├── cognitive-router/ # Fase 2.3 — Task classifier + routing
+├── code-intelligence/ # Fase 2.4 — AST + git diff
+├── skill-registry/  # Fase 2.5 — Skills CRUD + version
+├── skill-synthesis/ # Fase 3.5 — Gap detection + pipeline
+└── knowledge-extraction/ # Fase 2.2 — Document → Graph
 ```
 
 ### Layer 4: Kernel (25 moduli puri)
@@ -123,6 +148,36 @@ src/lib/kernel/
 ```
 
 **Vincolo architetturale:** I moduli kernel NON importano mai `@prisma/client` o `z-ai-web-dev-sdk` direttamente. L'accesso a DB/LLM avviene tramite le API routes che mediiano tramite `lib/db.ts` e dynamic import di ZAI. Questo mantiene il kernel testabile in isolamento.
+
+### Layer 5: Fase 1-4 Moduli (Agentic OS Evolution)
+```
+src/lib/
+├── governance/         # Fase 0.5 — Entity Registry, Naming URI, Provenance, Event Taxonomy
+├── db-runtime.ts       # Fase 1.1 — Provider detection + pgvector/AGE helpers
+├── vector-store.ts     # Fase 1.1 — Embeddings façade (JSON-string | pgvector)
+├── graph-age.ts        # Fase 1.2 — Context Graph façade (Cypher via AGE | Prisma)
+├── graphrag/           # Fase 1.4 — Hybrid retrieval (vector + graph + ranking)
+├── memory-fabric/      # Fase 1.5 — 4 layers + consolidation + semantic search
+├── checkpoint/         # Fase 1.6 — Resume/Replay/Rollback
+├── event-mesh/         # Fase 2.1 — NATS/Redis/memory pub/sub + publishers tipizzati
+├── knowledge-extraction/ # Fase 2.2 — Document → chunks → entities → Graph
+├── cognitive-router/   # Fase 2.3 — Task classifier + local-first routing
+├── code-intelligence/  # Fase 2.4 — AST parser + Call Graph + git diff sync
+├── skill-registry/     # Fase 2.5 — Catalogo skill con versioning + 3 default
+├── observability-v2/   # Fase 2.6 — Langfuse export + dashboard + policy engine
+├── evaluation/         # Fase 2.7 — Benchmark + 8 metriche + regression detection
+├── conflict-resolution/ # Fase 2.8 — Claim conflict detect + 5 strategies
+├── cognitive-gc/       # Fase 2.9 — Memory curator + decay + cold archival + scheduler
+├── world-model/        # Fase 3.1 — WorldState + Prediction + Risk + Opportunity
+├── digital-twin/       # Fase 3.2 — Fork + Simulation + 6 what-if presets
+├── agent-lifecycle/    # Fase 3.3 — Versioning + roles + capabilities + policies
+├── agent-mesh/         # Fase 3.4 — 10 agenti in 3 tier + delegation + escalation
+├── skill-synthesis/    # Fase 3.5 — Meta Agent + sandbox + validation + HITL
+├── autonomous-org/     # Fase 3.6 — Proposals (7 tipi) + auto-generators + HITL
+└── integration/        # Fase 4.2 — Kernel ↔ Event Mesh ↔ Context Graph bridges
+```
+
+**Pattern Fase 1-4:** I moduli seguono lo stesso vincolo del kernel (logica pura, nessun import diretto di `@prisma/client`). Le façade `graph-age.ts`, `vector-store.ts`, `event-mesh/mesh.ts` mediiano l'accesso a DB/Event Mesh, rendendo i moduli testabili in isolamento con fallback in-memory/SQLite.
 
 ---
 

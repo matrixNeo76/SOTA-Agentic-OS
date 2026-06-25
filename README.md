@@ -3,10 +3,11 @@
 > **INTELLIGENT · SECURE · AUTONOMOUS** — Un sistema operativo per agenti autonomi
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-146%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-496%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Phases](https://img.shields.io/badge/phases-0.5%20%E2%86%92%204-blue)]()
 
-SOTA Agentic OS è una piattaforma che orchestra agenti AI autonomi attraverso un kernel transazionale con verifica formale LTL, apprendimento riflessivo (ERL), steering cognitivo ACTS, e un ecosistema tool con firme crittografiche ECDSA.
+SOTA Agentic OS è un **Cognitive Operating System** che orchestra agenti AI autonomi attraverso un kernel transazionale con verifica formale LTL, apprendimento riflessivo (ERL), steering cognitivo ACTS, ecosistema tool con firme crittografiche ECDSA, organizzazione autonoma gerarchica con HITL gates, World Model predittivo, Digital Twin per what-if analysis, e Skill Synthesis automatica.
 
 ---
 
@@ -14,6 +15,7 @@ SOTA Agentic OS è una piattaforma che orchestra agenti AI autonomi attraverso u
 
 - [Panoramica](#panoramica)
 - [Funzionalità](#funzionalità)
+- [Architettura a Fasi](#architettura-a-fasi)
 - [Stack Tecnologico](#stack-tecnologico)
 - [Installazione — Windows](#installazione--windows)
 - [Installazione — Linux](#installazione--linux)
@@ -21,14 +23,16 @@ SOTA Agentic OS è una piattaforma che orchestra agenti AI autonomi attraverso u
 - [Avvio](#avvio)
 - [Credenziali Default](#credenziali-default)
 - [Struttura del Progetto](#struttura-del-progetto)
+- [API Endpoints](#api-endpoints)
 - [Testing](#testing)
+- [Fase 4 — Production Hardening](#fase-4--production-hardening--integration)
 - [Licenza](#licenza)
 
 ---
 
 ## Panoramica
 
-SOTA Agentic OS trasforma un LLM in un **sistema operativo agentico** con:
+SOTA Agentic OS trasforma un LLM in un **Cognitive Operating System** con:
 
 - **Kernel transazionale** — operazioni atomiche con rollback (PatchBoard)
 - **Verifica formale** — regole LTL (Linear Temporal Logic) enforce safety invariants
@@ -37,6 +41,19 @@ SOTA Agentic OS trasforma un LLM in un **sistema operativo agentico** con:
 - **Sovereign Validator** — HITL (Human-In-The-Loop) per azioni irreversibili
 - **Tool Ecosystem** — tool firmati ECDSA con permessi a grana fine
 - **MCP Server/Client** — Model Context Protocol per interoperabilità con client esterni
+- **Universal Context Graph** (Fase 1) — grafo knowledge su Apache AGE con provenance obbligatoria
+- **GraphRAG** (Fase 1) — hybrid retrieval: vector search + graph expansion + subgraph ranking
+- **Memory Fabric** (Fase 1) — 4 layers (episodic/semantic/procedural/reasoning) con consolidation
+- **Event Mesh** (Fase 2) — pub/sub con NATS JetStream / Redis / in-memory
+- **Cognitive Router** (Fase 2) — task classifier (Simple/Medium/Complex/Critical) + local-first routing
+- **Skill Registry + Synthesis** (Fase 2+3) — catalogo con versioning + Meta Agent per auto-generazione
+- **Evaluation Layer** (Fase 2) — 8 metriche (task_success_rate, tool_accuracy, hallucination_rate, etc.)
+- **Conflict Resolution** (Fase 2) — detect claim conflicts + 5 resolution strategies
+- **Cognitive GC** (Fase 2) — memory consolidation + decay + cold archival
+- **World Model** (Fase 3) — WorldState + Prediction + Risk + Opportunity
+- **Digital Twin** (Fase 3) — Fork + Simulation + 6 what-if presets
+- **Hierarchical Agent Mesh** (Fase 3) — 10 agenti in 3 tier (CEO + 4 strategic + 5 operational)
+- **Autonomous Organization** (Fase 3) — auto-creazione agenti/skill/workflow sotto HITL gates
 
 ---
 
@@ -61,10 +78,37 @@ Control room con 5 tab: Narrativa, Log tecnico, Scheduler task, Cicli cognitivi,
 - **Command Palette** (Cmd+K) — 33+ comandi con fuzzy search
 - **Context Panel** — Inspector context-aware con 4 modalità
 
+### Autonomous Dashboard (Fase 4)
+Dashboard unificata su `/autonomous` per visualizzare:
+- Mesh gerarchica (agenti per tier)
+- World Model (latest WorldState + pending predictions + risks + opportunities)
+- Autonomous Org proposals (pending + stats + HITL approve/reject)
+- Digital Twin scenarios + what-if presets
+- Skill Registry + Synthesis stats
+- Conflict Resolution queue
+- Cognitive GC memory tiers (hot/warm/cold)
+
 ### Ecosystem
 - **Tool Manager** — Catalogo tool con firme ECDSA e permessi
 - **Skill Manager** — Prompt templates riutilizzabili con variabili
 - **MCP Explorer** — Connessioni a server MCP esterni
+
+---
+
+## Architettura a Fasi
+
+Il progetto evolve attraverso 5 livelli architetturali:
+
+| Fase | Nome | Moduli | Stato |
+|------|------|--------|-------|
+| **0.5** | Governance Foundation | Entity Registry, Naming URI, Provenance, Event Taxonomy, Knowledge-as-Claims | ✅ |
+| **1** | MVP Core | PostgreSQL+pgvector+AGE, Context Graph, GraphRAG, Memory Fabric, Checkpointing | ✅ |
+| **2** | Enterprise Core | Event Mesh, Knowledge Extraction, Cognitive Router, Code Intelligence, Skill Registry, Observability v2, Evaluation, Conflict Resolution, Cognitive GC | ✅ |
+| **3** | AGI-Oriented | World Model, Digital Twin, Agent Lifecycle, Agent Mesh, Skill Synthesis, Autonomous Org | ✅ |
+| **4** | Production Hardening | 13 API routes, Integration Layer, Cockpit UI | ✅ |
+| **ESISTE** | Kernel F1-F23 | LTL, ERL, ACTS, DynAMO, Sovereign, MCP, ECDSA, 25 moduli | ✅ |
+
+Vedi `ARCHITECTURE.md` per il diagramma completo e `DIAGRAM.md` per i diagrammi Mermaid.
 
 ---
 
@@ -73,13 +117,15 @@ Control room con 5 tab: Narrativa, Log tecnico, Scheduler task, Cicli cognitivi,
 | Layer | Tecnologia |
 |-------|-----------|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, shadcn/ui |
-| **Backend** | Next.js API Routes (37 route), Prisma 6 ORM |
-| **Database** | SQLite (dev) / PostgreSQL (prod) |
-| **LLM** | ZAI SDK (zai-glm) |
-| **Embeddings** | @xenova/transformers (all-MiniLM-L6-v2, 384dim) |
+| **Backend** | Next.js API Routes (49 route), Prisma 6 ORM |
+| **Database** | SQLite (dev) / PostgreSQL + pgvector + Apache AGE (prod via AgensGraph) |
+| **Message Bus** | NATS JetStream / Redis Streams / in-memory (auto-select via env) |
+| **Observability** | OpenTelemetry traces + Langfuse self-host (export opzionale) |
+| **LLM** | ZAI SDK (zai-glm) + local-first router (llama.cpp / Ollama opzionali) |
+| **Embeddings** | @xenova/transformers (all-MiniLM-L6-v2, 384dim) + pgvector native |
 | **WebSocket** | Socket.IO (Sensorium real-time) |
 | **State** | Zustand (navigation + data-store) |
-| **Testing** | Vitest (146 test) |
+| **Testing** | Vitest (496 test su 31 file) |
 | **Animation** | Framer Motion, tw-animate-css |
 | **Icons** | Lucide React |
 
@@ -254,7 +300,8 @@ Al primo avvio viene creato automaticamente un admin di default:
 SOTA-Agentic-OS/
 ├── src/
 │   ├── app/                    # Next.js App Router
-│   │   ├── api/                # 37 API routes
+│   │   ├── api/                # 49 API routes (36 kernel + 13 Fase 4)
+│   │   ├── autonomous/         # Cockpit UI Fase 4 (Autonomous Dashboard)
 │   │   ├── login/              # Pagina login
 │   │   ├── share/[token]/      # Conversazioni condivise
 │   │   ├── globals.css         # Design system premium (OKLCH)
@@ -262,6 +309,7 @@ SOTA-Agentic-OS/
 │   │   └── page.tsx            # App shell (workbench)
 │   ├── components/
 │   │   ├── agentic/            # PhaseN + sidebar + topbar + overview
+│   │   ├── autonomous-dashboard/ # Fase 4.3 — Cockpit UI unificata
 │   │   ├── console/            # Chat agentica decomposta
 │   │   ├── cockpit/            # Control room (widget + tabs)
 │   │   ├── canvas/             # DAG visualizer
@@ -275,24 +323,99 @@ SOTA-Agentic-OS/
 │   ├── lib/
 │   │   ├── auth/               # Session management + RBAC
 │   │   ├── kernel/             # 25 moduli kernel (F1-F23)
+│   │   ├── governance/         # Fase 0.5 — Entity Registry, Naming, Provenance, Event Taxonomy
+│   │   ├── context-graph/      # Fase 1.2 — Re-export di graph-age
+│   │   ├── graphrag/           # Fase 1.4 — Hybrid retrieval engine
+│   │   ├── memory-fabric/      # Fase 1.5 — 4 layers memory
+│   │   ├── checkpoint/         # Fase 1.6 — Resume/Replay/Rollback
+│   │   ├── event-mesh/         # Fase 2.1 — NATS/Redis/memory pub/sub
+│   │   ├── knowledge-extraction/ # Fase 2.2 — Document → Graph pipeline
+│   │   ├── cognitive-router/   # Fase 2.3 — Task classifier + local-first
+│   │   ├── code-intelligence/  # Fase 2.4 — AST + Call Graph
+│   │   ├── skill-registry/     # Fase 2.5 — Catalogo skill
+│   │   ├── observability-v2/   # Fase 2.6 — Langfuse export + dashboard
+│   │   ├── evaluation/         # Fase 2.7 — Benchmark + metrics
+│   │   ├── conflict-resolution/ # Fase 2.8 — Claim conflict engine
+│   │   ├── cognitive-gc/       # Fase 2.9 — Memory curator
+│   │   ├── world-model/        # Fase 3.1 — WorldState + Prediction
+│   │   ├── digital-twin/       # Fase 3.2 — Fork + Simulation
+│   │   ├── agent-lifecycle/    # Fase 3.3 — Versioning + permissions
+│   │   ├── agent-mesh/         # Fase 3.4 — Hierarchical mesh (10 agents)
+│   │   ├── skill-synthesis/    # Fase 3.5 — Meta Agent + sandbox
+│   │   ├── autonomous-org/     # Fase 3.6 — Proposals + HITL gates
+│   │   ├── integration/        # Fase 4.2 — Kernel ↔ Event Mesh bridges
 │   │   ├── stores/             # Zustand data-store + transfer-store
 │   │   ├── design-tokens.ts    # Design system unificato
 │   │   ├── store.ts            # Navigation store (Zustand)
 │   │   ├── db.ts               # Prisma client
+│   │   ├── db-runtime.ts       # Fase 1.1 — Provider detection + pgvector/AGE
+│   │   ├── vector-store.ts     # Fase 1.1 — Embeddings façade
+│   │   ├── graph-age.ts        # Fase 1.2 — Context Graph façade
 │   │   ├── redis.ts            # Redis client
 │   │   └── embeddings.ts       # Neural embeddings (Xenova)
 │   └── middleware.ts           # Auth gate server-side
 ├── prisma/
-│   └── schema.prisma           # 62 modelli
+│   ├── schema.prisma           # 60+ modelli (SQLite, dev)
+│   └── schema.postgres.prisma  # Fase 1.1 — PostgreSQL con pgvector nativo
 ├── tests/
-│   ├── unit/                   # 6 file, 146 test
+│   ├── unit/                   # 31 file, 496 test
 │   └── fixtures/               # Test fixtures
+├── scripts/
+│   ├── pg-bootstrap.sql        # Fase 1.1 — pgvector + AGE + indici
+│   └── seed.py                 # Seed script
 ├── mini-services/
 │   └── sensorium-ws/           # WebSocket server (Socket.IO)
+├── docker-compose.yml          # Fase 1.1 — AgensGraph stack (PostgreSQL + AGE + pgvector)
 ├── download/                   # Documentazione + asset
+├── AGENTS.md                   # Guida per LLM agenti
+├── ARCHITECTURE.md             # Architettura tecnica (Fase 1-4 inclusa)
+├── DIAGRAM.md                  # Diagrammi Mermaid
+├── worklog.md                  # Cronologia sessioni (Fase 0.5 → 4)
 ├── package.json
 └── README.md
 ```
+
+---
+
+## API Endpoints
+
+Il sistema espone **49 API routes** (36 preesistenti + 13 nuove Fase 4). Tutte seguono il pattern: `GET` = stats/list, `POST` = action dispatcher con `{ action, ...params, provenance }`.
+
+### Endpoint Fase 4 (moduli 1-3)
+
+| Endpoint | Metodo | Descrizione |
+|----------|--------|-------------|
+| `/api/runtime` | GET | Runtime info: provider (sqlite/postgresql), extensions (pgvector, age), capabilities |
+| `/api/mesh` | GET, POST | Event Mesh stats + publish events manually |
+| `/api/world-model` | GET, POST | WorldState capture + predictions + risks + opportunities |
+| `/api/digital-twin` | GET, POST | Scenarios + run simulation + 6 what-if presets |
+| `/api/autonomous-org` | GET, POST | Proposals + approve/reject + auto-generate (HITL gated) |
+| `/api/agent-mesh` | GET, POST | Mesh topology + bootstrap default (10 agents) + delegate/escalate/quorum |
+| `/api/agent-lifecycle` | GET, POST | Agent registration + versioning + suspend/resume + check-permission |
+| `/api/evaluation` | GET, POST | Benchmarks + run evaluation + agent evaluations + seed defaults |
+| `/api/conflict-resolution` | GET, POST | Pending conflicts + resolve (5 strategies) + auto-resolve |
+| `/api/cognitive-gc` | GET, POST | Memory stats + consolidate + decay update + archive cold |
+| `/api/cognitive-router` | GET, POST | Router stats + classify + plan routing + route + local models health |
+| `/api/code-intelligence` | GET, POST | Parse file + sync to graph + analyze git diff |
+| `/api/skill-registry` | GET, POST | Skills CRUD + search + version + seed 3 defaults |
+| `/api/skill-synthesis` | GET, POST | Detect skill gaps + run synthesis pipeline (HITL gated) |
+| `/api/knowledge-extraction` | GET, POST | Extract document → chunks → entities → Context Graph |
+
+### Endpoint Kernel esistenti (selezione)
+
+| Endpoint | Metodo | Descrizione |
+|----------|--------|-------------|
+| `/api/console/stream` | POST (SSE) | Chat agentica con streaming real-time |
+| `/api/dashboard` | GET | KPI globali (cost, agents, tasks, blocked) |
+| `/api/blocked-actions` | GET, POST | Azioni bloccate da Sovereign Validator |
+| `/api/plan` | GET, POST | DynAMO plan generation |
+| `/api/verify` | GET, POST | LTL verification + taint tracking |
+| `/api/reflect` | GET, POST | ERL reflective learning |
+| `/api/cost` | GET | Cost tracking aggregato |
+| `/api/metrics` | GET | Prometheus export |
+| `/api/embeddings` | GET, POST | Embeddings management (recompute, search) |
+
+Vedi `AGENTS.md` per il pattern uniforme e le convenzioni API.
 
 ---
 
