@@ -52,3 +52,14 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Fase 1-4: database binari e file temporanei
+/db/*.db
+/db/backups/
+/tool-results/
+
+# Embeddings cache
+/upload/
+
+# OS files
+Thumbs.db
