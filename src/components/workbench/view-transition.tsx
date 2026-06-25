@@ -20,24 +20,24 @@ import { useStore } from '@/lib/store'
  * - Mode: wait (exit completes before enter starts) to avoid overlap
  */
 export function ViewTransition({ children }: { children: React.ReactNode }) {
-  const { activeView, activePhase } = useStore()
-  // Composite key so switching phases within "phase" view also re-animates
-  const transitionKey = activeView === 'phase' ? `phase:${activePhase}` : activeView
+ const { activeView, activePhase } = useStore()
+ // Composite key so switching phases within "phase" view also re-animates
+ const transitionKey = activeView === 'phase' ? `phase:${activePhase}` : activeView
 
-  return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={transitionKey}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className="h-full min-h-0"
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
-  )
+ return (
+ <AnimatePresence mode="wait" initial={false}>
+ <motion.div
+ key={transitionKey}
+ initial={{ opacity: 0, y: 8 }}
+ animate={{ opacity: 1, y: 0 }}
+ exit={{ opacity: 0, y: -8 }}
+ transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+ className="h-full min-h-0"
+ >
+ {children}
+ </motion.div>
+ </AnimatePresence>
+ )
 }
 
 /**
@@ -45,22 +45,22 @@ export function ViewTransition({ children }: { children: React.ReactNode }) {
  * Slides in from right when opening, fades out when closing.
  */
 export function ContextPanelTransition({ children, isOpen }: { children: React.ReactNode; isOpen: boolean }) {
-  return (
-    <AnimatePresence mode="wait" initial={false}>
-      {isOpen && (
-        <motion.div
-          key="context-panel"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
-          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          className="h-full"
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+ return (
+ <AnimatePresence mode="wait" initial={false}>
+ {isOpen && (
+ <motion.div
+ key="context-panel"
+ initial={{ opacity: 0, x: 20 }}
+ animate={{ opacity: 1, x: 0 }}
+ exit={{ opacity: 0, x: 20 }}
+ transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+ className="h-full"
+ >
+ {children}
+ </motion.div>
+ )}
+ </AnimatePresence>
+ )
 }
 
 /**
@@ -68,18 +68,18 @@ export function ContextPanelTransition({ children, isOpen }: { children: React.R
  * Use when selectedItem changes to fade between QuickStats/NodeInspector/etc.
  */
 export function InspectorTransition({ children, itemKey }: { children: React.ReactNode; itemKey: string }) {
-  return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={itemKey}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.15 }}
-        className="h-full"
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
-  )
+ return (
+ <AnimatePresence mode="wait" initial={false}>
+ <motion.div
+ key={itemKey}
+ initial={{ opacity: 0 }}
+ animate={{ opacity: 1 }}
+ exit={{ opacity: 0 }}
+ transition={{ duration: 0.15 }}
+ className="h-full"
+ >
+ {children}
+ </motion.div>
+ </AnimatePresence>
+ )
 }
