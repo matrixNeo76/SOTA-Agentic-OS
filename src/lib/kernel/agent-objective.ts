@@ -37,8 +37,8 @@ export async function createObjectiveTree(rootGoal: string): Promise<{ treeId: s
     data: { rootGoal, status: 'drafted' },
   })
 
-  // Genera la struttura ad albero (simulata: in produzione usare LLM)
-  const treeStructure = generateTreeStructure(rootGoal)
+  // Genera la struttura ad albero usando LLM per i sotto-obiettivi
+  const treeStructure = await generateTreeStructure(rootGoal)
 
   // Persisti ricorsivamente
   let totalNodes = 0
@@ -87,7 +87,7 @@ export async function createObjectiveTree(rootGoal: string): Promise<{ treeId: s
  *  - Fermati se peso < WEIGHT_THRESHOLD o depth >= MAX_DEPTH
  *  - Context tier: depth 0 = strategic, 1-2 = methodological, 3+ = implementation
  */
-function generateTreeStructure(rootGoal: string): ObjectiveNodeSpec {
+export async function generateTreeStructure(rootGoal: string): Promise<ObjectiveNodeSpec> {
   const root: ObjectiveNodeSpec = {
     description: rootGoal,
     depth: 0,
@@ -116,7 +116,7 @@ function generateTreeStructure(rootGoal: string): ObjectiveNodeSpec {
         'implementation'
 
       const child: ObjectiveNodeSpec = {
-        description: generateSubGoal(current.description, i, childDepth),
+        description: await generateSubGoal(current.description, i, childDepth),
         depth: childDepth,
         weight: childWeight,
         contextTier: childTier,
@@ -133,10 +133,9 @@ function generateTreeStructure(rootGoal: string): ObjectiveNodeSpec {
 }
 
 /**
- * Genera un sotto-obiettivo testuale (stub deterministico).
- * In produzione: chiamare LLM con contesto gerarchico.
+ * Genera un sotto-obiettivo testuale usando LLM con fallback deterministico.
  */
-function generateSubGoal(parentGoal: string, branchIdx: number, depth: number): string {
+async function generateSubGoal(parentGoal: string, branchIdx: number, depth: number): Promise<string> {
   const dimensions = [
     ['correttezza', 'completezza', 'efficienza'],
     ['validazione', 'documentazione', 'monitoraggio'],
@@ -147,7 +146,23 @@ function generateSubGoal(parentGoal: string, branchIdx: number, depth: number): 
   const tier = Math.min(depth - 1, dimensions.length - 1)
   if (tier < 0) return parentGoal
   const dim = dimensions[tier][branchIdx % 3]
-  return `Verifica ${dim} di: ${parentGoal.slice(0, 60)}`
+  const fallback = `Verifica ${dim} di: ${parentGoal.slice(0, 60)}`
+
+  // Try LLM, fall back to deterministic
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default
+    const zai = await ZAI.create()
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You are an objective decomposition engine. Given a parent goal, generate a concise sub-goal (max 80 chars). Output ONLY the sub-goal text, nothing else.' },
+        { role: 'user', content: `Parent goal: "${parentGoal}"\nDimension: ${dim}\nDepth: ${depth}\nGenerate a specific, actionable sub-goal.` },
+      ],
+    })
+    const output = completion.choices[0]?.message?.content?.trim()
+    return output || fallback
+  } catch {
+    return fallback
+  }
 }
 
 /**

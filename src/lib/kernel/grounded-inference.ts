@@ -63,9 +63,21 @@ Rules:
 Context (minimal, scoped to this task only):
 ${truncatedContext}`
 
-  // 3) Chiama l'LLM (stub: in produzione usare ZAI.create())
-  // Per questa implementazione, simula un output che contiene uno script
-  const modelOutput = simulateLLMOutput(call.taskGoal, call.contextData)
+  // 3) Chiama l'LLM via ZAI SDK
+  let modelOutput: string
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default
+    const zai = await ZAI.create()
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You are a grounded inference engine in SOTA Agentic OS. Execute tasks using only the provided context. Output plain text or a fenced JS code block for parsing.' },
+        { role: 'user', content: systemPrompt },
+      ],
+    })
+    modelOutput = completion.choices[0]?.message?.content || 'No output from model.'
+  } catch (e: any) {
+    modelOutput = `LLM Error: ${e.message}. Falling back to deterministic output.\n\n${simulateLLMOutput(call.taskGoal, call.contextData)}`
+  }
 
   // 4) Estrai eventuale script di parsing dal output
   const parsedScript = extractScript(modelOutput)

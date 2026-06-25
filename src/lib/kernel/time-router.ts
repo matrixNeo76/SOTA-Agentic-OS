@@ -171,8 +171,21 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
     }
   }
 
-  // Simula output (in produzione: chiamare il modello scelto)
-  const finalOutput = simulateModelOutput(primary.modelId, prompt)
+  // Chiama LLM via ZAI SDK
+  let finalOutput: string
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default
+    const zai = await ZAI.create()
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You are an adaptive model router in SOTA Agentic OS. Process the prompt and provide a clear, actionable response.' },
+        { role: 'user', content: prompt },
+      ],
+    })
+    finalOutput = completion.choices[0]?.message?.content || 'No output from model.'
+  } catch (e: any) {
+    finalOutput = `LLM Error: ${e.message}. ${simulateModelOutput(primary.modelId, prompt)}`
+  }
 
   // Persisti decisione
   const decision = await db.routingDecision.create({

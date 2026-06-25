@@ -299,14 +299,27 @@ export async function leanEvolve(
   })
   const leanFeedback = contract?.verificationLog || 'No formal feedback available'
 
-  // Genera nuova istruzione
-  // In produzione: chiamare LLM con prompt che include failureReason + leanFeedback
-  // Qui: rewrite deterministico (aggiunge "verifica precondizioni" all'istruzione)
+  // Genera nuova istruzione via LLM con fallback deterministico
   const plan = await db.agentPlan.findUnique({ where: { id: planId } })
   const planJson = JSON.parse(plan?.planJson || '{}')
   const failedTask = (planJson.tasks || []).find((t: any) => t.taskId === failedTaskId)
   const originalDescription = failedTask?.description || ''
-  const rewrittenInstruction = `${originalDescription} [LeanEvolve v${cycle}: pre-condizioni verificate, recovery da "${failureReason.slice(0, 50)}"]`
+  const deterministicRewrite = `${originalDescription} [LeanEvolve v${cycle}: pre-condizioni verificate, recovery da "${failureReason.slice(0, 50)}"]`
+
+  let rewrittenInstruction: string
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default
+    const zai = await ZAI.create()
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You are a Lean4 formal verifier evolution engine. Rewrite the failed task instruction to fix the issue. Output ONLY the rewritten instruction, nothing else.' },
+        { role: 'user', content: `Original instruction: "${originalDescription}"\nFailure reason: ${failureReason}\nLean4 feedback: ${leanFeedback}\n\nRewrite the instruction to fix the failure.` },
+      ],
+    })
+    rewrittenInstruction = completion.choices[0]?.message?.content?.trim() || deterministicRewrite
+  } catch {
+    rewrittenInstruction = deterministicRewrite
+  }
 
   // Ri-valida
   const verification = await verifyWorkflow(planId)
