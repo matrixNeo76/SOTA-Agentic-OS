@@ -10,11 +10,14 @@
 2. [Layer architetturali](#2-layer-architetturali)
 3. [Kernel modules (F1-F23)](#3-kernel-modules-f1-f23)
 4. [Flusso di esecuzione end-to-end](#4-flusso-di-esecuzione-end-to-end)
-5. [Modello dati (62 modelli Prisma)](#5-modello-dati)
+5. [Modello dati](#5-modello-dati)
 6. [Sicurezza e Trust](#6-sicurezza-e-trust)
 7. [Design system](#7-design-system)
 8. [Performance e scalabilità](#8-performance-e-scalabilità)
-9. [Architettura Fase 1-4 (Agentic OS Evolution)](#9-architettura-fase-1-4-agentic-os-evolution)
+9. [Architettura Fase 1-6 (Agentic OS Evolution)](#9-architettura-fase-1-6-agentic-os-evolution)
+10. [Runtime Executor (PLAN.md)](#10-runtime-executor-planmd)
+11. [Interoperabilità esterna (PLAN-INTEROP.md)](#11-interoperabilità-esterna-plan-interopmd)
+12. [Information Architecture & UI (PLAN-UIUX.md)](#12-information-architecture--ui-plan-uiuxmd)
 
 ---
 
@@ -22,13 +25,20 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    USER (Browser)                        │
-│  Console · Cockpit · Canvas · Timeline · Sovereign      │
+│              USER (Browser + Agenti esterni)              │
+│  Workbench (6 aree) · Admin Panel · Runs · MobileNav     │
+│  Claude Code · Cursor · VS Code · A2A clients             │
 └────────────────────────┬────────────────────────────────┘
-                         │ HTTPS + WebSocket
+                         │ HTTPS + WebSocket + MCP + A2A
 ┌────────────────────────▼────────────────────────────────┐
 │              NEXT.JS APP (SSR + API Routes)              │
-│  49 API routes (36 kernel + 13 Fase 4) · Middleware auth · SSE streaming         │
+│  70 API routes · MCP server (27 tool) · A2A · OpenAPI    │
+│  Middleware auth (cookie + API key) · SSE streaming       │
+├──────────────────────────────────────────────────────────┤
+│           RUNTIME EXECUTOR (PLAN.md — durevole)          │
+│  Executor (state machine) · ReAct loop · Tool dispatcher │
+│  Builtin tools (7) · Checkpoint/Recovery · JobRecord     │
+│  Worker persistente · Dispatch parallelo nei batch       │
 ├──────────────────────────────────────────────────────────┤
 │                    KERNEL (25 moduli)                    │
 │  F1 Memory · F2 Planner · F3 Steering · F4 Verify       │
@@ -37,12 +47,18 @@
 │  F12 Objective · F13 Swarm · F14 Router                  │
 │  + MCP · Cost · Crypto · Scheduler · Scalability         │
 ├──────────────────────────────────────────────────────────┤
-│           FASE 1-4 (Agentic OS Evolution)                │
+│           FASE 1-6 (Agentic OS Evolution)                │
 │  Context Graph (AGE) · GraphRAG · Memory Fabric (4 layers)│
 │  Event Mesh (NATS/Redis) · Cognitive Router · Skill Registry│
 │  Evaluation Layer · Conflict Resolution · Cognitive GC    │
 │  World Model · Digital Twin · Agent Mesh (10 agents)      │
 │  Skill Synthesis · Autonomous Org · Integration Layer     │
+│  LLM Client · Skill Sandbox · Cache Layer · MCP Client   │
+├──────────────────────────────────────────────────────────┤
+│         INTEROPERABILITY (PLAN-INTEROP.md)               │
+│  API Key (scopes) · MCP (27 tool) · A2A (agent card)     │
+│  Skills export/import (SKILL.md) · OpenAPI 3.0 spec      │
+│  Multi-tenant (scoping + audit + rate limit + quota)     │
 ├──────────────────────────────────────────────────────────┤
 │              INFRASTRUCTURE LAYER                        │
 │  SQLite (dev) / PostgreSQL+pgvector+AGE (prod, AgensGraph)│
@@ -375,48 +391,55 @@ Tutti i token sono mappati come `--color-*` in `@theme inline` per generare clas
 
 ---
 
-## 9. Architettura Fase 1-4 (Agentic OS Evolution)
+## 9. Architettura Fase 1-6 (Agentic OS Evolution)
 
-Le Fasi 1-4 estendono il kernel F1-F23 con capacità cognitive, autonome e di produzione.
+Le Fasi 1-6 estendono il kernel F1-F23 con capacità cognitive, autonome, di produzione, LLM integration e interop esterna.
 
 ### Layer aggiuntivi
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ FASE 4  Production Hardening & Integration                   │
-│         Cockpit UI (/autonomous) · 13 API routes ·           │
-│         Integration bridges (kernel ↔ Event Mesh ↔ Graph)    │
+│ FASE 6  Production Readiness & E2E Validation                 │
+│         E2E tests · Skill Sandbox · MCP Completions ·        │
+│         Cache Layer · Production deployment scripts           │
 ├──────────────────────────────────────────────────────────────┤
-│ FASE 3  Autonomous Organization Layer                        │
-│         Skill Synthesis (Meta Agent + Sandbox + Validation)  │
-│         Hierarchical Agent Mesh (CEO + 4 strategic + 5 ops)  │
-│         Agent Lifecycle (versioning + roles + policies)      │
-│         Digital Twin Engine (Fork + Simulation + What-if)    │
-│         World Model (WorldState + Prediction + Risk + Opp)   │
+│ FASE 5  Real LLM Integration & MCP Exposure                   │
+│         LLM Client façade · MCP Server (27 tool) ·           │
+│         Extended UI (Digital Twin + Conflict Queue)           │
 ├──────────────────────────────────────────────────────────────┤
-│ FASE 2  Cognitive Garbage Collection (Memory Curator)        │
-│         Knowledge Conflict Resolution (5 strategies)         │
-│         Agent Evaluation Layer (8 metrics + benchmarks)      │
-│         Skill Registry (versioning + 3 default skills)       │
-│         Code Intelligence (regex AST + Call Graph)           │
-│         Knowledge Extraction (chunking + entity/relation)    │
-│         Cognitive Router (classifier + local-first)          │
-│         Event Mesh (NATS / Redis / in-memory)                │
-│         Observability v2 (Langfuse export + dashboard)       │
+│ FASE 4  Production Hardening & Integration                    │
+│         Cockpit UI · 13 API routes · Integration bridges      │
 ├──────────────────────────────────────────────────────────────┤
-│ FASE 1  Agent Runtime Kernel + Checkpointing (resume/replay) │
-│         Memory Fabric (4 layers + semantic search)           │
-│         GraphRAG (vector + graph + subgraph ranking)         │
-│         Knowledge Provenance (enforced on every node)        │
-│         Universal Context Graph (AGE + relational fallback)  │
-│         PostgreSQL + AGE + pgvector (Docker Compose ready)   │
+│ FASE 3  Autonomous Organization Layer                         │
+│         Skill Synthesis (Meta Agent + Sandbox + Validation)   │
+│         Hierarchical Agent Mesh (CEO + 4 strategic + 5 ops)   │
+│         Agent Lifecycle (versioning + roles + policies)       │
+│         Digital Twin Engine (Fork + Simulation + What-if)     │
+│         World Model (WorldState + Prediction + Risk + Opp)    │
 ├──────────────────────────────────────────────────────────────┤
-│ FASE 0.5  Entity Registry · Naming (URI scheme)              │
-│           Provenance Schema · Event Taxonomy                 │
-│           Agent Lifecycle schema · Knowledge-as-Claims       │
+│ FASE 2  Cognitive Garbage Collection (Memory Curator)         │
+│         Knowledge Conflict Resolution (5 strategies)          │
+│         Agent Evaluation Layer (8 metrics + benchmarks)       │
+│         Skill Registry (versioning + 3 default skills)        │
+│         Code Intelligence (regex AST + Call Graph)            │
+│         Knowledge Extraction (chunking + entity/relation)     │
+│         Cognitive Router (classifier + local-first)           │
+│         Event Mesh (NATS / Redis / in-memory)                 │
+│         Observability v2 (Langfuse export + dashboard)        │
 ├──────────────────────────────────────────────────────────────┤
-│ KERNEL   F1-F23 · LTL · ERL · ACTS · DynAMO · Sovereign     │
-│ ESISTE   MCP · ECDSA · Next.js 16 · Prisma 6 · 158 test     │
+│ FASE 1  Agent Runtime Kernel + Checkpointing (resume/replay)  │
+│         Memory Fabric (4 layers + semantic search)            │
+│         GraphRAG (vector + graph + subgraph ranking)          │
+│         Knowledge Provenance (enforced on every node)         │
+│         Universal Context Graph (AGE + relational fallback)   │
+│         PostgreSQL + AGE + pgvector (Docker Compose ready)    │
+├──────────────────────────────────────────────────────────────┤
+│ FASE 0.5  Entity Registry · Naming (URI scheme)               │
+│           Provenance Schema · Event Taxonomy                  │
+│           Agent Lifecycle schema · Knowledge-as-Claims        │
+├──────────────────────────────────────────────────────────────┤
+│ KERNEL   F1-F23 · LTL · ERL · ACTS · DynAMO · Sovereign      │
+│ ESISTE   MCP · ECDSA · Next.js 16 · Prisma 6 · 538 test      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -488,9 +511,160 @@ Le Fasi 1-4 estendono il kernel F1-F23 con capacità cognitive, autonome e di pr
 
 ### Numeri finali
 
-- **496 test** in **31 file** (tutti passing)
-- **+25 nuovi moduli** tra Fase 1+2+3+4
-- **+13 nuove API routes** (totale 49 endpoint)
-- **+1 nuova UI page** (`/autonomous`)
+- **538 test** in **35 file** (tutti passing)
+- **+35 nuovi moduli** tra Fase 1-6 + Runtime + Interop
+- **70 API routes** (36 kernel + 13 Fase 4 + 7 Runs/Admin + 10 Interop + 4 Skills)
+- **27 tool MCP** per client esterni
+- **76 pagine** generate dal build
 - **0 TypeScript errors** nei moduli nuovi
 - **0 dipendenze native** aggiunte (tree-sitter sostituito con parser regex, NATS/Redis lazy-loaded opzionali)
+
+---
+
+## 10. Runtime Executor (PLAN.md)
+
+L'executor durevole trasforma i piani DynAMO in lavoro reale, con recovery dopo crash.
+
+### Architettura
+
+```
+POST /api/console/stream
+    │
+    ▼
+startExecution({ task, async: true })
+    │
+    ├── generateAndPersistPlan (LLM → DynAMO → DB)
+    │
+    ├── [async] enqueueJob('execute_plan', { planId })
+    │       └── Worker (background, ogni 3s)
+    │             └── processNextJob → executePlan({ planId })
+    │                   ├── topologicalBatches (DAG dispatch)
+    │                   ├── Promise.all (parallelo nel batch)
+    │                   ├── executeTask per ogni task:
+    │                   │     ├── saveCheckpoint (execution_state)
+    │                   │     ├── steer (ACTS)
+    │                   │     ├── verifyEvent (LTL)
+    │                   │     ├── executeReActLoop (pensa → tool → osserva)
+    │                   │     │     ├── dispatchTool (builtin/HTTP/MCP)
+    │                   │     │     └── recordCostEntry
+    │                   │     ├── journalExecution (ExecutionTrace)
+    │                   │     └── publishTaskCompleted (Event Mesh)
+    │                   └── reflectAndLearn (ERL)
+    │
+    └── ritorna { planId, jobId } immediatamente
+```
+
+### Componenti
+
+| Componente | Path | Funzione |
+|-----------|------|----------|
+| Executor | `src/lib/runtime/executor.ts` | State machine persistente, checkpoint, recovery, dispatch parallelo |
+| ReAct Loop | `src/lib/runtime/react-loop.ts` | Pens a→tool call→observe→repeat (LLM tool-calling) |
+| Tool Dispatcher | `src/lib/runtime/tool-dispatcher.ts` | Scope enforcement, timeout, audit trail |
+| Builtin Tools | `src/lib/runtime/builtin-tools.ts` | filesystem.read/write/list, http.fetch, memory.search, graph.query, web.search (7 tool) |
+| MCP Client | `src/lib/mcp-client/client.ts` | Discovery + execution tool MCP esterni |
+| Worker | `src/lib/kernel/scalability.ts` | Coda JobRecord, processNextJob, startWorker |
+| Bootstrap | `src/instrumentation.ts` | Avvia worker + integration + GC + recovery al boot |
+
+### Controlli durabilità
+
+- **Checkpoint**: `saveCheckpoint` ad ogni task (execution_state)
+- **Recovery**: `recoverOrphanedPlans()` al boot → reset running → resume
+- **Idempotency**: task già `done` skippati in replay
+- **Event journal**: `ExecutionTrace` per replay bit-identico
+- **Dispatch parallelo**: `Promise.all` per task nello stesso `topologicalBatches`
+
+---
+
+## 11. Interoperabilità esterna (PLAN-INTEROP.md)
+
+Il sistema è progettato come **backplane** per agenti esterni.
+
+### Protocolli
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CLIENTI ESTERNI                           │
+│  Claude Code · Cursor · VS Code · Antigravity · A2A agents  │
+└───────────┬──────────┬──────────┬──────────┬────────────────┘
+            │          │          │          │
+       MCP (JSON-RPC) A2A    REST API    OpenAPI
+            │          │          │          │
+            ▼          ▼          ▼          ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   AUTH LAYER (IO-0)                          │
+│  API Key (sak_<keyId>_<secret>) · Scopes: read/exec/admin   │
+│  Bearer token · Session cookie fallback · Rate limiting     │
+├──────────────────────────────────────────────────────────────┤
+│                   ENDPOINT LAYER                             │
+│  /api/mcp (27 tool) · /.well-known/agent.json · /api/a2a/*  │
+│  /api/openapi · /api/skills/* · 70 REST routes              │
+├──────────────────────────────────────────────────────────────┤
+│                   GOVERNANCE LAYER                           │
+│  Scoping tenant · Audit ledger · Quota enforcement          │
+│  Sovereign HITL · LTL verify · Red Lines                    │
+├──────────────────────────────────────────────────────────────┤
+│                   RUNTIME + MEMORY                           │
+│  Executor durevole · Context Graph · Memory Fabric          │
+│  Skill Registry · World Model · Agent Mesh                  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Moduli
+
+| Modulo | Path | Funzione |
+|--------|------|----------|
+| API Key Auth | `src/lib/auth/api-key.ts` | createApiKey, verifyApiKey, requireApiAuth (Bearer + cookie) |
+| Multi-tenant | `src/lib/auth/multi-tenant.ts` | TenantContext, auditAccess, checkRateLimit, checkQuota |
+| A2A Protocol | `src/lib/a2a/protocol.ts` | Agent card, submitTask, getTask, cancelTask |
+| Skills Export | `src/lib/skill-registry/skill-export.ts` | SKILL.md/JSON export, import, discoverSkills |
+| MCP Server | `src/app/api/mcp/route.ts` | 27 tool JSON-RPC 2.0 con auth |
+| OpenAPI | `src/app/api/openapi/route.ts` | Spec OpenAPI 3.0 per SDK autogenerati |
+
+---
+
+## 12. Information Architecture & UI (PLAN-UIUX.md)
+
+### 6 Aree per obiettivo (non per modulo)
+
+```
+┌──────────────────────────────────────────────┐
+│ SIDEBAR (6 aree + System + Advanced)          │
+├──────────────────────────────────────────────┤
+│ Main:                                         │
+│  1. Dashboard   — Overview + KPI + Activity  │
+│  2. Runs        — Esegui workflow + HITL     │
+│  3. Memory      — Context Graph + Search     │
+│  4. Agents      — Mesh + Skills + Autonomous │
+│  5. Governance  — LTL + Conflicts + HITL     │
+│  6. Insights    — World Model + Digital Twin │
+│ System:                                       │
+│  · Admin & Settings (6 tab)                  │
+│ Advanced / Internals (collassabile):          │
+│  · Fasi 1-14 + Domains + Tools (debug)       │
+└──────────────────────────────────────────────┘
+```
+
+### Componenti UI
+
+| Componente | Path | Funzione |
+|-----------|------|----------|
+| ModulePage | `src/components/module-pages/module-page.tsx` | Pattern standard: header + stats + content + actions + EmptyState |
+| RunsView | `src/components/module-pages/runs-view.tsx` | Runs list + detail con timeline/ReAct/checkpoint/rollback |
+| MemoryKnowledgeView | `src/components/module-pages/memory-knowledge-view.tsx` | Graph browser + semantic search + memory tiers |
+| AgentsOrgView | `src/components/module-pages/agents-org-view.tsx` | Mesh topology + skills + proposals |
+| DigitalTwinDashboard | `src/components/autonomous-dashboard/digital-twin-panel.tsx` | 6 what-if presets + projected metrics |
+| ConflictQueuePanel | `src/components/autonomous-dashboard/conflict-queue-panel.tsx` | Pending conflicts + 5 strategies + auto-resolve |
+| Charts | `src/components/data-viz/charts.tsx` | 5 recharts: CostTrend, TokenUsage, Latency, EvaluationTrend, Sparkline |
+| OnboardingTourV2 | `src/components/onboarding/onboarding-tour-v2.tsx` | Tour 5-step sulle 6 aree |
+| AISuggestion | `src/components/onboarding/ai-suggestion.tsx` | Primitive UI per suggerimenti AI contestuali |
+| DynamicIcon | `src/components/shared/dynamic-icon.tsx` | 52 icone mappate (Record<string, LucideIcon>) |
+
+### Design system (UX-5)
+
+- **Shadow hierarchy**: `shadow-soft`, `shadow-soft-md`, `shadow-soft-lg` (3 livelli)
+- **Motion**: `animate-slide-in-up`, `animate-stagger`, `animate-pulse-glow`, `hover-lift`
+- **Glass**: `glass` utility (backdrop-filter blur per overlay)
+- **Tabular numbers**: `tnum` utility per metriche
+- **Skeleton**: `skeleton-shimmer` per loading states
+- **Token CSS**: OKLCH color space, 7 category colors, 5 status tones, 3 surface levels
