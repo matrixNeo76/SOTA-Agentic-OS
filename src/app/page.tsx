@@ -11,6 +11,7 @@ import { ContextPanel, MobileContextSheet } from '@/components/workbench/context
 import { useStore } from '@/lib/store'
 import { useUrlSync } from '@/hooks/use-url-sync'
 import { OnboardingTour } from '@/components/onboarding/onboarding-tour'
+import { OnboardingTourV2 } from '@/components/onboarding/onboarding-tour-v2'
 import { Toaster } from 'sonner'
 import {
   ResizableHandle,
@@ -76,6 +77,7 @@ function HomeContent() {
       <SovereignModalContainer />
       <CommandPalette />
       <OnboardingTour />
+      <OnboardingTourV2 />
       <Toaster richColors position="top-right" />
     </div>
   )

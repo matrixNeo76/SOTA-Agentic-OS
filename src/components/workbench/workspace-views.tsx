@@ -162,13 +162,17 @@ export function WorkspaceViews() {
  {/* Content area */}
  <div className="flex-1 overflow-hidden min-h-0">
  <ViewTransition>
- <div className={cn(
+ <div
+   className={cn(
  'h-full',
  // Console/Runs need full-height flex layout
  (activeView === 'console' || activeView === 'runs' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col',
  // New scrollable areas
  (activeView === 'dashboard' || activeView === 'memory' || activeView === 'agents' || activeView === 'governance' || activeView === 'insights' || activeView === 'admin') && 'overflow-y-auto',
- )}>
+ )}
+ role="main"
+ aria-label={activePhase}
+ >
  {activeView === 'console' && <AgentConsole />}
  {activeView === 'runs' && <AgentConsole />}
  {activeView === 'canvas' && <CanvasView />}
