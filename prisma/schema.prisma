@@ -864,3 +864,103 @@ model SharedConversation {
 
   @@index([token])
 }
+
+// === FASE 1: Context Graph (relational, AGE views in PostgreSQL) ===
+
+model GraphNode {
+  id            String   @id @default(cuid())
+  uri           String   @unique // agent://planner, task://uuid, etc. (Fase 0.5.2)
+  entityType    String   // Agent, Task, Skill, etc. (Fase 0.5.1)
+  lifecycleState String  @default("draft") // Fase 0.5.1
+  attributes    String   @default("{}") // JSON
+  // Provenance (Fase 0.5.3 — obbligatorio)
+  createdByAgent String
+  createdByModel String?
+  source        String
+  confidence    Float    @default(1.0)
+  provenanceTs  DateTime @default(now())
+  // Metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  version       Int      @default(1)
+
+  edgesFrom     GraphEdge[] @relation("EdgeFrom")
+  edgesTo       GraphEdge[] @relation("EdgeTo")
+
+  @@index([entityType])
+  @@index([uri])
+  @@index([lifecycleState])
+}
+
+model GraphEdge {
+  id          String   @id @default(cuid())
+  fromNodeId  String
+  toNodeId    String
+  relationType String   // EXECUTED, GENERATED, RESULTED_IN, etc.
+  properties  String   @default("{}") // JSON
+  // Provenance
+  createdByAgent String
+  createdAt   DateTime @default(now())
+
+  fromNode    GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode      GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId, relationType])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@index([relationType])
+}
+
+// === FASE 1: pgvector embedding storage ===
+
+model EmbeddingVector {
+  id          String   @id @default(cuid())
+  entityUri   String   @unique // URI of the entity this embedding represents
+  entityType  String
+  embedding   String   // JSON array of floats (SQLite) or pgvector (PostgreSQL)
+  model       String   @default("all-MiniLM-L6-v2")
+  dimensions  Int      @default(384)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entityUri])
+  @@index([entityType])
+}
+
+// === FASE 1: Agent Runtime Checkpoints ===
+
+model AgentCheckpoint {
+  id            String   @id @default(cuid())
+  agentUri      String   // agent://planner
+  taskId        String?  // task://uuid (null = agent-level checkpoint)
+  checkpointType String  // execution_state | tool_state | memory_state | workflow_state
+  stateJson     String   // JSON: serializable state snapshot
+  cycleId       Int?     // cognitive cycle number
+  createdAt     DateTime @default(now())
+
+  @@index([agentUri])
+  @@index([taskId])
+  @@index([checkpointType])
+}
+
+// === FASE 1: Memory Fabric layers ===
+
+model MemoryEntry {
+  id            String   @id @default(cuid())
+  layer         String   // episodic | semantic | procedural | reasoning
+  agentUri      String
+  content       String   // the memory content (text, JSON, etc.)
+  embedding     String?  // JSON float array (for semantic layer)
+  sourceUri     String?  // URI of source entity
+  utilityScore  Float    @default(0.5) // 0-1, how useful
+  recencyScore  Float    @default(1.0) // 0-1, decays over time
+  weight        Float    @default(0.5) // utility * recency
+  accessCount   Int      @default(0)
+  lastAccessedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([layer])
+  @@index([agentUri])
+  @@index([weight])
+}
