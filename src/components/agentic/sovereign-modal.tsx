@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { useSensoriumLive } from './use-sensorium-live'
+import { useDataStore, startGlobalRefresh, stopGlobalRefresh } from '@/lib/stores/data-store'
 import { toast } from 'sonner'
 import {
  AlertTriangle, ShieldAlert, CheckCircle2, XCircle, Wrench, ArrowDownCircle, Ban,
@@ -40,35 +41,28 @@ const SOURCE_STYLE: Record<string, { color: string; icon: any; label: string }> 
  */
 export function SovereignModalContainer() {
  const { events } = useSensoriumLive()
- const [pending, setPending] = useState<BlockedAction[]>([])
+ const { blockedPending, fetchBlocked } = useDataStore()
  const [currentIdx, setCurrentIdx] = useState(0)
  const [resolutionNote, setResolutionNote] = useState('')
  const [resolving, setResolving] = useState(false)
 
- // Polling blocked actions pending
+ // Usa data-store unificato (no polling dedicato)
  useEffect(() => {
- const load = async () => {
- try {
- const r = await fetch('/api/blocked-actions?action=pending')
- const d = await r.json()
- setPending(d.items || [])
- } catch {}
- }
- load()
- const t = setInterval(load, 5000)
- return () => clearInterval(t)
- }, [])
+   startGlobalRefresh()
+   fetchBlocked()
+   return () => stopGlobalRefresh()
+ }, [fetchBlocked, startGlobalRefresh, stopGlobalRefresh])
 
  // Quando arriva un evento WS di action_blocked, forza refresh
  useEffect(() => {
- const lastBlocked = events.find((e) => e.event === 'action_blocked')
- if (lastBlocked) {
- // refresh pending
- fetch('/api/blocked-actions?action=pending')
- .then((r) => r.json())
- .then((d) => setPending(d.items || []))
- }
- }, [events])
+   const lastBlocked = events.find((e) => e.event === 'action_blocked')
+   if (lastBlocked) {
+     fetchBlocked(true)
+   }
+ }, [events, fetchBlocked])
+
+ // pending deriva dal data-store
+ const pending = blockedPending as unknown as BlockedAction[]
 
  const current = pending[currentIdx]
 
@@ -91,10 +85,8 @@ export function SovereignModalContainer() {
  if (d.ok) {
  toast.success(`Azione ${choice}: ${current.action.slice(0, 50)}`)
  setResolutionNote('')
- // Aggiorna pending
- const r2 = await fetch('/api/blocked-actions?action=pending')
- const d2 = await r2.json()
- setPending(d2.items || [])
+ // Aggiorna pending dal data-store
+ await fetchBlocked(true)
  setCurrentIdx(0)
  }
  } catch (e: any) {

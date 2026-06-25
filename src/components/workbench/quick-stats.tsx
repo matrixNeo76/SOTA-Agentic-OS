@@ -7,6 +7,7 @@ import {
  CheckCircle2, AlertTriangle, XCircle, Zap,
 } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
+import { useDataStore, startGlobalRefresh, stopGlobalRefresh } from '@/lib/stores/data-store'
 
 // === Types ===
 type DashboardData = {
@@ -22,26 +23,15 @@ type DashboardData = {
 // === Main QuickStats ===
 export function QuickStats() {
  const { sensorium, connected } = useSensoriumLive()
- const [dashboard, setDashboard] = useState<DashboardData>(null)
- const [loading, setLoading] = useState(true)
+ const { dashboard, fetchDashboard } = useDataStore()
 
  useEffect(() => {
- let cancelled = false
- const load = async () => {
- try {
- const r = await fetch('/api/dashboard')
- const d = await r.json()
- if (!cancelled) setDashboard(d)
- } catch {
- // silent
- } finally {
- if (!cancelled) setLoading(false)
- }
- }
- load()
- const t = setInterval(load, 5000)
- return () => { cancelled = true; clearInterval(t) }
- }, [])
+   startGlobalRefresh()
+   fetchDashboard()
+   return () => stopGlobalRefresh()
+ }, [fetchDashboard, startGlobalRefresh, stopGlobalRefresh])
+
+ const loading = !dashboard
 
  return (
  <div className="h-full flex flex-col">

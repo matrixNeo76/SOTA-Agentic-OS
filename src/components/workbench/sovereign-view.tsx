@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
+import { useDataStore, startGlobalRefresh, stopGlobalRefresh } from '@/lib/stores/data-store'
 import {
  ShieldAlert, RefreshCw, Loader2, CheckCircle2, XCircle, Wrench,
  ArrowDownCircle, Ban, AlertTriangle, ChevronDown, Filter,
@@ -48,8 +49,6 @@ type SourceFilter = 'all' | 'ltl' | 'taint' | 'normative' | 'hitl_gate'
 // === Main SovereignView ===
 export function SovereignView() {
  const { setSelectedItem } = useStore()
- const [actions, setActions] = useState<BlockedAction[]>([])
- const [loading, setLoading] = useState(true)
  const [statusFilter, setStatusFilter] = useState<FilterKey>('all')
  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
  const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -57,39 +56,26 @@ export function SovereignView() {
  const [resolving, setResolving] = useState(false)
  const [expandedId, setExpandedId] = useState<string | null>(null)
 
- // === Load all blocked actions (pending + recent) ===
- const load = async () => {
- setLoading(true)
- try {
- const [pendingR, recentR] = await Promise.all([
- fetch('/api/blocked-actions?action=pending'),
- fetch('/api/blocked-actions?action=recent'),
- ])
- const [pending, recent] = await Promise.all([pendingR.json(), recentR.json()])
- // Merge, dedupe by id, sort by createdAt desc
- const map = new Map<string, BlockedAction>()
- ;(recent.items || []).forEach((a: BlockedAction) => map.set(a.id, a))
- ;(pending.items || []).forEach((a: BlockedAction) => map.set(a.id, a)) // pending overrides recent for same id
- const merged = Array.from(map.values()).sort(
- (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
- )
- setActions(merged)
- } catch {
- toast.error('Errore caricamento azioni bloccate')
- } finally {
- setLoading(false)
- }
- }
+ // Usa data-store unificato (no polling dedicato)
+ const { blockedPending, blockedRecent, fetchBlocked } = useDataStore()
 
  useEffect(() => {
- load()
- }, [])
+   startGlobalRefresh()
+   fetchBlocked()
+   return () => stopGlobalRefresh()
+ }, [fetchBlocked, startGlobalRefresh, stopGlobalRefresh])
 
- // Auto-refresh pending every 10s (less aggressive than modal's 5s)
- useEffect(() => {
- const t = setInterval(load, 10000)
- return () => clearInterval(t)
- }, [])
+ // Merge pending + recent, dedupe by id, sort
+ const actions = useMemo(() => {
+   const map = new Map<string, BlockedAction>()
+   ;(blockedRecent as unknown as BlockedAction[]).forEach((a: BlockedAction) => map.set(a.id, a))
+   ;(blockedPending as unknown as BlockedAction[]).forEach((a: BlockedAction) => map.set(a.id, a))
+   return Array.from(map.values()).sort(
+     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+   )
+ }, [blockedPending, blockedRecent])
+
+ const loading = false
 
  // === Apply filters ===
  const filtered = useMemo(() => {
@@ -133,7 +119,7 @@ export function SovereignView() {
  toast.success(`Azione ${choice}`)
  setResolutionNote('')
  setSelectedId(null)
- await load()
+ await fetchBlocked(true)
  } else {
  toast.error(d.error || 'Errore risoluzione')
  }
@@ -176,7 +162,7 @@ export function SovereignView() {
  setBatchRunning(false)
  setBatchConfirm(false)
  toast.success(`${success} approvate${failed > 0 ? `, ${failed} fallite` : ''}`)
- await load()
+ await fetchBlocked(true)
  }
 
  return (
@@ -204,7 +190,7 @@ export function SovereignView() {
  </button>
  )}
  <button
- onClick={load}
+ onClick={() => fetchBlocked(true)}
  disabled={loading}
  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50"
  >

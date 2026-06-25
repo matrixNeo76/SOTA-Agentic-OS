@@ -5,6 +5,7 @@ import {
  Activity, Layers, Cpu, Gauge, DollarSign, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
+import { useDataStore } from '@/lib/stores/data-store'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -72,50 +73,37 @@ function formatCost(cost: number): string {
 export function StatusBar() {
  const { sensorium, connected } = useSensoriumLive()
  const { setActiveView, setCommandPaletteOpen } = useStore()
- const [cost, setCost] = useState<number | null>(null)
- const [budget, setBudget] = useState<{ warn: number; danger: number }>({ warn: 1, danger: 5 })
+ const { cost: costData, fetchCost } = useDataStore()
  const [showCostModal, setShowCostModal] = useState(false)
  const lastAlertRef = useRef<{ level: 'warn' | 'danger' | null; cost: number }>({ level: null, cost: 0 })
 
- // Fetch cost from /api/cost (specific endpoint with budget info)
- useEffect(() => {
- let cancelled = false
- const load = async () => {
- try {
- const r = await fetch('/api/cost?action=stats')
- const d = await r.json()
- if (!cancelled) {
- setCost(d.today ?? 0)
- if (d.budget) setBudget(d.budget)
+ const costToday = costData?.today ?? 0
+ const budget = costData?.budget ?? { warn: 1, danger: 5 }
 
- // === Budget alerts ===
- // Only fire when crossing a threshold (not on every poll)
- const prev = lastAlertRef.current
- if (d.today >= d.budget.danger && prev.level !== 'danger') {
- toast.error(`🚨 Budget danger superato: $${d.today.toFixed(4)} / $${d.budget.danger}`, {
- description: 'Le chiamate LLM hanno superato la soglia di spesa giornaliera critica.',
- duration: 10000,
- })
- lastAlertRef.current = { level: 'danger', cost: d.today }
- } else if (d.today >= d.budget.warn && d.today < d.budget.danger && prev.level !== 'warn' && prev.level !== 'danger') {
- toast.warning(`⚠️ Budget warning: $${d.today.toFixed(4)} / $${d.budget.warn}`, {
- description: 'Stai superando la soglia di spesa giornaliera consigliata.',
- duration: 8000,
- })
- lastAlertRef.current = { level: 'warn', cost: d.today }
- } else if (d.today < d.budget.warn && prev.level !== null) {
- // Reset alert state when cost drops below warn (e.g. new day)
- lastAlertRef.current = { level: null, cost: d.today }
- }
- }
- } catch {
- // silent
- }
- }
- load()
- const t = setInterval(load, 10000) // refresh every 10s
- return () => { cancelled = true; clearInterval(t) }
- }, [])
+ useEffect(() => {
+   fetchCost()
+ }, [fetchCost])
+
+ // Budget alerts (reagisce a cambiamenti di costToday)
+ useEffect(() => {
+   if (!costData) return
+   const prev = lastAlertRef.current
+   if (costToday >= budget.danger && prev.level !== 'danger') {
+     toast.error(`🚨 Budget danger superato: $${costToday.toFixed(4)} / $${budget.danger}`, {
+       description: 'Le chiamate LLM hanno superato la soglia di spesa giornaliera critica.',
+       duration: 10000,
+     })
+     lastAlertRef.current = { level: 'danger', cost: costToday }
+   } else if (costToday >= budget.warn && costToday < budget.danger && prev.level !== 'warn' && prev.level !== 'danger') {
+     toast.warning(`⚠️ Budget warning: $${costToday.toFixed(4)} / $${budget.warn}`, {
+       description: 'Stai superando la soglia di spesa giornaliera consigliata.',
+       duration: 8000,
+     })
+     lastAlertRef.current = { level: 'warn', cost: costToday }
+   } else if (costToday < budget.warn && prev.level !== null) {
+     lastAlertRef.current = { level: null, cost: costToday }
+   }
+ }, [costData, costToday, budget.danger, budget.warn])
 
  // Derive metrics from Sensorium snapshot
  const metrics = useMemo(() => {
@@ -149,9 +137,9 @@ export function StatusBar() {
 
  // Cost tone: warn if > $1, danger if > $10
  const costTone: Tone =
- cost === null ? 'muted'
- : cost >= 10 ? 'danger'
- : cost >= 1 ? 'warn'
+ !costData ? 'muted'
+ : costToday >= 10 ? 'danger'
+ : costToday >= 1 ? 'warn'
  : 'ok'
 
  return (
@@ -214,11 +202,11 @@ export function StatusBar() {
  <StatusPill
  icon={DollarSign}
  label="Cost"
- value={cost === null ? '—' : formatCost(cost)}
+ value={!costData ? '—' : formatCost(costToday)}
  tone={costTone}
- title={cost === null
+ title={!costData
  ? 'Cost tracking non disponibile'
- : `Spesa LLM totale di oggi: ${formatCost(cost)} USD · Click per dettagli`
+ : `Spesa LLM totale di oggi: ${formatCost(costToday)} USD · Click per dettagli`
  }
  onClick={() => setShowCostModal(true)}
  />
