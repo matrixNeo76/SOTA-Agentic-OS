@@ -244,6 +244,87 @@ const TOOLS: ToolDef[] = [
     description: 'Get Context Graph stats: total nodes, edges, by entity type',
     inputSchema: { type: 'object', properties: {} },
   },
+  // IO-1: Tool per Runs/executor (esecuzione workflow durevole)
+  {
+    name: 'sota_run_create',
+    description: 'Create and execute a workflow from a natural language task. Returns planId + jobId. The workflow runs asynchronously via the durable executor.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Natural language task description' },
+        async: { type: 'boolean', default: true, description: 'If true, returns immediately with jobId. If false, blocks until completion.' },
+      },
+      required: ['task'],
+    },
+  },
+  {
+    name: 'sota_run_list',
+    description: 'List all workflow runs (past and in-progress) with status, duration, task counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['scheduled', 'running', 'completed', 'failed', 'partial'] },
+        limit: { type: 'number', default: 20 },
+      },
+    },
+  },
+  {
+    name: 'sota_run_detail',
+    description: 'Get full detail of a specific run: tasks, batches, checkpoints, traces, costs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan ID from sota_run_create or sota_run_list' },
+      },
+      required: ['planId'],
+    },
+  },
+  {
+    name: 'sota_run_recover',
+    description: 'Recover orphaned running plans (resume after crash). Scans for plans with running tasks and resumes them.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  // IO-1: Tool per scrittura governata in memoria/grafo
+  {
+    name: 'sota_memory_store',
+    description: 'Store a memory entry in the Memory Fabric (governed write). Requires exec scope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        layer: { type: 'string', enum: ['episodic', 'semantic', 'procedural', 'reasoning'] },
+        agentUri: { type: 'string' },
+        content: { type: 'string' },
+        utilityScore: { type: 'number', minimum: 0, maximum: 1, default: 0.5 },
+      },
+      required: ['layer', 'agentUri', 'content'],
+    },
+  },
+  {
+    name: 'sota_graph_create_node',
+    description: 'Create a node in the Context Graph (governed write, requires provenance). Requires exec scope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entityType: { type: 'string', description: 'Entity type (Agent, Task, Skill, Document, etc.)' },
+        identifier: { type: 'string', description: 'Unique identifier for the node' },
+        attributes: { type: 'object', description: 'Node attributes' },
+      },
+      required: ['entityType', 'identifier'],
+    },
+  },
+  {
+    name: 'sota_graph_create_edge',
+    description: 'Create an edge between two Context Graph nodes. Requires exec scope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromUri: { type: 'string' },
+        toUri: { type: 'string' },
+        relationType: { type: 'string', description: 'e.g. EXECUTED, GENERATED, RESULTED_IN' },
+      },
+      required: ['fromUri', 'toUri', 'relationType'],
+    },
+  },
 ]
 
 // === Tool executor ===================================================
@@ -367,6 +448,99 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         totalEdges,
         nodesByType: byType.reduce((acc, n) => ({ ...acc, [n.entityType]: n._count }), {} as Record<string, number>),
       }
+    }
+
+    // IO-1: Run/executor tools
+    case 'sota_run_create': {
+      const { startExecution } = await import('@/lib/runtime/executor')
+      const result = await startExecution({
+        task: args.task as string,
+        async: args.async !== false,
+      })
+      if ('error' in result) throw new Error(result.error)
+      return result
+    }
+
+    case 'sota_run_list': {
+      const plans = await db.agentPlan.findMany({
+        where: args.status ? { status: args.status as string } : undefined,
+        take: (args.limit as number) || 20,
+        orderBy: { createdAt: 'desc' },
+        include: { tasks: { select: { status: true } } },
+      })
+      return {
+        runs: plans.map((p) => ({
+          planId: p.id,
+          goal: p.taskGoal,
+          status: p.status,
+          taskCount: p.tasks.length,
+          tasksCompleted: p.tasks.filter((t) => t.status === 'done').length,
+          tasksFailed: p.tasks.filter((t) => t.status === 'failed').length,
+          createdAt: p.createdAt.toISOString(),
+        })),
+      }
+    }
+
+    case 'sota_run_detail': {
+      const plan = await db.agentPlan.findUnique({
+        where: { id: args.planId as string },
+        include: { tasks: true },
+      })
+      if (!plan) throw new Error('Plan not found')
+      return {
+        plan: {
+          id: plan.id,
+          goal: plan.taskGoal,
+          status: plan.status,
+          batches: plan.dagJson ? JSON.parse(plan.dagJson) : [],
+        },
+        tasks: plan.tasks.map((t) => ({
+          taskId: t.taskId,
+          agentId: t.agentId,
+          description: t.description,
+          status: t.status,
+          result: t.result?.slice(0, 500),
+        })),
+      }
+    }
+
+    case 'sota_run_recover': {
+      const { recoverOrphanedPlans } = await import('@/lib/runtime/executor')
+      return await recoverOrphanedPlans()
+    }
+
+    // IO-1: Governed memory/graph writes
+    case 'sota_memory_store': {
+      const { storeMemory } = await import('@/lib/memory-fabric/fabric')
+      const { id } = await storeMemory({
+        layer: args.layer as any,
+        agentUri: args.agentUri as string,
+        content: args.content as string,
+        utilityScore: args.utilityScore as number | undefined,
+      })
+      return { stored: true, memoryId: id }
+    }
+
+    case 'sota_graph_create_node': {
+      const { createNode } = await import('@/lib/graph-age')
+      const { uri } = await createNode({
+        type: args.entityType as any,
+        identifier: args.identifier as string,
+        attributes: args.attributes as Record<string, unknown> | undefined,
+        provenance,
+      })
+      return { created: true, uri }
+    }
+
+    case 'sota_graph_create_edge': {
+      const { createEdge } = await import('@/lib/graph-age')
+      const { id } = await createEdge({
+        fromUri: args.fromUri as string,
+        toUri: args.toUri as string,
+        relationType: args.relationType as string,
+        createdByAgent: provenance.createdByAgent,
+      })
+      return { created: true, edgeId: id }
     }
 
     default:
