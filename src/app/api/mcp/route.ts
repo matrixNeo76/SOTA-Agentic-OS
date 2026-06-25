@@ -925,14 +925,61 @@ function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> | JsonRpcR
 
 // === HTTP entry point ================================================
 
+// C5 — Session management for Streamable HTTP transport
+// MCP clients (Claude Code, Cursor) expect session-based communication.
+// We assign a session ID on initialize and accept it in subsequent requests.
+const sessions = new Map<string, { created: number; lastActivity: number }>()
+const SESSION_TTL = 30 * 60 * 1000 // 30 minutes
+
+function createSession(): string {
+  const id = `mcp-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  sessions.set(id, { created: Date.now(), lastActivity: Date.now() })
+  return id
+}
+
+function validateSession(id: string): boolean {
+  const session = sessions.get(id)
+  if (!session) return false
+  if (Date.now() - session.lastActivity > SESSION_TTL) {
+    sessions.delete(id)
+    return false
+  }
+  session.lastActivity = Date.now()
+  return true
+}
+
+// Cleanup expired sessions periodically
+setInterval(() => {
+  for (const [id, session] of sessions) {
+    if (Date.now() - session.lastActivity > SESSION_TTL) sessions.delete(id)
+  }
+}, 5 * 60 * 1000)
+
 export async function POST(req: NextRequest) {
   // IO-0: Auth M2M — accept API key or session cookie
   const { requireApiAuth } = await import('@/lib/auth/api-key')
   const auth = await requireApiAuth(req, 'read')
   if (!auth.ok) return auth.response
 
+  // C5 — Check Accept header for Streamable HTTP (SSE) vs plain JSON
+  const acceptHeader = req.headers.get('accept') || ''
+  const wantsSSE = acceptHeader.includes('text/event-stream')
+  const sessionId = req.headers.get('mcp-session-id')
+
+  // Validate session if provided (for subsequent requests after initialize)
+  if (sessionId && !validateSession(sessionId)) {
+    return NextResponse.json({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32000, message: 'Invalid or expired session' },
+    }, { status: 400 })
+  }
+
   try {
     const body = await req.json() as JsonRpcRequest | JsonRpcRequest[]
+
+    // Handle initialize specially — create session
+    const isInitialize = !Array.isArray(body) && body.method === 'initialize'
 
     // Batch request support
     if (Array.isArray(body)) {
@@ -941,6 +988,25 @@ export async function POST(req: NextRequest) {
     }
 
     const response = await handleRequest(body)
+
+    // C5 — If initialize, add session ID to response headers
+    if (isInitialize && !response.error) {
+      const newSessionId = createSession()
+      const headers: Record<string, string> = {
+        'Mcp-Session-Id': newSessionId,
+      }
+      // C5 — If client wants SSE, return as event stream
+      if (wantsSSE) {
+        return createSSEResponse([response], headers)
+      }
+      return NextResponse.json(response, { headers })
+    }
+
+    // C5 — If client wants SSE for any request, return as event stream
+    if (wantsSSE) {
+      return createSSEResponse([response])
+    }
+
     return NextResponse.json(response)
   } catch (err) {
     return NextResponse.json({
@@ -955,13 +1021,62 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+/**
+ * C5 — Create a Server-Sent Events response for Streamable HTTP transport.
+ * MCP clients that send Accept: text/event-stream expect SSE-formatted responses.
+ */
+function createSSEResponse(messages: JsonRpcResponse[], extraHeaders?: Record<string, string>): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const msg of messages) {
+        const data = JSON.stringify(msg)
+        controller.enqueue(encoder.encode(`event: message\ndata: ${data}\n\n`))
+      }
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      ...(extraHeaders || {}),
+    },
+  })
+}
+
+/**
+ * C5 — DELETE /api/mcp — End a session
+ */
+export async function DELETE(req: NextRequest) {
+  const { requireApiAuth } = await import('@/lib/auth/api-key')
+  const auth = await requireApiAuth(req, 'read')
+  if (!auth.ok) return auth.response
+
+  const sessionId = req.headers.get('mcp-session-id')
+  if (sessionId) {
+    sessions.delete(sessionId)
+    return NextResponse.json({ ended: true })
+  }
+  return NextResponse.json({ ended: false, message: 'No session ID provided' })
+}
+
+export async function GET(req: NextRequest) {
   return NextResponse.json({
     name: 'sota-agentic-os-mcp',
-    version: '5.4.0',
+    version: '6.0.0',
     protocolVersion: '2024-11-05',
     tools: TOOLS.length,
-    description: 'MCP server exposing SOTA Agentic OS Fase 1-4 modules. Use POST with JSON-RPC 2.0 requests.',
+    transports: {
+      post: 'JSON-RPC 2.0 over HTTP POST (request/response)',
+      streamableHttp: 'JSON-RPC 2.0 over SSE (Accept: text/event-stream, Mcp-Session-Id header)',
+      stdio: 'Use scripts/mcp-stdio.ts for local stdio bridge',
+    },
+    auth: 'Authorization: Bearer sak_<keyId>_<secret> (IO-0 API key)',
+    description: 'MCP server exposing SOTA Agentic OS. Supports Streamable HTTP transport with session management.',
     availableMethods: ['initialize', 'tools/list', 'tools/call', 'resources/list', 'resources/read', 'prompts/list', 'prompts/get', 'completion/complete'],
     toolNames: TOOLS.map((t) => t.name),
   })
