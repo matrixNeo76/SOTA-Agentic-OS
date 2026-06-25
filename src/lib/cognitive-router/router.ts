@@ -45,8 +45,56 @@ export interface TaskClassification {
  *   - Complex: complessità > 0.6 o lunghezza > 2000 token o multi-dominio
  *   - Medium: complessità > 0.3 o lunghezza > 500 token
  *   - Simple: tutto il resto
+ *
+ * Fase 5.2: se useLLM=true (default), prova prima la classification LLM-based
+ * che è più accurata; fallback al rule-based se LLM non disponibile.
  */
-export function classifyTask(prompt: string): TaskClassification {
+export async function classifyTask(prompt: string, options?: {
+  useLLM?: boolean
+}): Promise<TaskClassification> {
+  const useLLM = options?.useLLM !== false // default true
+
+  // Try LLM-based classification first
+  if (useLLM) {
+    try {
+      const { classifyTaskWithLLM } = await import('@/lib/llm-client/client')
+      const llmResult = await classifyTaskWithLLM(prompt)
+
+      if (llmResult.source === 'llm') {
+        // Converti LLM classification nel formato TaskClassification
+        const features = extractFeatures(prompt)
+        const signals: string[] = [`llm-classified (${llmResult.reasoning})`]
+
+        // Stima token output in base alla complexity LLM
+        let estimatedTokensOut: number
+        switch (llmResult.complexity) {
+          case 'Critical': estimatedTokensOut = 1500; signals.push('llm-critical'); break
+          case 'Complex':  estimatedTokensOut = 800; signals.push('llm-complex'); break
+          case 'Medium':   estimatedTokensOut = 300; signals.push('llm-medium'); break
+          case 'Simple':   estimatedTokensOut = 100; signals.push('llm-simple'); break
+        }
+
+        return {
+          complexity: llmResult.complexity,
+          features: { ...features, domain: llmResult.domain },
+          signals,
+          estimatedTokensIn: features.tokenEstimate,
+          estimatedTokensOut,
+        }
+      }
+    } catch {
+      // Fall through to rule-based
+    }
+  }
+
+  // Fallback: rule-based classification (implementazione originale)
+  return classifyTaskRuleBased(prompt)
+}
+
+/**
+ * Rule-based classifier (implementazione originale, ora come fallback).
+ */
+export function classifyTaskRuleBased(prompt: string): TaskClassification {
   const features = extractFeatures(prompt)
   const signals: string[] = []
 
@@ -205,14 +253,15 @@ export interface RoutingStrategy {
  *   - Complex → locale (Qwen3 32B) + fallback API glm-4.6
  *   - Critical → API glm-4.6-reason (no locale, massima affidabilità)
  */
-export function planRouting(
+export async function planRouting(
   prompt: string,
   options: {
     models?: CognitiveModel[]
     forceApi?: boolean
+    useLLM?: boolean
   } = {},
-): RoutingStrategy {
-  const classification = classifyTask(prompt)
+): Promise<RoutingStrategy> {
+  const classification = await classifyTask(prompt, { useLLM: options.useLLM })
   const models = options.models || DEFAULT_COGNITIVE_MODELS
 
   const localModels = models.filter((m) => m.local)
@@ -290,7 +339,7 @@ export async function routeCognitive(
   prompt: string,
   options?: { forceApi?: boolean },
 ): Promise<RoutingStrategy & { decisionId: string }> {
-  const strategy = planRouting(prompt, options)
+  const strategy = await planRouting(prompt, options)
 
   // Delega al TimeRouter per scoring fine (margin, diversity, ensemble)
   const timeRouterResult = await routeWithTimeRouter(agentId, prompt, strategy)

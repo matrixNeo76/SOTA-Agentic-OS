@@ -176,6 +176,7 @@ export async function generateSkillForGap(params: {
   gap: SkillGap
   provenance: Provenance
   generatorAgentUri?: string
+  useLLM?: boolean // default true; se false, usa solo template rule-based
 }): Promise<GeneratedSkill> {
   const provValidation = validateProvenance(params.provenance)
   if (!provValidation.valid) {
@@ -184,9 +185,29 @@ export async function generateSkillForGap(params: {
 
   const gap = params.gap
   const generator = params.generatorAgentUri || 'agent://meta-agent-compiler'
+  const useLLM = params.useLLM !== false // default true
 
-  // Costruisce il prompt template basato sul pattern
-  const promptTemplate = buildPromptTemplate(gap)
+  // Genera il prompt template: LLM-based se disponibile, fallback rule-based
+  let promptTemplate: string
+  let templateSource: 'llm' | 'fallback' = 'fallback'
+
+  if (useLLM) {
+    try {
+      const { generateSkillPromptTemplate } = await import('@/lib/llm-client/client')
+      const result = await generateSkillPromptTemplate({
+        skillName: gap.suggestedSkillName,
+        description: gap.description,
+        failurePattern: gap.suggestedDomain,
+        evidence: gap.evidence.map((e) => `Task ${e.taskUri}: ${e.failurePattern}`),
+      })
+      promptTemplate = result.template
+      templateSource = result.source
+    } catch {
+      promptTemplate = buildPromptTemplate(gap)
+    }
+  } else {
+    promptTemplate = buildPromptTemplate(gap)
+  }
 
   // Genera esempi few-shot dalle evidenze
   const examples: SkillExample[] = gap.evidence.slice(0, 3).map((e) => ({
@@ -214,7 +235,7 @@ export async function generateSkillForGap(params: {
     status: 'generated',
   }
 
-  // Salva come nodo Document per tracking
+  // Salva come nodo Document per tracking (include templateSource per audit)
   await createNode({
     type: 'Document',
     identifier: skillId,
@@ -231,6 +252,7 @@ export async function generateSkillForGap(params: {
       tests,
       generatedBy: generator,
       status: 'generated',
+      templateSource, // 'llm' | 'fallback' — audit trail della generazione
     },
     provenance: params.provenance,
   })

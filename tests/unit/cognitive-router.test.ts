@@ -21,59 +21,59 @@ import {
 import { db } from '@/lib/db'
 
 describe('Cognitive Router — classifyTask', () => {
-  it('prompt breve e semplice → Simple', () => {
-    const result = classifyTask('ciao, come stai?')
+  it('prompt breve e semplice → Simple', async () => {
+    const result = await classifyTask('ciao, come stai?', { useLLM: false })
     expect(result.complexity).toBe('Simple')
     expect(result.estimatedTokensOut).toBe(100)
   })
 
-  it('prompt con codice → Medium o superiore', () => {
+  it('prompt con codice → Medium o superiore', async () => {
     const prompt = `Given this code:
     \`\`\`
     function add(a, b) { return a + b }
     \`\`\`
     Please explain what it does.`
-    const result = classifyTask(prompt)
+    const result = await classifyTask(prompt, { useLLM: false })
     expect(['Medium', 'Complex']).toContain(result.complexity)
   })
 
-  it('prompt lungo con codice + matematica → Complex', () => {
+  it('prompt lungo con codice + matematica → Complex', async () => {
     const longPrompt = '```js\n' + 'function complex() {\n'.repeat(100) + '}\n```\nPlease analyze the integral ∫x²dx and verify with the code.'
-    const result = classifyTask(longPrompt)
+    const result = await classifyTask(longPrompt, { useLLM: false })
     expect(result.complexity).toBe('Complex')
   })
 
-  it('keyword critiche (deploy) + complessità → Critical', () => {
+  it('keyword critiche (deploy) + complessità → Critical', async () => {
     const prompt = `We need to deploy this critical security update to production.
     The function involves deleting irreversible records. Please review carefully.`
-    const result = classifyTask(prompt)
+    const result = await classifyTask(prompt, { useLLM: false })
     expect(result.complexity).toBe('Critical')
     expect(result.signals).toContain('critical-keyword-detected')
   })
 
-  it('multi-step reasoning (first, then, finally) incrementa complexity', () => {
+  it('multi-step reasoning (first, then, finally) incrementa complexity', async () => {
     const prompt = 'First analyze the data. Then identify patterns. Finally, generate a report.'
-    const result = classifyTask(prompt)
+    const result = await classifyTask(prompt, { useLLM: false })
     expect(['Medium', 'Complex', 'Critical']).toContain(result.complexity)
     expect(result.signals).toContain('multi-step-reasoning')
   })
 
-  it('signals include multi-domain per code + math', () => {
+  it('signals include multi-domain per code + math', async () => {
     const prompt = '```python\nx = 1\n```\nThe integral ∫x²dx equals x³/3.'
-    const result = classifyTask(prompt)
+    const result = await classifyTask(prompt, { useLLM: false })
     expect(result.signals).toContain('multi-domain')
   })
 
-  it('stima tokenOut cresce con complexity', () => {
-    const simple = classifyTask('hi')
-    const critical = classifyTask('deploy critical security patch to production now')
+  it('stima tokenOut cresce con complexity', async () => {
+    const simple = await classifyTask('hi', { useLLM: false })
+    const critical = await classifyTask('deploy critical security patch to production now', { useLLM: false })
     expect(critical.estimatedTokensOut).toBeGreaterThan(simple.estimatedTokensOut)
   })
 })
 
 describe('Cognitive Router — planRouting (local-first)', () => {
-  it('Simple → routing local (SLM)', () => {
-    const strategy = planRouting('ciao come stai?')
+  it('Simple → routing local (SLM)', async () => {
+    const strategy = await planRouting('ciao come stai?', { useLLM: false })
     expect(['local', 'api']).toContain(strategy.routing)
     // Se local-first, preferred contiene SLM locali
     if (strategy.routing === 'local') {
@@ -81,45 +81,45 @@ describe('Cognitive Router — planRouting (local-first)', () => {
     }
   })
 
-  it('Critical → routing api (reasoning model)', () => {
-    const strategy = planRouting('deploy critical security patch to production now')
+  it('Critical → routing api (reasoning model)', async () => {
+    const strategy = await planRouting('deploy critical security patch to production now', { useLLM: false })
     expect(strategy.routing).toBe('api')
     expect(strategy.preferredModels.some((m) => m.specialization === 'reasoning' && !m.local)).toBe(true)
   })
 
-  it('Medium → hybrid (locale + API fallback)', () => {
+  it('Medium → hybrid (locale + API fallback)', async () => {
     const prompt = 'First analyze the data. Then identify patterns. Finally generate a report with details.'
-    const strategy = planRouting(prompt)
+    const strategy = await planRouting(prompt, { useLLM: false })
     expect(['hybrid', 'api']).toContain(strategy.routing)
     expect(strategy.fallbackModels.length).toBeGreaterThan(0)
   })
 
-  it('Complex → hybrid con locale 32B se disponibile', () => {
+  it('Complex → hybrid con locale 32B se disponibile', async () => {
     const longPrompt = '```js\n' + 'function complex() {\n'.repeat(100) + '}\n```\nAnalyze thoroughly.'
-    const strategy = planRouting(longPrompt)
+    const strategy = await planRouting(longPrompt, { useLLM: false })
     expect(['hybrid', 'api']).toContain(strategy.routing)
   })
 
-  it('forceApi=true ignora locale', () => {
-    const strategy = planRouting('ciao', { forceApi: true })
+  it('forceApi=true ignora locale', async () => {
+    const strategy = await planRouting('ciao', { forceApi: true, useLLM: false })
     expect(strategy.routing).toBe('api')
     expect(strategy.preferredModels.every((m) => !m.local)).toBe(true)
   })
 
-  it('estimatedCost è 0 per modelli locali', () => {
-    const strategy = planRouting('ciao come stai?')
+  it('estimatedCost è 0 per modelli locali', async () => {
+    const strategy = await planRouting('ciao come stai?', { useLLM: false })
     if (strategy.routing === 'local') {
       expect(strategy.estimatedCost).toBe(0)
     }
   })
 
-  it('estimatedCost > 0 per API', () => {
-    const strategy = planRouting('deploy critical patch to production now')
+  it('estimatedCost > 0 per API', async () => {
+    const strategy = await planRouting('deploy critical patch to production now', { useLLM: false })
     expect(strategy.estimatedCost).toBeGreaterThan(0)
   })
 
-  it('reason è una stringa non vuota', () => {
-    const strategy = planRouting('test prompt')
+  it('reason è una stringa non vuota', async () => {
+    const strategy = await planRouting('test prompt', { useLLM: false })
     expect(strategy.reason).toBeTruthy()
     expect(typeof strategy.reason).toBe('string')
   })

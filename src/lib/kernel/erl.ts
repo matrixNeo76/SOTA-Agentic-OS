@@ -51,8 +51,54 @@ export const DEFAULT_RED_LINES = [
 /**
  * Analisi causale semplice: dato un outcome e gli step, estrae
  * un'euristica testuale. Questa è la logica "riflessiva".
+ *
+ * Fase 5.3: se useLLM=true (default), prova prima LLM-based extraction;
+ * fallback alla logica rule-based originale se LLM non disponibile.
  */
-function extractHeuristic(input: ReflectionInput): ExtractedHeuristic {
+async function extractHeuristic(input: ReflectionInput, useLLM = true): Promise<ExtractedHeuristic> {
+  // Try LLM-based extraction first
+  if (useLLM) {
+    try {
+      const { extractHeuristicWithLLM } = await import('@/lib/llm-client/client')
+      const result = await extractHeuristicWithLLM({
+        outcome: input.outcome,
+        context: input.context,
+        steps: input.steps.map((s) => ({ action: s.action, result: s.result })),
+      })
+
+      if (result.source === 'llm' && result.heuristic.length > 10) {
+        // Split LLM output into trigger/action heuristics
+        // Format: "When I encounter X, I should do Y"
+        const match = result.heuristic.match(/(?:when|quando)\s+(.+?)[,]\s*(?:i should|devo|dovrei)\s+(.+)/i)
+        if (match) {
+          return {
+            trigger: `Quando ${match[1]}`,
+            action: match[2],
+            context: input.context,
+            redLineFlagged: result.redLineFlag,
+          }
+        }
+        // Fallback: use the full heuristic as trigger+action
+        return {
+          trigger: result.heuristic.slice(0, 80),
+          action: result.heuristic,
+          context: input.context,
+          redLineFlagged: result.redLineFlag,
+        }
+      }
+    } catch {
+      // Fall through to rule-based
+    }
+  }
+
+  // Rule-based extraction (implementazione originale)
+  return extractHeuristicRuleBased(input)
+}
+
+/**
+ * Rule-based heuristic extraction (implementazione originale, ora come fallback).
+ */
+function extractHeuristicRuleBased(input: ReflectionInput): ExtractedHeuristic {
   const failed = input.steps.filter((s) =>
     s.result.toLowerCase().includes('error') ||
     s.result.toLowerCase().includes('fail') ||
@@ -136,7 +182,7 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
   reviewReason: string
   stored: boolean
 }> {
-  const heuristic = extractHeuristic(input)
+  const heuristic = await extractHeuristic(input)
   const review = await supervisorReview(heuristic, input)
 
   // Persisti sempre il log di riflessione

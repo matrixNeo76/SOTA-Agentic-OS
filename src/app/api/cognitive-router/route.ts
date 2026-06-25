@@ -31,14 +31,14 @@ export async function POST(req: Request) {
     if (action === 'classify') {
       const { prompt } = body
       if (!prompt) return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
-      const classification = classifyTask(prompt)
+      const classification = await classifyTask(prompt)
       return NextResponse.json({ classification })
     }
 
     if (action === 'plan') {
       const { prompt, forceApi } = body
       if (!prompt) return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
-      const strategy = planRouting(prompt, { forceApi })
+      const strategy = await planRouting(prompt, { forceApi })
       return NextResponse.json({ strategy })
     }
 
