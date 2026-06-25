@@ -270,44 +270,30 @@ export async function executeTask(params: {
       return step
     }
 
-    // Execute via LLM
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    const execStream = await zai.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `Sei l'agente ${taskDef.agentId} di un sistema agentico. Esegui il task assegnato in modo conciso (massimo 200 parole).`,
-        },
-        {
-          role: 'user',
-          content: `Task: ${taskDef.description}\nContesto: obiettivo globale = ${planGoal}`,
-        },
-      ],
-      stream: true,
+    // WS1.4 — Execute via ReAct loop (pensa → chiama tool → osserva → ripeti)
+    const { executeReActLoop } = await import('./react-loop')
+    const reactResult = await executeReActLoop({
+      agentId: taskDef.agentId,
+      planId,
+      taskId: taskDef.taskId,
+      task: taskDef.description,
+      context: `obiettivo globale = ${planGoal}`,
+      signal,
+      onIteration: (iter) => {
+        onEvent?.('task_iteration', {
+          taskId: taskDef.taskId,
+          iteration: iter.iteration,
+          thought: iter.thought.slice(-150),
+          toolCalls: iter.toolCalls?.map((tc) => ({ name: tc.name, success: tc.success })),
+          isFinal: iter.isFinal,
+        })
+      },
     })
 
-    let result = ''
-    for await (const chunk of execStream) {
-      if (signal?.aborted) break
-      const delta = chunk.choices?.[0]?.delta?.content || ''
-      if (delta) {
-        result += delta
-        onEvent?.('task_chunk', { taskId: taskDef.taskId, partial: result.slice(-150) })
-      }
-    }
+    const result = reactResult.finalAnswer
 
-    // Record cost
-    const inputTokens = Math.ceil((taskDef.description.length + planGoal.length + 100) / 4)
-    const outputTokens = Math.ceil(result.length / 4)
-    await recordCostEntry({
-      agentId: taskDef.agentId,
-      model: 'zai-glm',
-      phase: 'task_execution',
-      tokensIn: inputTokens,
-      tokensOut: outputTokens,
-      cost: calculateCost('zai-glm', inputTokens, outputTokens),
-    }).catch(() => {})
+    // Cost è già tracciato nel ReAct loop, ma registriamo il totale per audit
+    // (non chiamare recordCostEntry qui — il ReAct loop lo fa per ogni iterazione)
 
     step.result = result
     step.status = 'done'
