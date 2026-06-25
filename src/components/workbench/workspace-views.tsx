@@ -21,6 +21,9 @@ import { Phase13 } from '@/components/agentic/phase13'
 import { Phase14 } from '@/components/agentic/phase14'
 import { ToolManager } from '@/components/agentic/tool-manager'
 import { Overview } from '@/components/agentic/overview'
+import { AutonomousDashboard } from '@/components/autonomous-dashboard/autonomous-dashboard'
+import { DigitalTwinDashboard } from '@/components/autonomous-dashboard/digital-twin-panel'
+import { ConflictQueuePanel } from '@/components/autonomous-dashboard/conflict-queue-panel'
 import { PHASES } from '@/lib/store'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { CanvasView } from '@/components/canvas/canvas-container'
@@ -33,6 +36,9 @@ const MemoryContextDomain = dynamic(() => import('@/components/domains/memory-co
 const PlanExecuteDomain = dynamic(() => import('@/components/domains/plan-execute/plan-execute-domain').then(m => ({ default: m.PlanExecuteDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 const VerifyTrustDomain = dynamic(() => import('@/components/domains/verify-trust/verify-trust-domain').then(m => ({ default: m.VerifyTrustDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 const LearnRouteDomain = dynamic(() => import('@/components/domains/learn-route/learn-route-domain').then(m => ({ default: m.LearnRouteDomain })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+
+// Admin page loaded dynamically (WS2)
+const AdminPage = dynamic(() => import('@/app/admin/page'), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 
 // === View metadata ===
 type ViewMeta = {
@@ -56,8 +62,33 @@ function PhaseView() {
  const { activePhase } = useStore()
 
  switch (activePhase) {
- case 'overview': return <Overview />
- case 'domain-memory': return <MemoryContextDomain />
+ // UX-1: 6 aree per obiettivo
+ case 'dashboard': case 'overview': return <Overview />
+ case 'runs': case 'console': return <AgentConsole />
+ case 'memory': case 'domain-memory': return <MemoryContextDomain />
+ case 'agents': return (
+   <div className="space-y-6 p-6">
+     <AutonomousDashboard />
+     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+       <DigitalTwinDashboard />
+       <ConflictQueuePanel />
+     </div>
+   </div>
+ )
+ case 'governance': return (
+   <div className="space-y-6 p-6">
+     <ConflictQueuePanel />
+     <SovereignView />
+   </div>
+ )
+ case 'insights': return (
+   <div className="space-y-6 p-6">
+     <AutonomousDashboard />
+     <DigitalTwinDashboard />
+   </div>
+ )
+ case 'admin': return <AdminPage />
+ // Advanced / Internals (vecchie fasi)
  case 'domain-plan': return <PlanExecuteDomain />
  case 'domain-verify': return <VerifyTrustDomain />
  case 'domain-learn': return <LearnRouteDomain />
@@ -135,14 +166,21 @@ export function WorkspaceViews() {
  <ViewTransition>
  <div className={cn(
  'h-full',
- // Console needs full-height flex layout
- (activeView === 'console' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col'
+ // Console/Runs need full-height flex layout
+ (activeView === 'console' || activeView === 'runs' || (activeView === 'phase' && activePhase === 'console')) && 'flex flex-col',
+ // New scrollable areas
+ (activeView === 'dashboard' || activeView === 'memory' || activeView === 'agents' || activeView === 'governance' || activeView === 'insights' || activeView === 'admin') && 'overflow-y-auto',
  )}>
  {activeView === 'console' && <AgentConsole />}
+ {activeView === 'runs' && <AgentConsole />}
  {activeView === 'canvas' && <CanvasView />}
  {activeView === 'timeline' && <TimelineView />}
  {activeView === 'cockpit' && <Cockpit />}
  {activeView === 'sovereign' && <SovereignView />}
+ {/* UX-1: New areas render via PhaseView */}
+ {(activeView === 'dashboard' || activeView === 'memory' || activeView === 'agents' || activeView === 'governance' || activeView === 'insights' || activeView === 'admin') && (
+   <PhaseView />
+ )}
  {activeView === 'phase' && (
  <div className="h-full overflow-y-auto">
  <PhaseView />

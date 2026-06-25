@@ -1,277 +1,254 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useStore, type Phase } from '@/lib/store'
-import { getIcon } from '@/lib/phase-icons'
+import { useStore, CORE_AREAS, ADMIN_AREAS, ADVANCED_PHASES, type Phase } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useDashboard } from './use-dashboard'
-import { PanelLeftClose, PanelLeft, ChevronDown } from 'lucide-react'
+import { PanelLeftClose, PanelLeft, ChevronDown, MoreHorizontal } from 'lucide-react'
 import { DynamicIcon } from '@/components/shared/dynamic-icon'
 
-type SectionId = 'action' | 'inspect' | 'ecosystem'
-
 type NavItem = {
- phaseId: Phase
- label: string
- icon: string
- badgeKey?: 'phase9' | 'phase11' | 'phase4' | 'cockpit'
+  phaseId: Phase
+  label: string
+  icon: string
+  badgeKey?: string
 }
 
 type Section = {
- id: SectionId
- label: string
- items: NavItem[]
+  id: string
+  label: string
+  items: NavItem[]
 }
 
+// UX-1: 6 aree per obiettivo + Admin + Advanced
 const SECTIONS: Section[] = [
- {
- id: 'action',
- label: 'Action',
- items: [
- { phaseId: 'overview', label: 'Dashboard', icon: 'LayoutDashboard' },
- { phaseId: 'console', label: 'Console', icon: 'Terminal' },
- { phaseId: 'cockpit', label: 'Cockpit', icon: 'Gauge', badgeKey: 'cockpit' },
- ],
- },
- {
- id: 'inspect',
- label: 'Inspect',
- items: [
- { phaseId: 'domain-memory', label: 'Memory & Context', icon: 'Database' },
- { phaseId: 'domain-plan', label: 'Plan & Execute', icon: 'Workflow' },
- { phaseId: 'domain-verify', label: 'Verify & Trust', icon: 'ShieldCheck', badgeKey: 'phase4' },
- { phaseId: 'domain-learn', label: 'Learn & Route', icon: 'Sparkles' },
- ],
- },
- {
- id: 'ecosystem',
- label: 'Ecosystem',
- items: [
- { phaseId: 'tools', label: 'Tool Manager', icon: 'Package' },
- { phaseId: 'phase9', label: 'Human Retainer', icon: 'UserCog', badgeKey: 'phase9' },
- ],
- },
+  {
+    id: 'main',
+    label: 'Main',
+    items: CORE_AREAS.map((a) => ({ phaseId: a.id, label: a.name, icon: a.icon })),
+  },
+  {
+    id: 'admin',
+    label: 'System',
+    items: ADMIN_AREAS.map((a) => ({ phaseId: a.id, label: a.name, icon: a.icon })),
+  },
+  {
+    id: 'advanced',
+    label: 'Advanced / Internals',
+    items: ADVANCED_PHASES.filter(p => p.id.startsWith('phase') || p.id === 'tools' || p.id.startsWith('domain')).map((a) => ({ phaseId: a.id, label: a.name, icon: a.icon })),
+  },
 ]
 
-const DEFAULT_EXPANDED: SectionId[] = ['action', 'inspect', 'ecosystem']
-
 export function Sidebar() {
- const { activePhase, setActivePhase } = useStore()
- const { data } = useDashboard()
- const [collapsed, setCollapsed] = useState(false)
- const [expanded, setExpanded] = useState<SectionId[]>(() => {
- if (typeof window === 'undefined') return DEFAULT_EXPANDED
- try {
- const saved = localStorage.getItem('sota_sidebar_sections')
- return saved ? JSON.parse(saved) : DEFAULT_EXPANDED
- } catch {
- return DEFAULT_EXPANDED
- }
- })
+  const { activePhase, setActivePhase } = useStore()
+  const { data } = useDashboard()
+  const [collapsed, setCollapsed] = useState(false)
+  const [expanded, setExpanded] = useState<string[]>(['main'])
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
- useEffect(() => {
- try {
- localStorage.setItem('sota_sidebar_sections', JSON.stringify(expanded))
- } catch { /* ignore */ }
- }, [expanded])
+  useEffect(() => {
+    const saved = localStorage.getItem('sota_sidebar_sections')
+    if (saved) {
+      try { setExpanded(JSON.parse(saved)) } catch {}
+    }
+    const savedCollapsed = localStorage.getItem('sota_sidebar_collapsed')
+    if (savedCollapsed === 'true') setCollapsed(true)
+  }, [])
 
- const toggleSection = (id: SectionId) => {
- setExpanded(prev =>
- prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
- )
- }
+  useEffect(() => {
+    localStorage.setItem('sota_sidebar_sections', JSON.stringify(expanded))
+  }, [expanded])
 
- return (
- <aside className={cn(
- 'hidden md:flex shrink-0 flex-col border-r bg-sidebar transition-all duration-200',
- collapsed ? 'w-14' : 'w-60'
- )}>
- {/* Logo bar premium */}
- <div className="h-16 flex items-center border-b px-3 shrink-0">
- <div className="size-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
- <img src="/logo-transparent.png" alt="SOTA" className="size-6 rounded object-contain" />
- </div>
- {!collapsed && (
- <div className="ml-2.5">
- <div className="text-sm font-semibold tracking-tight leading-none">SOTA OS</div>
- <div className="text-[10px] text-muted-foreground mt-0.5 tracking-wider uppercase">Agentic</div>
- </div>
- )}
- </div>
+  useEffect(() => {
+    localStorage.setItem('sota_sidebar_collapsed', String(collapsed))
+  }, [collapsed])
 
- <nav className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'px-1.5' : 'px-2.5')}>
- {SECTIONS.map((section) => {
- const isExpanded = expanded.includes(section.id)
- return (
- <div key={section.id} className="mb-2">
- {/* Section header */}
- {!collapsed && (
- <button
- onClick={() => toggleSection(section.id)}
- className="w-full flex items-center gap-1.5 px-2 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground transition-colors"
- >
- <ChevronDown className={cn('size-3 transition-transform', !isExpanded && '-rotate-90')} />
- <span>{section.label}</span>
- <span className="ml-auto text-[10px] font-mono text-muted-foreground/50">
- {section.items.length}
- </span>
- </button>
- )}
- {collapsed && (
- <div className="h-px bg-border mx-1 my-2" />
- )}
+  const toggleSection = (id: string) => {
+    setExpanded((prev) => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
+  }
 
- {/* Items */}
- {(isExpanded || collapsed) && section.items.map((item) => {
- const Icon = getIcon(item.icon)
- const active = activePhase === item.phaseId
- const badge = item.badgeKey ? getLiveBadge(item.badgeKey, data) : null
- return (
- <button
- key={item.phaseId}
- onClick={() => setActivePhase(item.phaseId)}
- className={cn(
- 'w-full flex items-center rounded-md transition-all group relative',
- collapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2',
- active
- ? 'bg-primary/8 text-primary font-medium'
- : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
- )}
- title={collapsed ? item.label : undefined}
- >
- {/* Active accent bar */}
- {active && !collapsed && (
- <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-full bg-primary" />
- )}
- <Icon className={cn('size-4 shrink-0 transition-colors', active && 'text-primary')} />
- {!collapsed && (
- <span className="text-[13px] leading-tight truncate">
- {item.label}
- </span>
- )}
- {/* Badge premium */}
- {!collapsed && badge && (
- <span className={cn(
- 'ml-auto text-[10px] px-1.5 py-0.5 rounded-xs font-mono font-bold shrink-0 text-white',
- badge.tone === 'warn' && 'bg-status-warn',
- badge.tone === 'danger' && 'bg-status-danger',
- badge.tone === 'info' && 'bg-status-info',
- badge.tone === 'ok' && 'bg-status-ok',
- )}>
- {badge.value}
- </span>
- )}
- {collapsed && badge && (
- <span className={cn(
- 'absolute top-1 right-1 size-1.5 rounded-full',
- badge.tone === 'warn' && 'bg-status-warn',
- badge.tone === 'danger' && 'bg-status-danger',
- badge.tone === 'info' && 'bg-status-info',
- )} />
- )}
- </button>
- )
- })}
- </div>
- )
- })}
- </nav>
+  // Badge counts from dashboard data
+  const badgeCounts: Record<string, number> = {
+    governance: data?.phase9?.pendingGates || 0,
+    agents: 0, // populated from autonomous-org API if needed
+  }
 
- {/* Collapse button */}
- <div className="border-t p-2 shrink-0">
- <button
- onClick={() => setCollapsed(!collapsed)}
- className="w-full h-8 flex items-center justify-center rounded-md hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
- title={collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'}
- aria-label={collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'}
- >
- {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
- </button>
- </div>
- </aside>
- )
+  if (collapsed) {
+    return (
+      <aside className="w-14 border-r bg-card flex flex-col items-center py-3 gap-2 shrink-0">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="p-2 rounded-md hover:bg-accent transition-colors"
+          title="Expand sidebar"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
+        {SECTIONS[0]!.items.map((item) => (
+          <button
+            key={item.phaseId}
+            onClick={() => setActivePhase(item.phaseId)}
+            className={cn(
+              'p-2 rounded-md transition-colors relative',
+              activePhase === item.phaseId ? 'bg-primary/10 text-primary' : 'hover:bg-accent text-muted-foreground',
+            )}
+            title={item.label}
+          >
+            <DynamicIcon name={item.icon} className="w-4 h-4" />
+            {badgeCounts[item.phaseId] > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 text-xs rounded-full bg-destructive text-destructive-foreground flex items-center justify-center">
+                {badgeCounts[item.phaseId]}
+              </span>
+            )}
+          </button>
+        ))}
+      </aside>
+    )
+  }
+
+  return (
+    <aside className="w-60 border-r bg-card flex flex-col shrink-0 overflow-hidden">
+      {/* Header */}
+      <div className="h-12 flex items-center justify-between px-3 border-b">
+        <span className="text-sm font-semibold">SOTA Agentic OS</span>
+        <button
+          onClick={() => setCollapsed(true)}
+          className="p-1.5 rounded-md hover:bg-accent transition-colors"
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-2 px-1.5">
+        {/* Main sections */}
+        {SECTIONS.filter(s => s.id !== 'advanced').map((section) => (
+          <div key={section.id} className="mb-2">
+            <button
+              onClick={() => toggleSection(section.id)}
+              className="w-full flex items-center justify-between px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span>{section.label}</span>
+              <ChevronDown className={cn('w-3 h-3 transition-transform', expanded.includes(section.id) ? '' : '-rotate-90')} />
+            </button>
+            {(expanded.includes(section.id)) && section.items.map((item) => (
+              <button
+                key={item.phaseId}
+                onClick={() => setActivePhase(item.phaseId)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors mt-0.5 relative',
+                  activePhase === item.phaseId
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                )}
+              >
+                <DynamicIcon name={item.icon} className="w-4 h-4 shrink-0" />
+                <span className="truncate flex-1 text-left">{item.label}</span>
+                {badgeCounts[item.phaseId] > 0 && (
+                  <span className="px-1.5 py-0.5 text-xs rounded-full bg-destructive text-destructive-foreground font-medium">
+                    {badgeCounts[item.phaseId]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        ))}
+
+        {/* Advanced / Internals (collapsible) */}
+        <div className="mb-2 mt-4">
+          <button
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="w-full flex items-center justify-between px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <MoreHorizontal className="w-3 h-3" />
+              Advanced / Internals
+            </span>
+            <ChevronDown className={cn('w-3 h-3 transition-transform', advancedOpen ? '' : '-rotate-90')} />
+          </button>
+          {advancedOpen && (
+            <div className="mt-1 space-y-0.5">
+              {SECTIONS.find(s => s.id === 'advanced')?.items.map((item) => (
+                <button
+                  key={item.phaseId}
+                  onClick={() => setActivePhase(item.phaseId)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-2 py-1 rounded-md text-xs transition-colors',
+                    activePhase === item.phaseId
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground/70 hover:text-foreground hover:bg-accent/50',
+                  )}
+                >
+                  <DynamicIcon name={item.icon} className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate flex-1 text-left">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </nav>
+    </aside>
+  )
 }
 
-/**
- * MobileNav Premium
- */
+// === Mobile Navigation (bottom sheet) ===
 export function MobileNav() {
- const { activePhase, setActivePhase } = useStore()
- const [open, setOpen] = useState(false)
+  const { activePhase, setActivePhase } = useStore()
+  const [open, setOpen] = useState(false)
 
- const currentItem = SECTIONS.flatMap(s => s.items).find(i => i.phaseId === activePhase)
- const currentSection = SECTIONS.find(s => s.items.some(i => i.phaseId === activePhase))
- const currentIconName = currentItem?.icon
+  return (
+    <>
+      {/* Mobile bottom bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card h-14 flex items-center justify-around z-40">
+        {CORE_AREAS.slice(0, 5).map((area) => (
+          <button
+            key={area.id}
+            onClick={() => setActivePhase(area.id)}
+            className={cn(
+              'flex flex-col items-center justify-center gap-0.5 p-1 rounded-md transition-colors flex-1 h-full',
+              activePhase === area.id ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            <DynamicIcon name={area.icon} className="w-4 h-4" />
+            <span className="text-[10px] truncate">{area.name.split(' ')[0]}</span>
+          </button>
+        ))}
+        <button
+          onClick={() => setOpen(true)}
+          className="flex flex-col items-center justify-center gap-0.5 p-1 text-muted-foreground flex-1 h-full"
+        >
+          <MoreHorizontal className="w-4 h-4" />
+          <span className="text-[10px]">More</span>
+        </button>
+      </div>
 
- return (
- <div className="md:hidden border-b bg-sidebar sticky top-0 z-40">
- <button
- onClick={() => setOpen(!open)}
- className="w-full flex items-center gap-2.5 px-4 py-3"
- aria-label="Apri menu di navigazione"
- aria-expanded={open}
- >
- <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
- {currentIconName && <DynamicIcon name={currentIconName} className="size-4 text-primary" />}
- </div>
- <span className="text-sm font-medium flex-1 text-left">
- {currentSection && (
- <span className="text-[10px] text-muted-foreground uppercase tracking-wider block leading-none mb-0.5">
- {currentSection.label}
- </span>
- )}
- {currentItem?.label || 'Dashboard'}
- </span>
- <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
- </button>
-
- {open && (
- <>
- <div className="fixed inset-0 top-0 z-30" onClick={() => setOpen(false)} />
- <div className="absolute left-0 right-0 bg-popover border-b shadow-lg z-40 max-h-[70vh] overflow-y-auto animate-in fade-in-0 slide-in-from-top-2 duration-200">
- {SECTIONS.map((section) => (
- <div key={section.id} className="py-1.5">
- <div className="text-[11px] font-semibold uppercase tracking-wider px-4 py-1.5 text-muted-foreground/70">
- {section.label}
- </div>
- {section.items.map((item) => {
- const Icon = getIcon(item.icon)
- const active = activePhase === item.phaseId
- return (
- <button
- key={item.phaseId}
- onClick={() => { setActivePhase(item.phaseId); setOpen(false) }}
- className={cn(
- 'w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors relative',
- active ? 'bg-primary/8 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
- )}
- >
- {active && (
- <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-0.5 rounded-full bg-primary" />
- )}
- <Icon className={cn('size-4 shrink-0', active && 'text-primary')} />
- <span className="text-sm">{item.label}</span>
- </button>
- )
- })}
- </div>
- ))}
- </div>
- </>
- )}
- </div>
- )
-}
-
-function getLiveBadge(phaseId: string, data: any): { value: string | number; tone: 'warn' | 'danger' | 'info' | 'ok' } | null {
- if (!data) return null
- try {
- switch (phaseId) {
- case 'phase9': { const v = data.phase9?.pendingGates || 0; return v > 0 ? { value: v, tone: 'warn' } : null }
- case 'phase11': { const v = data.phase11?.interventions || 0; return v > 0 ? { value: v, tone: 'danger' } : null }
- case 'phase4': { const v = data.phase4?.verifRejects || 0; return v > 0 ? { value: v, tone: 'danger' } : null }
- case 'cockpit': { const v = data.blocked?.pending || 0; return v > 0 ? { value: v, tone: 'danger' } : null }
- default: return null
- }
- } catch { return null }
+      {/* More sheet */}
+      {open && (
+        <div className="md:hidden fixed inset-0 z-50 flex items-end" onClick={() => setOpen(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative w-full bg-card rounded-t-xl border-t p-4 pb-8 max-h-[70vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-muted rounded-full mx-auto mb-4" />
+            <div className="grid grid-cols-2 gap-2">
+              {PHASES.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setActivePhase(p.id); setOpen(false) }}
+                  className={cn(
+                    'flex items-center gap-2 p-2.5 rounded-lg text-sm transition-colors',
+                    activePhase === p.id ? 'bg-primary/10 text-primary' : 'hover:bg-accent text-muted-foreground',
+                  )}
+                >
+                  <DynamicIcon name={p.icon} className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }

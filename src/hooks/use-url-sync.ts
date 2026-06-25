@@ -3,8 +3,19 @@ import { useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useStore, type Phase, type WorkspaceView } from '@/lib/store'
 
-const VALID_PHASES: Phase[] = ['overview', 'console', 'cockpit', 'domain-memory', 'domain-plan', 'domain-verify', 'domain-learn', 'phase1', 'phase2', 'phase3', 'phase4', 'phase5', 'phase6', 'phase7', 'phase8', 'phase9', 'phase10', 'phase11', 'phase12', 'phase13', 'phase14', 'tools']
-const VALID_VIEWS: WorkspaceView[] = ['console', 'canvas', 'timeline', 'cockpit', 'sovereign', 'phase']
+// UX-1: Added new core areas to valid phases
+const VALID_PHASES: Phase[] = [
+  'dashboard', 'runs', 'memory', 'agents', 'governance', 'insights', 'admin',
+  'overview', 'console', 'cockpit',
+  'domain-memory', 'domain-plan', 'domain-verify', 'domain-learn',
+  'phase1', 'phase2', 'phase3', 'phase4', 'phase5', 'phase6', 'phase7',
+  'phase8', 'phase9', 'phase10', 'phase11', 'phase12', 'phase13', 'phase14',
+  'tools',
+]
+const VALID_VIEWS: WorkspaceView[] = [
+  'console', 'canvas', 'timeline', 'cockpit', 'sovereign', 'phase',
+  'dashboard', 'runs', 'memory', 'agents', 'governance', 'insights', 'admin',
+]
 function isPhase(v: string | null): v is Phase { return v !== null && VALID_PHASES.includes(v as Phase) }
 function isView(v: string | null): v is WorkspaceView { return v !== null && VALID_VIEWS.includes(v as WorkspaceView) }
 
@@ -26,11 +37,18 @@ export function useUrlSync() {
   useEffect(() => {
     const url = new URL(window.location.href)
     let changed = false
-    if (activePhase && activePhase !== 'overview') { if (url.searchParams.get('phase') !== activePhase) { url.searchParams.set('phase', activePhase); changed = true } }
-    else { if (url.searchParams.has('phase')) { url.searchParams.delete('phase'); changed = true } }
-    const expectedView = activePhase === 'console' ? 'console' : activePhase === 'cockpit' ? 'cockpit' : 'phase'
-    if (activeView !== expectedView) { if (url.searchParams.get('view') !== activeView) { url.searchParams.set('view', activeView); changed = true } }
-    else { if (url.searchParams.has('view')) { url.searchParams.delete('view'); changed = true } }
+    if (activePhase && activePhase !== 'dashboard') {
+      if (url.searchParams.get('phase') !== activePhase) { url.searchParams.set('phase', activePhase); changed = true }
+    } else {
+      if (url.searchParams.has('phase')) { url.searchParams.delete('phase'); changed = true }
+    }
+    // Sync view param for non-default views
+    const defaultView = activePhase
+    if (activeView !== defaultView) {
+      if (url.searchParams.get('view') !== activeView) { url.searchParams.set('view', activeView); changed = true }
+    } else {
+      if (url.searchParams.has('view')) { url.searchParams.delete('view'); changed = true }
+    }
     if (changed) router.replace(url.pathname + (url.search || ''), { scroll: false })
   }, [activePhase, activeView, router])
 }
