@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useStore, CORE_AREAS, ADMIN_AREAS, ADVANCED_PHASES, type Phase } from '@/lib/store'
+import { useStore, CORE_AREAS, ADMIN_AREAS, ADVANCED_PHASES, PHASES, type Phase } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useDashboard } from './use-dashboard'
 import { PanelLeftClose, PanelLeft, ChevronDown, MoreHorizontal } from 'lucide-react'
