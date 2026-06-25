@@ -10,7 +10,9 @@ const globalForPrisma = globalThis as unknown as {
 // WS0.2 — DB path configurabile.
 // Default retro-compatibile: il path z-ai attuale (zero config in dev).
 // Override: impostare DATABASE_URL in .env (sqlite o postgres).
-const DEFAULT_SQLITE_PATH = '/home/z/my-project/db/custom.db'
+// C0 — Derive default from process.cwd() instead of hardcoded path.
+// Works zero-config on any machine: clone → bun install → bun run dev.
+const DEFAULT_SQLITE_PATH = require('path').join(process.cwd(), 'db', 'custom.db')
 
 /**
  * Estrae il path del file SQLite da DATABASE_URL.

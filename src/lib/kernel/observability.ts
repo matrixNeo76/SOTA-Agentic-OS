@@ -335,8 +335,9 @@ export async function traceStats() {
 import * as fs from 'fs'
 import * as path from 'path'
 
-const DB_PATH = '/home/z/my-project/db/custom.db'
-const BACKUP_DIR = '/home/z/my-project/db/backups'
+// C0 — Derive from cwd instead of hardcoded /home/z/my-project.
+const DB_PATH = path.join(process.cwd(), 'db', 'custom.db')
+const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
 /**
  * Crea un backup del database.

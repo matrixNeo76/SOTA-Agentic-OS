@@ -77,8 +77,11 @@ export async function POST(req: NextRequest) {
         if ('error' in result) {
           send('error', { error: { message: result.error, phase: 'unknown' } })
           send('done', { ok: false, error: result.error })
-        } else {
+        } else if ('result' in result) {
           send('done', { ok: true, result: result.result })
+        } else {
+          // async mode: { planId, jobId, async: true }
+          send('done', { ok: true, result })
         }
       } catch (e: any) {
         send('error', { error: { message: e.message, phase: 'unknown' } })

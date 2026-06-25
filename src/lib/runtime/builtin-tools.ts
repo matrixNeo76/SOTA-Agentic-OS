@@ -47,12 +47,14 @@ export interface ToolResult {
 // === Config ==========================================================
 
 const DEFAULT_TIMEOUT = 10_000 // 10s
+// C0 — Derive allowed paths from cwd instead of hardcoded /home/z/my-project.
+const CWD = process.cwd()
 const ALLOWED_READ_PATHS = process.env.TOOL_ALLOWED_READ_PATHS
   ? process.env.TOOL_ALLOWED_READ_PATHS.split(',')
-  : ['/tmp', '/home/z/my-project/src', '/home/z/my-project/download']
+  : ['/tmp', join(CWD, 'src'), join(CWD, 'download')]
 const ALLOWED_WRITE_PATHS = process.env.TOOL_ALLOWED_WRITE_PATHS
   ? process.env.TOOL_ALLOWED_WRITE_PATHS.split(',')
-  : ['/tmp', '/home/z/my-project/upload']
+  : ['/tmp', join(CWD, 'upload')]
 
 // === Builtin tools ===================================================
 

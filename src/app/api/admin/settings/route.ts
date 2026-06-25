@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { join } from 'path'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { getProvider, hasPgvector, hasAge } from '@/lib/db-runtime'
 import { llmHealthCheck } from '@/lib/llm-client/client'
@@ -48,8 +49,8 @@ export async function GET(req: NextRequest) {
       activeSubscriptions: integration.activeSubscriptions,
     },
     toolPaths: {
-      read: process.env.TOOL_ALLOWED_READ_PATHS?.split(',') || ['/tmp', '/home/z/my-project/src'],
-      write: process.env.TOOL_ALLOWED_WRITE_PATHS?.split(',') || ['/tmp', '/home/z/my-project/upload'],
+      read: process.env.TOOL_ALLOWED_READ_PATHS?.split(',') || ['/tmp', join(process.cwd(), 'src')],
+      write: process.env.TOOL_ALLOWED_WRITE_PATHS?.split(',') || ['/tmp', join(process.cwd(), 'upload')],
     },
     mcpExternalServers: process.env.MCP_EXTERNAL_SERVERS || null,
   })
