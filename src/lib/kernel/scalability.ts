@@ -141,6 +141,8 @@ export type JobType =
   | 'fsm_checkpoint'
   | 'taint_cleanup'
   | 'session_cleanup'
+  | 'execute_plan' // WS1.5 — esecuzione asincrona di piani DynAMO
+  | 'recover_plan' // WS1.5 — recovery di piani orfani
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'retry'
 
@@ -200,6 +202,21 @@ async function processJob(job: any): Promise<{ result: unknown; error?: string }
       const { cleanupExpiredSessions } = await import('@/lib/auth/session')
       const count = await cleanupExpiredSessions()
       return { result: { sessionsDeleted: count } }
+    }
+    case 'execute_plan': {
+      // WS1.5 — Esecuzione asincrona di un piano DynAMO
+      const { executePlan } = await import('@/lib/runtime/executor')
+      const result = await executePlan({
+        planId: payload.planId,
+        ...(payload.signal && { signal: payload.signal }),
+      })
+      return { result }
+    }
+    case 'recover_plan': {
+      // WS1.5 — Recovery di piani orfani
+      const { recoverOrphanedPlans } = await import('@/lib/runtime/executor')
+      const result = await recoverOrphanedPlans()
+      return { result }
     }
     default:
       return { result: null, error: `Unknown job type: ${job.jobType}` }

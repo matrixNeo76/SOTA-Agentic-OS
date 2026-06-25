@@ -409,14 +409,14 @@ export async function executePlan(params: {
   }
 
   // === Phase 2: Task execution per batch ===
+  // WS1.5c — Dispatch parallelo dentro il batch (task indipendenti)
+  // topologicalBatches garantisce che i task nello stesso batch non hanno dipendenze reciproche.
   for (const batch of batches) {
-    // WS1.2 — Dispatch parallelo dentro il batch (task indipendenti)
-    // Per ora manteniamo seriale per semplicità; il parallelismo richiede
-    // un queue worker (WS1.5). La struttura topologicalBatches garantisce
-    // che i task nello stesso batch non hanno dipendenze reciproche.
-    for (const taskId of batch) {
-      if (signal?.aborted) break
+    if (signal?.aborted) break
 
+    // Separa i task già completati da quelli da eseguire
+    const tasksToExecute: Array<{ taskDef: any; taskId: string }> = []
+    for (const taskId of batch) {
       // WS1.3 — Skip task già completati (idempotency)
       if (completedTaskIds.has(taskId)) {
         const existing = existingTasks.find((t) => t.taskId === taskId)!
@@ -433,16 +433,41 @@ export async function executePlan(params: {
 
       const taskDef = plan.tasks.find((t: any) => t.taskId === taskId)
       if (!taskDef) continue
+      tasksToExecute.push({ taskDef, taskId })
+    }
 
-      const step = await executeTask({
-        planId,
-        taskDef,
-        planGoal: plan.goal,
-        signal,
-        onEvent,
-      })
+    if (tasksToExecute.length === 0) continue
+
+    // WS1.5c — Esegui i task del batch in parallelo (Promise.all)
+    // I task nello stesso batch sono indipendenti per costruzione (topologicalBatches)
+    const batchResults = await Promise.all(
+      tasksToExecute.map(({ taskDef }) =>
+        executeTask({
+          planId,
+          taskDef,
+          planGoal: plan.goal,
+          signal,
+          onEvent,
+        }).catch((err) => {
+          // Error in parallel task non deve bloccare gli altri del batch
+          const errorStep: ExecutorStep = {
+            taskId: taskDef.taskId,
+            agentId: taskDef.agentId,
+            description: taskDef.description,
+            status: 'failed',
+            error: err.message,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            durationMs: 0,
+          }
+          onEvent?.('task_complete', { step: errorStep })
+          return errorStep
+        }),
+      ),
+    )
+
+    for (const step of batchResults) {
       steps.push(step)
-
       if (step.status === 'failed') {
         errors.push({
           type: 'task_execution',
@@ -624,15 +649,21 @@ async function journalExecution(
 // === Public API per la route (thin trigger) ==========================
 
 /**
- * Avvia l'esecuzione di un piano in background.
- * La route chiama questo e ritorna immediatamente il planId.
+ * Avvia l'esecuzione di un piano.
+ *
+ * WS1.5: Due modalità:
+ *   - sync (default per SSE streaming): esegue inline, bloccando la request
+ *     con onEvent callback per streaming
+ *   - async (via enqueue): accoda su JobRecord, il worker processa in background
+ *     La route ritorna immediatamente con planId, l'esecuzione avviene nel worker
  */
 export async function startExecution(params: {
   task: string
   planOnly?: boolean
   signal?: AbortSignal
   onEvent?: (event: string, data: Record<string, unknown>) => void
-}): Promise<{ result: ExecutorResult } | { error: string }> {
+  async?: boolean // WS1.5: se true, accoda su JobRecord invece di eseguire sync
+}): Promise<{ result: ExecutorResult } | { planId: string; jobId: string; async: true } | { error: string }> {
   try {
     // Phase 1: Generate plan
     const { planId, plan, batches } = await generateAndPersistPlan({
@@ -663,7 +694,14 @@ export async function startExecution(params: {
       }
     }
 
-    // Phase 2+3: Execute plan
+    // WS1.5 — Modalità async: accoda su JobRecord
+    if (params.async) {
+      const { enqueueJob } = await import('@/lib/kernel/scalability')
+      const { jobId } = await enqueueJob('execute_plan', { planId }, 1) // priority=high
+      return { planId, jobId, async: true }
+    }
+
+    // Modalità sync (default per SSE streaming): esegue inline
     const result = await executePlan({
       planId,
       signal: params.signal,
@@ -674,4 +712,13 @@ export async function startExecution(params: {
   } catch (err: any) {
     return { error: err.message }
   }
+}
+
+/**
+ * WS1.5 — Accoda un piano esistente per esecuzione asincrona via worker.
+ * Utile per recovery o per riesecuzione di piani falliti.
+ */
+export async function enqueuePlanExecution(planId: string, priority: 0 | 1 | 2 = 1): Promise<{ jobId: string }> {
+  const { enqueueJob } = await import('@/lib/kernel/scalability')
+  return enqueueJob('execute_plan', { planId }, priority)
 }

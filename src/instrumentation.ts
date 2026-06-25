@@ -7,9 +7,11 @@
  * Avvia:
  *   1. Integration Layer (Event Mesh bridges — Fase 4.2)
  *   2. Cognitive GC scheduler (Fase 2.9)
- *   3. Recovery boot (WS1.3 — riprende task running orfani)
+ *   3. Job queue worker (Fase 23 scalability — startWorker)
+ *   4. Recovery boot (WS1.3 — riprende task running orfani)
  *
- * Il worker processa la coda JobRecord in background.
+ * Il worker processa la coda JobRecord in background, inclusi i piani
+ * di esecuzione (execute_plan) che vengono dispatchati come job asincroni.
  */
 
 export async function register() {
@@ -31,7 +33,12 @@ export async function register() {
       })
       console.log('[instrumentation] Cognitive GC scheduler started (daily: decay+consolidation, weekly: archival)')
 
-      // 3. Recovery boot — riprende task running orfani (WS1.3)
+      // 3. WS1.5 — Job queue worker (sempre attivo, processa JobRecord in background)
+      const { startWorker } = await import('@/lib/kernel/scalability')
+      startWorker(3000) // poll ogni 3 secondi
+      console.log('[instrumentation] Job queue worker started (interval: 3s) — processes execute_plan, embeddings, backup, gc, etc.')
+
+      // 4. Recovery boot — riprende task running orfani (WS1.3)
       const { recoverOrphanedPlans } = await import('@/lib/runtime/executor')
       const recovery = await recoverOrphanedPlans().catch((err) => {
         console.warn('[instrumentation] Recovery boot failed (non-blocking):', err)
