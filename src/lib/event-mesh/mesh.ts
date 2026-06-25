@@ -163,7 +163,7 @@ function createNatsBackend(url: string): EventMeshBackend {
       if (!validation.valid) throw new Error(`Invalid event: ${validation.error}`)
 
       if (!natsClient) {
-        const { connect } = await import('nats').catch(() => ({ connect: null }))
+        const { connect } = await import(/* webpackIgnore: true */ 'nats').catch(() => ({ connect: null }))
         if (!connect) throw new Error('nats package not installed. Run: bun add nats')
         natsClient = await connect({ servers: url })
         js = natsClient.jetstream()
@@ -174,7 +174,7 @@ function createNatsBackend(url: string): EventMeshBackend {
 
     async subscribe(subject: string, handler: EventHandler): Promise<Subscription> {
       if (!natsClient) {
-        const { connect } = await import('nats').catch(() => ({ connect: null }))
+        const { connect } = await import(/* webpackIgnore: true */ 'nats').catch(() => ({ connect: null }))
         if (!connect) throw new Error('nats package not installed. Run: bun add nats')
         natsClient = await connect({ servers: url })
         js = natsClient.jetstream()
@@ -247,7 +247,7 @@ function createRedisBackend(url: string): EventMeshBackend {
       if (!validation.valid) throw new Error(`Invalid event: ${validation.error}`)
 
       if (!redisClient) {
-        const { createClient } = await import('redis').catch(() => ({ createClient: null }))
+        const { createClient } = await import(/* webpackIgnore: true */ 'redis').catch(() => ({ createClient: null }))
         if (!createClient) throw new Error('redis package not installed. Run: bun add redis')
         redisClient = createClient({ url })
         await redisClient.connect()
@@ -260,7 +260,7 @@ function createRedisBackend(url: string): EventMeshBackend {
 
     async subscribe(subject: string, handler: EventHandler): Promise<Subscription> {
       if (!redisClient) {
-        const { createClient } = await import('redis').catch(() => ({ createClient: null }))
+        const { createClient } = await import(/* webpackIgnore: true */ 'redis').catch(() => ({ createClient: null }))
         if (!createClient) throw new Error('redis package not installed. Run: bun add redis')
         redisClient = createClient({ url })
         await redisClient.connect()

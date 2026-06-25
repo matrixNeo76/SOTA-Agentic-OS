@@ -1,16 +1,77 @@
 import { PrismaClient } from '@prisma/client'
 import * as fs from 'fs'
+import * as path from 'path'
 
 const globalForPrisma = globalThis as unknown as {
   __prismaClient: PrismaClient | undefined
   __prismaInode: number | undefined
 }
 
-const DB_PATH = '/home/z/my-project/db/custom.db'
+// WS0.2 — DB path configurabile.
+// Default retro-compatibile: il path z-ai attuale (zero config in dev).
+// Override: impostare DATABASE_URL in .env (sqlite o postgres).
+const DEFAULT_SQLITE_PATH = '/home/z/my-project/db/custom.db'
+
+/**
+ * Estrae il path del file SQLite da DATABASE_URL.
+ * Supporta i formati:
+ *   - file:/absolute/path/to/db.sqlite
+ *   - file:./relative/path/to/db.sqlite
+ *   - postgresql://... (ritorna null — inode check non applicabile)
+ * Se DATABASE_URL non è impostata, usa il default z-ai.
+ */
+function getSqlitePath(): string | null {
+  const url = process.env.DATABASE_URL
+
+  if (!url) {
+    // Default retro-compatibile
+    return DEFAULT_SQLITE_PATH
+  }
+
+  if (url.startsWith('file:')) {
+    const rawPath = url.slice(5) // rimuove 'file:'
+    // Risolve path relativi rispetto alla cwd
+    if (rawPath.startsWith('.')) {
+      return path.resolve(process.cwd(), rawPath)
+    }
+    return rawPath
+  }
+
+  // PostgreSQL o altro — inode check non applicabile
+  return null
+}
+
+const SQLITE_PATH = getSqlitePath()
+
+/**
+ * Fail-fast validation all'avvio: verifica che la configurazione DB sia valida.
+ */
+function validateDbConfig(): void {
+  const url = process.env.DATABASE_URL
+
+  if (url && !url.startsWith('file:') && !url.startsWith('postgresql://') && !url.startsWith('postgres://')) {
+    console.warn(`[db] DATABASE_URL format not recognized: ${url.slice(0, 50)}...`)
+    console.warn('[db] Supported formats: file:/path/to/db.sqlite | postgresql://user:pass@host:port/db')
+  }
+
+  if (SQLITE_PATH) {
+    // Assicura che la directory esista
+    const dir = path.dirname(SQLITE_PATH)
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+    } catch {
+      // Directory may already exist or not writable — non bloccante
+    }
+  }
+}
+
+// Esegui validazione una sola volta all'import
+validateDbConfig()
 
 function readInode(): number {
+  if (!SQLITE_PATH) return 0 // PostgreSQL — no inode check
   try {
-    const stat = fs.statSync(DB_PATH)
+    const stat = fs.statSync(SQLITE_PATH)
     return stat.ino
   } catch {
     return 0
@@ -24,6 +85,7 @@ function createClient() {
 /**
  * Verifica se il DB file è stato rimosso/ricreato (inode cambiato).
  * In tal caso, disconnette e ricrea il client Prisma cached.
+ * Solo per SQLite; per PostgreSQL l'inode è sempre 0 (skip check).
  */
 function refreshIfStale(): PrismaClient {
   const currentInode = readInode()
