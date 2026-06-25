@@ -1,23 +1,35 @@
-# SOTA Agentic OS — Production stack (PostgreSQL + pgvector + Apache AGE)
+# SOTA Agentic OS — Production stack (PostgreSQL + pgvector + Apache AGE + NATS + Langfuse)
 #
-# Fase 1.1 — Migrazione dati
+# Fase 6.4 — Production-ready Docker Compose completo
 #
-# Avvio locale:
-#   docker compose up -d postgres
+# Stack:
+#   - AgensGraph (PostgreSQL 16 + AGE + pgvector) — database unificato
+#   - NATS JetStream — event mesh per pub/sub
+#   - Langfuse self-hosted — observability LLM (traces + costs)
+#   - Redis (opzionale) — cache + alternative event mesh backend
+#
+# Avvio completo:
+#   docker compose up -d
+#   # Attendi che postgres sia healthy (~10s)
+#   cp prisma/schema.postgres.prisma prisma/schema.prisma
 #   DATABASE_URL=postgresql://sota:sota@localhost:5432/sota bun run db:push
-#   bun run scripts:pg-bootstrap   # CREATE EXTENSION pgvector, age + setup AGE graph
+#   # Setup env vars per i servizi
+#   export NATS_URL=nats://localhost:4222
+#   export LANGFUSE_URL=http://localhost:3000
+#   export LANGFUSE_PUBLIC_KEY=...
+#   export LANGFUSE_SECRET_KEY=...
+#   bun run dev
 #
-# In dev (senza Docker) il sistema continua a funzionare con SQLite:
+# In dev (senza Docker) il sistema continua a funzionare con SQLite + in-memory event mesh:
 #   DATABASE_URL=file:./db/custom.db
 # Il runtime (src/lib/db-runtime.ts) rileva il provider e usa i path nativi quando possibile.
 
 version: "3.9"
 
 services:
+  # === Database: AgensGraph (PostgreSQL 16 + Apache AGE + pgvector) ===
   postgres:
     image: agensgraph/agensgraph:v16.0.0
-    # AgensGraph = PostgreSQL 16 + Apache AGE integrato + pgvector disponibile come estensione.
-    # Alternativa più leggera: ankane/pgvector:v16 + installazione manuale di AGE.
     container_name: sota-postgres
     restart: unless-stopped
     environment:
@@ -36,11 +48,87 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - sota-network
 
-  # MinIO / Garage in Fase 2 — per ora lasciato fuori dallo stack MVP
+  # === Event Mesh: NATS JetStream ===
+  # Fase 2.1 — message bus per pub/sub tra moduli
+  nats:
+    image: nats:2.10-alpine
+    container_name: sota-nats
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir", "/data", "--max_mem_store", "1GB", "--max_file_store", "10GB"]
+    ports:
+      - "4222:4222"   # NATS client
+      - "8222:8222"   # HTTP monitoring
+    volumes:
+      - sota_nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sota-network
 
-  # NATS JetStream in Fase 2 — per ora lasciato fuori
+  # === Observability: Langfuse self-hosted ===
+  # Fase 2.6 — LLM trace export + cost tracking + evaluation
+  # Richiede un database PostgreSQL separato (usiamo lo stesso con db diverso)
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: sota-langfuse
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://sota:sota@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-please-use-a-real-secret}
+      SALT: ${LANGFUSE_SALT:-changeme-please-use-a-real-salt}
+      NEXTAUTH_URL: http://localhost:3001
+      PORT: 3001
+      # Disabilita telemetry in dev
+      NEXT_PUBLIC_DISABLE_TELEMETRY: "true"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - sota-network
+
+  # === Cache (opzionale): Redis ===
+  # Fase 2.1 alternative event mesh backend + Fase 6.5 cache layer
+  redis:
+    image: redis:7-alpine
+    container_name: sota-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - sota_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sota-network
+    profiles:
+      - with-redis  # Solo con: docker compose --profile with-redis up
 
 volumes:
   sota_pg_data:
     driver: local
+  sota_nats_data:
+    driver: local
+  sota_redis_data:
+    driver: local
+
+networks:
+  sota-network:
+    driver: bridge

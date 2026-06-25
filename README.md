@@ -3,9 +3,9 @@
 > **INTELLIGENT · SECURE · AUTONOMOUS** — Un sistema operativo per agenti autonomi
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-496%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-533%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
-[![Phases](https://img.shields.io/badge/phases-0.5%20%E2%86%92%204-blue)]()
+[![Phases](https://img.shields.io/badge/phases-0.5%20%E2%86%92%206-blue)]()
 
 SOTA Agentic OS è un **Cognitive Operating System** che orchestra agenti AI autonomi attraverso un kernel transazionale con verifica formale LTL, apprendimento riflessivo (ERL), steering cognitivo ACTS, ecosistema tool con firme crittografiche ECDSA, organizzazione autonoma gerarchica con HITL gates, World Model predittivo, Digital Twin per what-if analysis, e Skill Synthesis automatica.
 
@@ -450,6 +450,25 @@ La Fase 4 completa la transizione da MVP a sistema production-ready, integrando 
   - ERL Heuristics → Skill Registry (euristiche mature diventano Skill auto-generate)
   - Autonomous Org → Sovereign Validator (proposals diventano BlockedAction per HITL)
 - **Cockpit UI** — `/autonomous` page con dashboard unificata (mesh topology, world state, pending proposals, memory tiers)
+
+---
+
+## Fase 5 — Real LLM Integration & MCP Exposure
+
+### Moduli Fase 5
+
+- **LLM Client unificato** (`src/lib/llm-client/client.ts`) — façade per ZAI SDK con retry, fallback, cost tracking, 5 helper specializzati (skill generation, task classification, heuristic extraction, prediction, conflict explanation)
+- **Cognitive Router LLM** — `classifyTask()` ora LLM-based con fallback rule-based; prova prima LLM, fallback al rule-based classifier se LLM non disponibile
+- **ERL LLM** — `extractHeuristic()` ora LLM-based con fallback rule-based; parsaggio output "When X, I should Y"
+- **MCP Server** (`/api/mcp`) — JSON-RPC 2.0 server con 20 tools, 5 resources, 4 prompts, completions; compatibile con Claude Desktop, Cursor, VS Code
+
+### Fase 6 — Production Readiness & E2E Validation
+
+- **E2E Tests** (`tests/e2e/pipeline.test.ts`) — 10 test end-to-end che esercitano la pipeline completa (router → events → graph → mesh → skills → conflicts → evaluation → memory → autonomous org)
+- **Skill Sandbox** (`src/lib/skill-sandbox/sandbox.ts`) — esecuzione isolata con resource limits (timeout, max output, max iterations), forbidden patterns, audit trail
+- **MCP Completions** — `prompts/get` + `completion/complete` per full MCP spec compliance; 4 prompts predefiniti (analyze-system-health, propose-optimization, investigate-conflict, evaluate-agent)
+- **Production Deployment** (`scripts/prod-bootstrap.sh` + `docker-compose.yml`) — Docker Compose completo con AgensGraph + NATS + Langfuse + Redis (opzionale); script bootstrap automatizzato
+- **Cache Layer** (`src/lib/cache/cache.ts`) — LRU cache con TTL, 4 presets (SHORT/MEDIUM/LONG/VERY_LONG), invalidation automatica per entità, stats hit/miss
 
 ### Avvio dell'Integration Layer
 

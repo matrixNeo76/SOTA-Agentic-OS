@@ -374,6 +374,173 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   }
 }
 
+// === Prompt builders (for prompts/get) ===============================
+
+async function buildPromptMessages(name: string, args: Record<string, string>): Promise<Array<{ role: 'user' | 'assistant'; content: { type: 'text'; text: string } }>> {
+  const provenance = createProvenance({
+    agent: 'agent://mcp-server',
+    source: 'external-api',
+    confidence: 1.0,
+  })
+
+  switch (name) {
+    case 'analyze-system-health': {
+      const ws = await getLatestWorldState()
+      const meshStatsData = await meshStats()
+      const gcStatsData = await gcStats()
+      const evalStats = await evaluationStats()
+      return [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: `Analyze the overall system health of SOTA Agentic OS.
+
+Current WorldState:
+${JSON.stringify(ws?.snapshot || {}, null, 2)}
+
+Anomalies: ${ws?.snapshot.anomalies?.length || 0}
+${ws?.snapshot.anomalies?.map((a: string) => `- ${a}`).join('\n') || 'None'}
+
+Agent Mesh: ${meshStatsData.totalAgents} agents (${meshStatsData.executiveAgents} exec, ${meshStatsData.strategicAgents} strat, ${meshStatsData.operationalAgents} ops)
+Memory: ${gcStatsData.totalMemories} entries (hot: ${gcStatsData.byTier.hot || 0}, warm: ${gcStatsData.byTier.warm || 0}, cold: ${gcStatsData.byTier.cold || 0})
+Evaluations: ${evalStats.totalEvaluations} total, avg score ${evalStats.avgOverallScore.toFixed(2)}
+
+Provide:
+1. Overall health assessment (Healthy / Warning / Critical)
+2. Top 3 concerns (if any)
+3. Recommended actions (with priority)`,
+        },
+      }]
+    }
+
+    case 'propose-optimization': {
+      const ws = await getLatestWorldState()
+      const pendingProposals = await listPendingProposals(10)
+      return [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: `Generate optimization proposals for SOTA Agentic OS.
+
+Current WorldState snapshot:
+- Error rate: ${((ws?.snapshot.errorRate || 0) * 100).toFixed(1)}%
+- Cost 24h: $${ws?.snapshot.totalCostLast24h || 0}
+- Pending tasks: ${ws?.snapshot.pendingTasks || 0}
+- Blocked actions: ${ws?.snapshot.blockedActions || 0}
+- Avg latency: ${ws?.snapshot.avgLatencyMs || 0}ms
+- Anomalies: ${ws?.snapshot.anomalies?.length || 0}
+
+Existing pending proposals: ${pendingProposals.length}
+
+Generate 1-3 NEW optimization proposals that:
+1. Address specific anomalies or concerning metrics
+2. Include expectedImpact (costDelta, performanceDelta, riskLevel)
+3. Are actionable via the autonomous-org API
+
+Format as JSON array.`,
+        },
+      }]
+    }
+
+    case 'investigate-conflict': {
+      const conflictUri = args.conflictUri
+      if (!conflictUri) throw new Error('conflictUri argument required')
+      const conflicts = await listPendingConflicts()
+      const conflict = conflicts.find((c) => c.uri === conflictUri)
+      if (!conflict) throw new Error(`Conflict not found: ${conflictUri}`)
+
+      return [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: `Investigate knowledge claim conflict and suggest resolution strategy.
+
+Conflict: ${conflict.uri}
+Severity: ${conflict.severity}
+Claim A: ${conflict.claimAUri}
+Claim B: ${conflict.claimBUri}
+Detected: ${conflict.detectedAt}
+
+Available strategies:
+1. higher-confidence — wins claim with higher confidence
+2. more-evidence — wins claim with more supporting evidence
+3. more-reliable-source — wins claim from more reliable source
+4. formal-proof — uses Lean4 formal verification
+5. human-decision — requires manual winner specification
+
+Provide:
+1. Analysis of the conflict (why it occurred)
+2. Recommended strategy with rationale
+3. Expected outcome`,
+        },
+      }]
+    }
+
+    case 'evaluate-agent': {
+      const agentUri = args.agentUri
+      if (!agentUri) throw new Error('agentUri argument required')
+      const evaluations = await (await import('@/lib/evaluation/runner')).getAgentEvaluations(agentUri)
+      const benchmarks = await listBenchmarks()
+
+      return [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: `Comprehensive evaluation plan for agent: ${agentUri}
+
+Previous evaluations: ${evaluations.length}
+Available benchmarks: ${benchmarks.length}
+${benchmarks.map((b) => `- ${b.name}: ${b.dataset.tasks.length} tasks`).join('\n')}
+
+${evaluations.length > 0 ? `Latest evaluation score: ${evaluations[0]?.overallScore.toFixed(2)} (${evaluations[0]?.verdict})` : 'No previous evaluations.'}
+
+Provide:
+1. Recommended benchmark(s) to run
+2. Specific metrics to focus on
+3. Expected areas of improvement (or regression risk)`,
+        },
+      }]
+    }
+
+    default:
+      throw new Error(`Unknown prompt: ${name}`)
+  }
+}
+
+// === Completion generator (for completion/complete) =================
+
+async function generateCompletions(promptName: string, argName?: string, argValue?: string): Promise<string[]> {
+  if (!argName || !argValue) return []
+
+  switch (promptName) {
+    case 'investigate-conflict': {
+      if (argName === 'conflictUri') {
+        const conflicts = await listPendingConflicts()
+        return conflicts
+          .filter((c) => c.uri.includes(argValue))
+          .map((c) => c.uri)
+          .slice(0, 10)
+      }
+      break
+    }
+
+    case 'evaluate-agent': {
+      if (argName === 'agentUri') {
+        const { meshStatsData } = { meshStatsData: await meshStats() }
+        // Return agent URIs from the mesh
+        const topology = await (await import('@/lib/agent-mesh/topology')).getMeshTopology()
+        return topology.nodes
+          .map((n) => n.agentUri)
+          .filter((uri) => uri.includes(argValue))
+          .slice(0, 10)
+      }
+      break
+    }
+  }
+
+  return []
+}
+
 // === JSON-RPC handlers ===============================================
 
 function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> | JsonRpcResponse {
@@ -511,9 +678,67 @@ function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> | JsonRpcR
               description: 'Generate optimization proposals based on current WorldState anomalies',
               arguments: [],
             },
+            {
+              name: 'investigate-conflict',
+              description: 'Investigate a knowledge claim conflict and suggest resolution strategy',
+              arguments: [
+                { name: 'conflictUri', description: 'URI of the conflict to investigate', required: true },
+              ],
+            },
+            {
+              name: 'evaluate-agent',
+              description: 'Run a comprehensive evaluation of an agent against available benchmarks',
+              arguments: [
+                { name: 'agentUri', description: 'URI of the agent to evaluate', required: true },
+              ],
+            },
           ],
         },
       }
+
+    case 'prompts/get':
+      return (async () => {
+        const p = params as { name: string; arguments?: Record<string, string> }
+        if (!p?.name) {
+          return { jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing prompt name' } }
+        }
+        try {
+          const messages = await buildPromptMessages(p.name, p.arguments || {})
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: { messages },
+          }
+        } catch (err) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+          }
+        }
+      })()
+
+    case 'completion/complete':
+      return (async () => {
+        const p = params as { ref: { type: 'ref/prompt'; name: string }; argument?: { name: string; value: string } }
+        if (!p?.ref?.name) {
+          return { jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing ref.name' } }
+        }
+        try {
+          const completions = await generateCompletions(p.ref.name, p.argument?.name, p.argument?.value)
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: { completion: { values: completions, total: completions.length, hasMore: false } },
+          }
+        } catch (err) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+          }
+        }
+      })()
 
     default:
       return {
@@ -558,7 +783,7 @@ export async function GET() {
     protocolVersion: '2024-11-05',
     tools: TOOLS.length,
     description: 'MCP server exposing SOTA Agentic OS Fase 1-4 modules. Use POST with JSON-RPC 2.0 requests.',
-    availableMethods: ['initialize', 'tools/list', 'tools/call', 'resources/list', 'resources/read', 'prompts/list'],
+    availableMethods: ['initialize', 'tools/list', 'tools/call', 'resources/list', 'resources/read', 'prompts/list', 'prompts/get', 'completion/complete'],
     toolNames: TOOLS.map((t) => t.name),
   })
 }
