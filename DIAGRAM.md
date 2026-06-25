@@ -734,3 +734,417 @@ stateDiagram-v2
         - Learning → captureWorldState
     end note
 ```
+
+---
+
+## 16. Runtime Executor — Flusso Durevole (PLAN.md WS1)
+
+```mermaid
+sequenceDiagram
+    participant U as User / Agent
+    participant API as /api/console/stream
+    participant EX as Executor
+    participant DB as Database
+    participant W as Worker (background)
+    participant LLM as ZAI SDK
+    participant TD as Tool Dispatcher
+    participant BT as Builtin Tools
+
+    U->>API: POST { task, mode }
+    API->>EX: startExecution({ task, async: true })
+
+    Note over EX: Phase 1: Plan Generation
+    EX->>LLM: chat.completions.create(prompt)
+    LLM-->>EX: JSON plan (DynAMO)
+    EX->>DB: agentPlan.create + planTask.create
+    EX->>DB: enqueueJob('execute_plan', { planId })
+    EX-->>API: { planId, jobId, async: true }
+    API-->>U: 201 { planId, jobId }
+
+    Note over W: Worker poll (every 3s)
+    W->>DB: processNextJob()
+    W->>EX: executePlan({ planId })
+
+    Note over EX: Phase 2: Execution per batch
+    loop Per topologicalBatch
+        EX->>EX: Promise.all(tasks in batch)
+
+        par Parallel task execution
+            EX->>DB: updateTaskStatus(running)
+            EX->>DB: saveCheckpoint(execution_state)
+
+            Note over EX: ReAct Loop
+            loop Think → Act → Observe
+                EX->>LLM: chat.completions.create(tools)
+                LLM-->>EX: tool_call or final answer
+                alt Tool call
+                    EX->>TD: dispatchTool(name, args)
+                    TD->>BT: execute (filesystem/http/memory/graph)
+                    BT-->>TD: result
+                    TD-->>EX: tool result
+                else Final answer
+                    EX->>DB: updateTaskStatus(done)
+                    EX->>DB: journalExecution(ExecutionTrace)
+                end
+            end
+        end
+    end
+
+    Note over EX: Phase 3: Reflection
+    EX->>LLM: reflectAndLearn(outcome, steps)
+    LLM-->>EX: heuristic
+    EX->>DB: Heuristic.create
+
+    EX->>DB: agentPlan.update(status: completed)
+    W-->>DB: jobRecord.update(status: completed)
+```
+
+---
+
+## 17. Recovery Flow — Resume dopo Crash
+
+```mermaid
+sequenceDiagram
+    participant I as instrumentation.ts
+    participant EX as Executor
+    participant DB as Database
+    participant W as Worker
+
+    Note over I: Server boot after crash
+    I->>I: register() — avvio servizi
+
+    I->>DB: startWorker(3000)
+    I->>DB: recoverOrphanedPlans()
+
+    Note over EX: Scansione piani orfani
+    EX->>DB: find plans WHERE status IN (scheduled, running)
+    DB-->>EX: [plan1, plan2, ...]
+
+    loop Per piano orfano
+        EX->>DB: find tasks WHERE status = 'running'
+        DB-->>EX: [taskA, taskB]
+
+        Note over EX: Reset running → pending
+        EX->>DB: planTask.update(status: pending)
+
+        Note over EX: Resume execution
+        EX->>EX: executePlan({ planId })
+
+        Note over EX: Idempotency: task già 'done' skippati
+        EX->>DB: find tasks WHERE status = 'done'
+        DB-->>EX: [task1, task2]
+        Note over EX: Usa risultati precedenti, non riesegue
+
+        EX->>EX: Esegue solo task pending/failed
+    end
+
+    EX-->>I: { recoveredPlans: 2, recoveredTasks: 3 }
+    I->>I: console.log("Recovery complete")
+```
+
+---
+
+## 18. Interoperabilità — Protocolli Esterni (PLAN-INTEROP.md)
+
+```mermaid
+graph TB
+    subgraph "Clienti Esterni"
+        CC[Claude Code]
+        CUR[Cursor]
+        VS[VS Code / Cline]
+        AG[Antigravity]
+        A2A[A2A Agents]
+        SDK[REST SDK<br/>TS / Python]
+    end
+
+    subgraph "Auth Layer (IO-0)"
+        AK[API Key<br/>sak_keyId_secret]
+        SC[Scopes<br/>read / exec / admin]
+        RL[Rate Limiting<br/>60 req/min]
+        AU[Audit Ledger]
+    end
+
+    subgraph "Endpoint Layer"
+        MCP["/api/mcp<br/>JSON-RPC 2.0<br/>27 tool"]
+        A2AE["/.well-known/agent.json<br/>+ /api/a2a/tasks"]
+        OA["/api/openapi<br/>OpenAPI 3.0"]
+        SK["/api/skills/*<br/>export / import / discover"]
+        REST["70 REST routes"]
+    end
+
+    subgraph "Governance Layer"
+        TEN[Tenant Scoping]
+        HITL[Sovereign HITL<br/>Blocked Actions]
+        LTL[LTL Verify]
+        QUO[Quota Enforcement]
+    end
+
+    subgraph "Runtime + Memory"
+        EXEC[Executor Durevole<br/>Checkpoint + Recovery]
+        CG[Context Graph]
+        MF[Memory Fabric<br/>4 layers]
+        SR[Skill Registry]
+        WM[World Model]
+        AM[Agent Mesh]
+    end
+
+    CC -->|MCP| MCP
+    CUR -->|MCP| MCP
+    VS -->|MCP| MCP
+    AG -->|MCP| MCP
+    A2A -->|A2A Protocol| A2AE
+    SDK -->|REST| REST
+    SDK -->|OpenAPI| OA
+
+    MCP --> AK
+    A2AE --> AK
+    REST --> AK
+    SK --> AK
+
+    AK --> SC
+    AK --> RL
+    AK --> AU
+
+    SC --> TEN
+    SC --> HITL
+    SC --> LTL
+    SC --> QUO
+
+    TEN --> EXEC
+    TEN --> CG
+    TEN --> MF
+    TEN --> SR
+    TEN --> WM
+    TEN --> AM
+
+    MCP -.->|tools/call| EXEC
+    MCP -.->|tools/call| CG
+    MCP -.->|tools/call| MF
+    A2AE -.->|submitTask| EXEC
+    SK -.->|export/import| SR
+```
+
+---
+
+## 19. A2A Task Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> submitted: POST /api/a2a/tasks
+
+    submitted --> working: startExecution async
+
+    working --> completed: all tasks done
+    working --> failed: task failed (non-recoverable)
+    working --> input_required: task blocked by LTL/Sovereign
+    working --> canceled: POST cancel
+
+    input_required --> working: HITL approval (Admin panel)
+    input_required --> failed: HITL rejection
+    input_required --> canceled: POST cancel
+
+    completed --> [*]
+    failed --> [*]
+    canceled --> [*]
+
+    note right of working
+        Mapped to DynAMO plan:
+        - plan.status = running
+        - planTask.status = running/done/failed
+        - Worker processes JobRecord
+        - Checkpoint ad ogni task
+    end note
+
+    note right of input_required
+        planTask.status = blocked
+        Reason: LTL reject, Red Line,
+        or Sovereign HITL gate
+    end note
+
+    note right of completed
+        Returns: A2ATaskResult
+        + Artifacts (ExecutionTrace)
+    end note
+```
+
+---
+
+## 20. UI Information Architecture (PLAN-UIUX.md)
+
+```mermaid
+graph LR
+    subgraph "Sidebar Navigazione"
+        DASH[Dashboard<br/>LayoutDashboard]
+        RUNS[Runs<br/>Play]
+        MEM[Memory & Knowledge<br/>Database]
+        AGT[Agents & Org<br/>Users]
+        GOV[Trust & Governance<br/>ShieldCheck]
+        INS[Insights<br/>TrendingUp]
+    end
+
+    subgraph "System"
+        ADM[Admin & Settings<br/>Settings]
+    end
+
+    subgraph "Advanced / Internals (collassabile)"
+        P1[Phase 1-14]
+        DOM[Domains]
+        TOOL[Tool Manager]
+    end
+
+    subgraph "Viste per area"
+        OV[Overview + KPI<br/>+ Activity Feed]
+        RV[Runs List + Detail<br/>Timeline + ReAct + Checkpoint]
+        MKV[Graph Browser<br/>+ Semantic Search<br/>+ Memory Tiers]
+        AOV[Mesh Topology<br/>+ Skills + Proposals<br/>+ Bootstrap]
+        GQV[Conflict Queue<br/>+ Sovereign HITL<br/>+ Red Lines + LTL]
+        IAV[World Model<br/>+ Digital Twin<br/>+ Evaluation Trends]
+    end
+
+    DASH --> OV
+    RUNS --> RV
+    MEM --> MKV
+    AGT --> AOV
+    GOV --> GQV
+    INS --> IAV
+
+    ADM -->|6 tab| ADMV[Settings · Runtime · Tools<br/>Governance · Memory · Users]
+```
+
+---
+
+## 21. Runs View — Execution Timeline + HITL
+
+```mermaid
+graph TB
+    subgraph "Runs List"
+        RL1[Run 1: completed<br/>3/3 tasks done<br/>$0.027]
+        RL2[Run 2: running<br/>2/4 tasks done<br/>1 blocked]
+        RL3[Run 3: failed<br/>1/3 tasks done<br/>2 failed]
+    end
+
+    subgraph "Run Detail (click)"
+        RD1[Stats: tasks/done/failed/cost/tokens]
+        RD2[Batch 1: T1 → T2<br/>topologicalBatches]
+        RD3[Batch 2: T3<br/>depends on T1+T2]
+    end
+
+    subgraph "Task Step (expandable)"
+        TS1[Status icon<br/>done/failed/blocked/running]
+        TS2[Agent badge + duration]
+        TS3[Result (full text)]
+        TS4[ReAct Loop Trace<br/>thought → tool → output]
+        TS5[Metadata: started/finished/deps]
+    end
+
+    subgraph "Checkpoints"
+        CP1[Checkpoint 1: execution_state<br/>task://plan/T1]
+        CP2[Checkpoint 2: execution_state<br/>task://plan/T2]
+        RB1[Rollback button]
+    end
+
+    subgraph "HITL (Governance)"
+        BL[Blocked Action<br/>deploy to production]
+        AP[Approve button]
+        RJ[Reject button]
+        MD[Modify button]
+    end
+
+    RL1 -->|click| RD1
+    RL2 -->|click| RD1
+    RD2 -->|expand| TS1
+    TS1 --> TS3
+    TS3 --> TS4
+    RD3 --> CP1
+    CP1 --> RB1
+    RL2 -.->|blocked task| BL
+    BL --> AP
+    BL --> RJ
+    BL --> MD
+```
+
+---
+
+## 22. Auth Flow — API Key + Session (IO-0)
+
+```mermaid
+sequenceDiagram
+    participant C as Client (MCP/A2A/REST)
+    participant API as API Route
+    participant AUTH as requireApiAuth
+    participant DB as Database
+    participant AUD as Audit Ledger
+
+    C->>API: Request + Authorization: Bearer sak_...
+
+    API->>AUTH: requireApiAuth(req, scope)
+
+    alt API Key present
+        AUTH->>AUTH: Parse sak_keyId_secret
+        AUTH->>DB: apiKey.findUnique({ keyId })
+        DB-->>AUTH: record (active, scopes, tenantId)
+        AUTH->>AUTH: Hash compare (SHA-256)
+        AUTH->>AUTH: Check scope (read/exec/admin)
+        AUTH->>AUTH: checkRateLimit (sliding window)
+        AUTH->>DB: update lastUsedAt (fire-and-forget)
+        AUTH->>AUD: auditAccess (method, path, statusCode)
+        AUTH-->>API: { ok: true, apiKey: ApiKeyInfo }
+    else No API key
+        AUTH->>AUTH: Fallback to session cookie
+        alt Session valid
+            AUTH-->>API: { ok: true, source: 'session' }
+        else No auth
+            AUTH-->>API: { ok: false, 401 }
+        end
+    end
+
+    alt Auth OK
+        API->>API: Execute route logic
+        API-->>C: 200 Response + X-RateLimit headers
+    else Auth failed
+        API-->>C: 401 Unauthorized
+    end
+```
+
+---
+
+## 23. Multi-Tenant Isolation (IO-6)
+
+```mermaid
+graph TB
+    subgraph "Tenant A"
+        AKEY[API Key A<br/>sak_aaa_tenantA]
+        ADATA[Plans · Tasks · Memory<br/>GraphNodes · Skills]
+        AAUD[Audit Trail A]
+    end
+
+    subgraph "Tenant B"
+        BKEY[API Key B<br/>sak_bbb_tenantB]
+        BDATA[Plans · Tasks · Memory<br/>GraphNodes · Skills]
+        BAUD[Audit Trail B]
+    end
+
+    subgraph "Enforcement"
+        SCOP[Scope Check<br/>read/exec/admin]
+        RATE[Rate Limit<br/>60 req/min per key]
+        QUOTA[Quota Check<br/>maxRunsPerDay<br/>maxMemoryEntries<br/>maxGraphNodes]
+        ISOL[Tenant Scoping<br/>tenantFilter on queries]
+    end
+
+    AKEY --> SCOP
+    BKEY --> SCOP
+    SCOP --> RATE
+    RATE --> QUOTA
+    QUOTA --> ISOL
+
+    ISOL -->|tenantId=A| ADATA
+    ISOL -->|tenantId=B| BDATA
+
+    AKEY -.-> AAUD
+    BKEY -.-> BAUD
+
+    style AKEY fill:#e1f5fe
+    style BKEY fill:#fce4ec
+    style ADATA fill:#e1f5fe
+    style BDATA fill:#fce4ec
+```
