@@ -1,0 +1,46 @@
+# SOTA Agentic OS — Production stack (PostgreSQL + pgvector + Apache AGE)
+#
+# Fase 1.1 — Migrazione dati
+#
+# Avvio locale:
+#   docker compose up -d postgres
+#   DATABASE_URL=postgresql://sota:sota@localhost:5432/sota bun run db:push
+#   bun run scripts:pg-bootstrap   # CREATE EXTENSION pgvector, age + setup AGE graph
+#
+# In dev (senza Docker) il sistema continua a funzionare con SQLite:
+#   DATABASE_URL=file:./db/custom.db
+# Il runtime (src/lib/db-runtime.ts) rileva il provider e usa i path nativi quando possibile.
+
+version: "3.9"
+
+services:
+  postgres:
+    image: agensgraph/agensgraph:v16.0.0
+    # AgensGraph = PostgreSQL 16 + Apache AGE integrato + pgvector disponibile come estensione.
+    # Alternativa più leggera: ankane/pgvector:v16 + installazione manuale di AGE.
+    container_name: sota-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sota
+      POSTGRES_PASSWORD: sota
+      POSTGRES_DB: sota
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - sota_pg_data:/var/lib/postgresql/data
+      - ./scripts/pg-bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sota -d sota"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MinIO / Garage in Fase 2 — per ora lasciato fuori dallo stack MVP
+
+  # NATS JetStream in Fase 2 — per ora lasciato fuori
+
+volumes:
+  sota_pg_data:
+    driver: local

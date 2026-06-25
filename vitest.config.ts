@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     exclude: ['node_modules', '.next', 'mini-services'],
+    // SQLite è single-writer: i test che toccano il DB non possono girare in parallelo.
+    // Fase 1.1 — abilitato quando abbiamo introdotto test DB-backed (vector-store, graph-age, db-runtime).
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html', 'json-summary'],

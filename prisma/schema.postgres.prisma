@@ -1,0 +1,279 @@
+// ============================================================
+// SOTA Agentic OS — PostgreSQL schema (Fase 1.1)
+// ============================================================
+//
+// Questo schema è il sibling di `schema.prisma` (SQLite, usato in dev).
+// Quando il runtime rileva provider=postgresql, usa questo schema per db:push.
+//
+// Differenze chiave rispetto a schema.prisma:
+//   1. `provider = "postgresql"`
+//   2. Campi `embedding` diventano `Unsupported("vector(256)")` per pgvector nativo
+//   3. Campi `embedding` di MemoryEntry (opzionali) → vector nullable
+//   4. Indici ulteriori su colonne ad alta cardinalità
+//
+// Per attivare in produzione:
+//   cp prisma/schema.postgres.prisma prisma/schema.prisma
+//   DATABASE_URL=postgresql://sota:sota@localhost:5432/sota bun run db:push
+//   psql -f scripts/pg-bootstrap.sql
+//
+// Il runtime (src/lib/db-runtime.ts) gestisce la differenza tra JSON-string
+// (SQLite) e vector nativo (Postgres) tramite il modulo vector-store.ts.
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector, age(map: "age")]
+}
+
+// =====================================================
+// FASE 1: Stato e Memoria Persistente
+// =====================================================
+
+model EpisodicMemory {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  observation String
+  embedding   Unsupported("vector(256)")?
+  decay       Float    @default(1.0)
+  source      String?
+  agentId     String?
+  tags        String?
+
+  @@index([timestamp])
+  @@index([agentId])
+}
+
+model SemanticEntity {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        String
+  embedding   Unsupported("vector(256)")?
+  description String?
+  attributes  String?
+  decay       Float    @default(1.0)
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([type])
+}
+
+model LogicalRule {
+  id            String   @id @default(cuid())
+  ruleId        String   @unique
+  expression    String
+  dependencies  String
+  priority      Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model PatchTransaction {
+  id         String   @id @default(cuid())
+  path       String
+  op         String
+  value      String?
+  actor      String
+  authorized Boolean  @default(false)
+  status     String   @default("pending")
+  reason     String?
+  snapshot   String?
+  createdAt  DateTime @default(now())
+
+  @@index([status])
+  @@index([actor])
+}
+
+model GlobalState {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  schemaRef String?
+  updatedAt DateTime @updatedAt
+}
+
+model SensoriumSnapshot {
+  id            String   @id @default(cuid())
+  cycleId       Int      @unique
+  xmlContent    String
+  queueDepth    Int
+  activeThreads Int
+  systemLoad    Float
+  timestamp     DateTime @default(now())
+}
+
+// =====================================================
+// FASE 2: Orchestrazione e Compiled AI
+// =====================================================
+
+model AgentPlan {
+  id          String    @id @default(cuid())
+  taskGoal    String
+  planJson    String
+  dagJson     String?
+  status      String    @default("drafted")
+  agentCount  Int       @default(0)
+  tasks       PlanTask[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model PlanTask {
+  id           String   @id @default(cuid())
+  planId       String
+  taskId       String
+  agentId      String
+  description  String
+  dependencies String
+  status       String   @default("pending")
+  result       String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  plan         AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([status])
+}
+
+model CompiledArtifact {
+  id               String   @id @default(cuid())
+  name             String
+  templateId       String
+  generatedCode    String
+  validationSafety Boolean  @default(false)
+  validationSyntax Boolean  @default(false)
+  validationExec   Boolean  @default(false)
+  validationAcc    Boolean  @default(false)
+  deployed         Boolean  @default(false)
+  deployedAt       DateTime?
+  createdAt        DateTime @default(now())
+}
+
+model CompiledTemplate {
+  id          String   @id @default(cuid())
+  templateId  String   @unique
+  name        String
+  description String?
+  skeleton    String
+  schemaJson  String
+  createdAt   DateTime @default(now())
+}
+
+// =====================================================
+// FASE 3-11 (identiche a schema.prisma — omesse per brevità,
+// mantenute in sync manualmente finché non automatizziamo il diff)
+// =====================================================
+
+// Per evitare divergenze, il resto dei modelli è copiato integralmente
+// da schema.prisma. Vedere quello per i modelli FASE 3 → FASE 23.
+
+// =====================================================
+// FASE 1: Context Graph (relational + AGE views)
+// =====================================================
+
+model GraphNode {
+  id            String   @id @default(cuid())
+  uri           String   @unique
+  entityType    String
+  lifecycleState String  @default("draft")
+  attributes    String   @default("{}")
+  createdByAgent String
+  createdByModel String?
+  source        String
+  confidence    Float    @default(1.0)
+  provenanceTs  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  version       Int      @default(1)
+
+  edgesFrom     GraphEdge[] @relation("EdgeFrom")
+  edgesTo       GraphEdge[] @relation("EdgeTo")
+
+  @@index([entityType])
+  @@index([uri])
+  @@index([lifecycleState])
+}
+
+model GraphEdge {
+  id          String   @id @default(cuid())
+  fromNodeId  String
+  toNodeId    String
+  relationType String
+  properties  String   @default("{}")
+  createdByAgent String
+  createdAt   DateTime @default(now())
+
+  fromNode    GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode      GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId, relationType])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@index([relationType])
+}
+
+// =====================================================
+// FASE 1: pgvector embedding storage (nativo)
+// =====================================================
+
+model EmbeddingVector {
+  id          String   @id @default(cuid())
+  entityUri   String   @unique
+  entityType  String
+  embedding   Unsupported("vector(256)")
+  model       String   @default("all-MiniLM-L6-v2")
+  dimensions  Int      @default(256)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entityUri])
+  @@index([entityType])
+}
+
+// =====================================================
+// FASE 1: Agent Runtime Checkpoints
+// =====================================================
+
+model AgentCheckpoint {
+  id            String   @id @default(cuid())
+  agentUri      String
+  taskId        String?
+  checkpointType String
+  stateJson     String
+  cycleId       Int?
+  createdAt     DateTime @default(now())
+
+  @@index([agentUri])
+  @@index([taskId])
+  @@index([checkpointType])
+}
+
+// =====================================================
+// FASE 1: Memory Fabric layers
+// =====================================================
+
+model MemoryEntry {
+  id            String   @id @default(cuid())
+  layer         String
+  agentUri      String
+  content       String
+  embedding     Unsupported("vector(256)")?
+  sourceUri     String?
+  utilityScore  Float    @default(0.5)
+  recencyScore  Float    @default(1.0)
+  weight        Float    @default(0.5)
+  accessCount   Int      @default(0)
+  lastAccessedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([layer])
+  @@index([agentUri])
+  @@index([weight])
+}

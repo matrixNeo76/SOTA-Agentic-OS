@@ -1,0 +1,967 @@
+     1→     1→// SOTA Agentic OS - Prisma Schema
+     2→     2→// Implementa i sottosistemi definiti nel blueprint architetturale
+     3→     3→
+     4→     4→generator client {
+     5→     5→  provider = "prisma-client-js"
+     6→     6→}
+     7→     7→
+     8→     8→datasource db {
+     9→     9→  provider = "sqlite"
+    10→    10→  url      = env("DATABASE_URL")
+    11→    11→}
+    12→    12→
+    13→    13→// =====================================================
+    14→    14→// FASE 1: Sottosistema di Stato e Memoria Persistente
+    15→    15→// =====================================================
+    16→    16→
+    17→    17→// Livello Episodico: osservazioni grezze basate sul tempo
+    18→    18→model EpisodicMemory {
+    19→    19→  id          String   @id @default(cuid())
+    20→    20→  timestamp   DateTime @default(now())
+    21→    21→  observation String
+    22→    22→  embedding   String   // JSON array di float (vettore semantico)
+    23→    23→  decay       Float    @default(1.0) // EMA decay factor
+    24→    24→  source      String?
+    25→    25→  agentId     String?
+    26→    26→  tags        String?  // JSON array di tag
+    27→    27→}
+    28→    28→
+    29→    29→// Livello Semantico: entità coerenti (database vettoriale simulato)
+    30→    30→model SemanticEntity {
+    31→    31→  id          String   @id @default(cuid())
+    32→    32→  name        String   @unique
+    33→    33→  type        String
+    34→    34→  embedding   String   // JSON array di float
+    35→    35→  description String?
+    36→    36→  attributes  String?  // JSON object di attributi
+    37→    37→  decay       Float    @default(1.0)
+    38→    38→  updatedAt   DateTime @updatedAt
+    39→    39→  createdAt   DateTime @default(now())
+    40→    40→}
+    41→    41→
+    42→    42→// Livello Logico: regole procedurali deterministiche (DAG)
+    43→    43→model LogicalRule {
+    44→    44→  id            String   @id @default(cuid())
+    45→    45→  ruleId        String   @unique
+    46→    46→  expression    String   // espressione del nodo DAG
+    47→    47→  dependencies  String   // JSON array di ruleId
+    48→    48→  priority      Int      @default(0)
+    49→    49→  active        Boolean  @default(true)
+    50→    50→  createdAt     DateTime @default(now())
+    51→    51→}
+    52→    52→
+    53→    53→// PatchBoard: transazioni JSON Patch validate
+    54→    54→model PatchTransaction {
+    55→    55→  id         String   @id @default(cuid())
+    56→    56→  path       String   // percorso JSON target
+    57→    57→  op         String   // add|remove|replace|move|copy|test
+    58→    58→  value      String?  // valore (JSON serializzato)
+    59→    59→  actor      String   // agente richiedente
+    60→    60→  authorized Boolean  @default(false)
+    61→    61→  status     String   @default("pending") // pending|accepted|rejected
+    62→    62→  reason     String?
+    63→    63→  snapshot   String?  // stato precedente (per replay)
+    64→    64→  createdAt  DateTime @default(now())
+    65→    65→}
+    66→    66→
+    67→    67→// Stato Globale: albero JSON condiviso
+    68→    68→model GlobalState {
+    69→    69→  id        String   @id @default(cuid())
+    70→    70→  key       String   @unique
+    71→    71→  value     String   // JSON serializzato
+    72→    72→  schemaRef String?  // riferimento allo schema di autorizzazione
+    73→    73→  updatedAt DateTime @updatedAt
+    74→    74→}
+    75→    75→
+    76→    76→// Sensorium: snapshot dei cicli cognitivi
+    77→    77→model SensoriumSnapshot {
+    78→    78→  id         String   @id @default(cuid())
+    79→    79→  cycleId    Int      @unique
+    80→    80→  xmlContent String   // blocco XML compilato dal Curator
+    81→    81→  queueDepth Int
+    82→    82→  activeThreads Int
+    83→    83→  systemLoad Float
+    84→    84→  timestamp  DateTime @default(now())
+    85→    85→}
+    86→    86→
+    87→    87→// =====================================================
+    88→    88→// FASE 2: Orchestrazione e Compiled AI
+    89→    89→// =====================================================
+    90→    90→
+    91→    91→// Piani JSON Schema-validati (DynAMO)
+    92→    92→model AgentPlan {
+    93→    93→  id          String   @id @default(cuid())
+    94→    94→  taskGoal    String
+    95→    95→  planJson    String   // piano JSON strutturato
+    96→    96→  dagJson     String?  // DAG compilato
+    97→    97→  status      String   @default("drafted") // drafted|scheduled|running|completed|failed
+    98→    98→  agentCount  Int      @default(0)
+    99→    99→  tasks       PlanTask[]
+   100→   100→  createdAt   DateTime @default(now())
+   101→   101→  updatedAt   DateTime @updatedAt
+   102→   102→}
+   103→   103→
+   104→   104→model PlanTask {
+   105→   105→  id          String   @id @default(cuid())
+   106→   106→  planId      String
+   107→   107→  taskId      String
+   108→   108→  agentId     String
+   109→   109→  description String
+   110→   110→  dependencies String  // JSON array di taskId
+   111→   111→  status      String   @default("pending") // pending|ready|running|done|failed
+   112→   112→  result      String?
+   113→   113→  startedAt   DateTime?
+   114→   114→  finishedAt  DateTime?
+   115→   115→  plan        AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+   116→   116→}
+   117→   117→
+   118→   118→// Compiled AI: artefatti generati e validati
+   119→   119→model CompiledArtifact {
+   120→   120→  id               String   @id @default(cuid())
+   121→   121→  name             String
+   122→   122→  templateId       String
+   123→   123→  generatedCode    String
+   124→   124→  validationSafety Boolean  @default(false)
+   125→   125→  validationSyntax Boolean  @default(false)
+   126→   126→  validationExec   Boolean  @default(false)
+   127→   127→  validationAcc    Boolean  @default(false)
+   128→   128→  deployed         Boolean  @default(false)
+   129→   129→  deployedAt       DateTime?
+   130→   130→  createdAt        DateTime @default(now())
+   131→   131→}
+   132→   132→
+   133→   133→model CompiledTemplate {
+   134→   134→  id          String   @id @default(cuid())
+   135→   135→  templateId  String   @unique
+   136→   136→  name        String
+   137→   137→  description String?
+   138→   138→  skeleton    String   // template con placeholder
+   139→   139→  schemaJson  String   // schema di validazione output
+   140→   140→  createdAt   DateTime @default(now())
+   141→   141→}
+   142→   142→
+   143→   143→// =====================================================
+   144→   144→// FASE 3: Steering (ACTS)
+   145→   145→// =====================================================
+   146→   146→
+   147→   147→model SteeringEvent {
+   148→   148→  id         String   @id @default(cuid())
+   149→   149→  cycleId    Int
+   150→   150→  agentId    String
+   151→   151→  strategy   String   // PLAN|EXECUTE|CHECK|REFLECT
+   152→   152→  phrase     String   // steering phrase inviata
+   153→   153→  tokenBudget Int
+   154→   154→  tokenUsed  Int
+   155→   155→  timestamp  DateTime @default(now())
+   156→   156→}
+   157→   157→
+   158→   158→model SteeringStrategy {
+   159→   159→  id          String   @id @default(cuid())
+   160→   160→  name        String   @unique
+   161→   161→  triggerPhrase String
+   162→   162→  description String?
+   163→   163→  budgetCost  Int      @default(50)
+   164→   164→  active      Boolean  @default(true)
+   165→   165→}
+   166→   166→
+   167→   167→// =====================================================
+   168→   168→// FASE 4: Zero-Trust e Verifica Formale (AgentVerify)
+   169→   169→// =====================================================
+   170→   170→
+   171→   171→model LTLRule {
+   172→   172→  id          String   @id @default(cuid())
+   173→   173→  ruleId      String   @unique
+   174→   174→  ltlFormula  String   // formula LTL (es. "G(high_risk -> X human_approval)")
+   175→   175→  description String?
+   176→   176→  severity    String   @default("block") // block|warn|log
+   177→   177→  active      Boolean  @default(true)
+   178→   178→  createdAt   DateTime @default(now())
+   179→   179→}
+   180→   180→
+   181→   181→model VerificationEvent {
+   182→   182→  id         String   @id @default(cuid())
+   183→   183→  ruleId     String?
+   184→   184→  eventType  String   // tool_call|state_change|output_intent
+   185→   185→  payload    String
+   186→   186→  stateLabel String   // etichetta di stato discreto
+   187→   187→  verdict    String   // accept|reject|warn
+   188→   188→  reason     String?
+   189→   189→  timestamp  DateTime @default(now())
+   190→   190→}
+   191→   191→
+   192→   192→model TaintRecord {
+   193→   193→  id         String   @id @default(cuid())
+   194→   194→  source     String   // origine input (es. "user_chat", "api_response")
+   195→   195→  payload    String   // contenuto tainted
+   196→   196→  taintLabel String   @default("TAINTED")
+   197→   197→  flowTrace  String   // JSON array di passaggi
+   198→   198→  blocked    Boolean  @default(false)
+   199→   199→  createdAt  DateTime @default(now())
+   200→   200→}
+   201→   201→
+   202→   202→// Normative Computing: gerarchia di priorità
+   203→   203→model NormativeRule {
+   204→   204→  id        String   @id @default(cuid())
+   205→   205→  axiom     String
+   206→   206→  priority  Int      // 1=massima (legale), 2=operativo, 3=efficienza
+   207→   207→  active    Boolean  @default(true)
+   208→   208→  createdAt DateTime @default(now())
+   209→   209→}
+   210→   210→
+   211→   211→// =====================================================
+   212→   212→// FASE 5: Riflessione ed Evoluzione (ERL + AutoSOTA)
+   213→   213→// =====================================================
+   214→   214→
+   215→   215→model Heuristic {
+   216→   216→  id          String   @id @default(cuid())
+   217→   217→  trigger     String   // "Quando incontro situazione X"
+   218→   218→  action      String   // "devo fare Y"
+   219→   219→  context     String   // contesto semantico per RAG
+   220→   220→  embedding   String   // JSON array di float
+   221→   221→  source      String?  // operazione che l'ha generata
+   222→   222→  redLineOk   Boolean  @default(true)
+   223→   223→  appliedCount Int     @default(0)
+   224→   224→  successRate Float    @default(0.0)
+   225→   225→  createdAt   DateTime @default(now())
+   226→   226→  updatedAt   DateTime @updatedAt
+   227→   227→}
+   228→   228→
+   229→   229→model RedLine {
+   230→   230→  id          String   @id @default(cuid())
+   231→   231→  description String   @unique
+   232→   232→  rationale   String
+   233→   233→  severity    String   @default("absolute") // absolute|strong|soft
+   234→   234→  active      Boolean  @default(true)
+   235→   235→  createdAt   DateTime @default(now())
+   236→   236→}
+   237→   237→
+   238→   238→model ReflectionLog {
+   239→   239→  id          String   @id @default(cuid())
+   240→   240→  operationId String?
+   241→   241→  outcome     String   // success|failure|partial
+   242→   242→  analysis    String
+   243→   243→  extractedHeuristic String?
+   244→   244→  redLineFlag Boolean  @default(false)
+   245→   245→  timestamp   DateTime @default(now())
+   246→   246→}
+   247→   247→
+   248→   248→// =====================================================
+   249→   249→// Cross-cutting: Agent Log (audit trail)
+   250→   250→// =====================================================
+   251→   251→
+   252→   252→model AgentLog {
+   253→   253→  id        String   @id @default(cuid())
+   254→   254→  agentId   String
+   255→   255→  phase     String   // 1..9
+   256→   256→  event     String
+   257→   257→  payload   String   // JSON
+   258→   258→  level     String   @default("info") // info|warn|error
+   259→   259→  timestamp DateTime @default(now())
+   260→   260→}
+   261→   261→
+   262→   262→// =====================================================
+   263→   263→// FASE 6: Gestione Dinamica del Contesto (Pruning & Summarization)
+   264→   264→// =====================================================
+   265→   265→
+   266→   266→// Coppie Tool Call/Response nel ring buffer di working memory
+   267→   267→model ToolCallEntry {
+   268→   268→  id           String   @id @default(cuid())
+   269→   269→  agentId      String
+   270→   270→  toolName     String
+   271→   271→  callPayload  String   // JSON args
+   272→   272→  responsePayload String // JSON result
+   273→   273→  tokenCost    Int      @default(0)
+   274→   274→  evicted      Boolean  @default(false) // true quando esce dal ring buffer
+   275→   275→  evictedAt    DateTime?
+   276→   276→  summaryId    String?  // riferimento al riassunto che lo ha compresso
+   277→   277→  createdAt    DateTime @default(now())
+   278→   278→}
+   279→   279→
+   280→   280→// Riassunto generato dal summarizer (compressione del contesto evicto)
+   281→   281→model ContextSummary {
+   282→   282→  id           String   @id @default(cuid())
+   283→   283→  agentId      String
+   284→   284→  narrative    String   // log narrativo compatto
+   285→   285→  coveredCallIds String // JSON array di ToolCallEntry.id riassunti
+   286→   286→  tokenCost    Int      @default(0)
+   287→   287→  cycleId      Int      // ciclo cognitivo di generazione
+   288→   288→  createdAt    DateTime @default(now())
+   289→   289→}
+   290→   290→
+   291→   291→// Policy di pruning configurabile
+   292→   292→model PruningPolicy {
+   293→   293→  id           String   @id @default(cuid())
+   294→   294→  agentId      String   @unique
+   295→   295→  windowSize   Int      @default(5)  // N coppie recenti mantenute
+   296→   296→  summarizeThreshold Int @default(10) // soglia per trigger summarization
+   297→   297→  autoSummarize Boolean @default(true)
+   298→   298→  updatedAt    DateTime @updatedAt
+   299→   299→}
+   300→   300→
+   301→   301→// =====================================================
+   302→   302→// FASE 7: Dominator Trees (PTA + Dominators + Coverage)
+   303→   303→// =====================================================
+   304→   304→
+   305→   305→// Tracce di esecuzione positive catturate per training PTA
+   306→   306→model ExecutionTrace {
+   307→   307→  id           String   @id @default(cuid())
+   308→   308→  workflowId   String
+   309→   309→  traceLabel   String   // etichetta leggibile
+   310→   310→  statesJson   String   // JSON array di stati discreti
+   311→   311→  actionsJson  String   // JSON array di azioni
+   312→   312→  outcome      String   @default("success") // success|failure|partial
+   313→   313→  capturedAt   DateTime @default(now())
+   314→   314→}
+   315→   315→
+   316→   316→// PTA: Prefix Tree Automaton fuso da più tracce
+   317→   317→model PrefixTreeAutomaton {
+   318→   318→  id           String   @id @default(cuid())
+   319→   319→  workflowId   String   @unique
+   320→   320→  nodesJson    String   // JSON: nodi con stato + transizioni
+   321→   321→  dominatorsJson String // JSON: array di nodeId dominatori
+   322→   322→  startNodeId  String
+   323→   323→  acceptNodeIds String  // JSON array
+   324→   324→  updatedAt    DateTime @updatedAt
+   325→   325→  createdAt    DateTime @default(now())
+   326→   326→}
+   327→   327→
+   328→   328→// Validazione di una nuova traccia contro il PTA + dominators
+   329→   329→model TraceValidation {
+   330→   330→  id           String   @id @default(cuid())
+   331→   331→  ptaId        String
+   332→   332→  traceId      String?
+   333→   333→  statesJson   String   // traccia validata
+   334→   334→  dominatorCoverage Float @default(0.0) // 0..1
+   335→   335→  passedDominatorIds String // JSON array di dominatori raggiunti
+   336→   336→  verdict      String   @default("accept") // accept|reject|warn
+   337→   337→  reason       String?
+   338→   338→  timestamp    DateTime @default(now())
+   339→   339→}
+   340→   340→
+   341→   341→// =====================================================
+   342→   342→// FASE 8: Lean4Agent (Formal Verification + LeanEvolve)
+   343→   343→// =====================================================
+   344→   344→
+   345→   345→// Contratto formale associato a un nodo del DAG
+   346→   346→model FormalContract {
+   347→   347→  id           String   @id @default(cuid())
+   348→   348→  planId       String
+   349→   349→  taskId       String
+   350→   350→  preconditions  String // JSON array di predicati Lean4
+   351→   351→  postconditions String // JSON array di predicati Lean4
+   352→   352→  variableTypes String // JSON: {var: type}
+   353→   353→  verified     Boolean  @default(false)
+   354→   354→  verificationLog String? // output della verifica Lean4
+   355→   355→  createdAt    DateTime @default(now())
+   356→   356→  updatedAt    DateTime @updatedAt
+   357→   357→}
+   358→   358→
+   359→   359→// Evoluzione guidata dalla verifica formale
+   360→   360→model LeanEvolveEvent {
+   361→   361→  id           String   @id @default(cuid())
+   362→   362→  planId       String
+   363→   363→  failedTaskId String
+   364→   364→  failureReason String
+   365→   365→  leanFeedback String   // output Lean4 con errori localizzati
+   366→   366→  rewrittenInstruction String // nuova istruzione generata dall'LLM
+   367→   367→  revalidated  Boolean  @default(false)
+   368→   368→  revalidationLog String?
+   369→   369→  cycle        Int      @default(1) // iterazione di evolve
+   370→   370→  createdAt    DateTime @default(now())
+   371→   371→}
+   372→   372→
+   373→   373→// Workflow formalmente verificato (snapshot)
+   374→   374→model VerifiedWorkflow {
+   375→   375→  id           String   @id @default(cuid())
+   376→   376→  planId       String
+   377→   377→  contractsJson String  // JSON array di FormalContract snapshot
+   378→   378→  leanSource   String   // codice Lean4 generato
+   379→   379→  verified     Boolean  @default(false)
+   380→   380→  deployed     Boolean  @default(false)
+   381→   381→  version      Int      @default(1)
+   382→   382→  createdAt    DateTime @default(now())
+   383→   383→}
+   384→   384→
+   385→   385→// =====================================================
+   386→   386→// FASE 9: Artificial Retainer (Delegation + HITL + Audit Ledger)
+   387→   387→// =====================================================
+   388→   388→
+   389→   389→// Contratto di delega: permessi concessi a un agente
+   390→   390→model DelegationContract {
+   391→   391→  id           String   @id @default(cuid())
+   392→   392→  agentId      String
+   393→   393→  scope        String   // es. "filesystem.read:/tmp/*" o "tool:exec"
+   394→   394→  constraints  String   // JSON: limiti (maxCalls, maxSpend, timeWindow)
+   395→   395→  grantedBy    String   // userId o "system"
+   396→   396→  grantedAt    DateTime @default(now())
+   397→   397→  expiresAt    DateTime?
+   398→   398→  active       Boolean  @default(true)
+   399→   399→  revokedAt    DateTime?
+   400→   400→  revokeReason String?
+   401→   401→}
+   402→   402→
+   403→   403→// Gate di approvazione umana (Human-in-the-loop)
+   404→   404→model ApprovalGate {
+   405→   405→  id           String   @id @default(cuid())
+   406→   406→  agentId      String
+   407→   407→  action       String   // azione che richiede approvazione
+   408→   408→  payload      String   // JSON dettagli
+   409→   409→  reason       String   // perché richiede HITL (irreversibile / viola LTL / spesa)
+   410→   410→  status       String   @default("pending") // pending|approved|rejected|expired
+   411→   411→  decidedBy    String?  // userId che ha deciso
+   412→   412→  decidedAt    DateTime?
+   413→   413→  axiomTrail   String?  // JSON: catena logica della decisione
+   414→   414→  expiresAt    DateTime? // auto-expire
+   415→   415→  createdAt    DateTime @default(now())
+   416→   416→}
+   417→   417→
+   418→   418→// Calcolo normativo: risoluzione conflitti prompt utente vs policy
+   419→   419→model NormativeResolution {
+   420→   420→  id           String   @id @default(cuid())
+   421→   421→  conflictType String   // user_vs_safety | user_vs_operational | ...
+   422→   422→  userInstruction String
+   423→   423→  systemPolicy String
+   424→   424→  verdict      String   // accept|block|modify
+   425→   425→  modifiedAction String? // se verdict=modify, nuova azione proposta
+   426→   426→  hierarchyApplied String // JSON: gerarchia usata (safety > operational > aesthetic)
+   427→   427→  axiomTrail   String   // JSON: catena logica auditabile
+   428→   428→  decidedAt    DateTime @default(now())
+   429→   429→}
+   430→   430→
+   431→   431→// Audit Ledger: voce del registro di delega comprensibile all'umano
+   432→   432→model AuditLedgerEntry {
+   433→   433→  id           String   @id @default(cuid())
+   434→   434→  agentId      String
+   435→   435→  action       String
+   436→   436→  decision     String   // JSON: {source, intent, gate, outcome}
+   437→   437→  delegationId String?  // riferimento al DelegationContract
+   438→   438→  readableNarrative String // traduzione umana della decisione
+   439→   439→  reversible   Boolean  @default(true)
+   440→   440→  timestamp    DateTime @default(now())
+   441→   441→}
+   442→   442→
+   443→   443→// =====================================================
+   444→   444→// FASE 10: Grounded Inference (Model Encapsulator)
+   445→   445→// =====================================================
+   446→   446→
+   447→   447→// Sessione incapsulata: ogni chiamata LLM è isolata, niente stato tra chiamate
+   448→   448→model EncapsulatedSession {
+   449→   449→  id           String   @id @default(cuid())
+   450→   450→  agentId      String
+   451→   451→  taskGoal     String
+   452→   452→  contextInjected String // JSON: contesto minimale iniettato nel prompt
+   453→   453→  modelOutput  String   // output raw dell'LLM
+   454→   454→  parsedScript String?  // script deterministico estratto dall'output (per parsing sandbox)
+   455→   455→  sandboxResult String? // JSON: risultato dell'esecuzione sandboxed
+   456→   456→  sandboxOk    Boolean  @default(false)
+   457→   457→  retryCount   Int      @default(0)
+   458→   458→  status       String   @default("pending") // pending|executed|failed|sandbox_blocked
+   459→   459→  createdAt    DateTime @default(now())
+   460→   460→}
+   461→   461→
+   462→   462→// Policy di incapsulamento per agente
+   463→   463→model EncapsulationPolicy {
+   464→   464→  id           String   @id @default(cuid())
+   465→   465→  agentId      String   @unique
+   466→   466→  maxRetries   Int      @default(3)
+   467→   467→  contextBudget Int     @default(2000) // token max iniettabili
+   468→   468→  sandboxEnabled Boolean @default(true)
+   469→   469→  forbidDirectMutation Boolean @default(true)
+   470→   470→  updatedAt    DateTime @updatedAt
+   471→   471→}
+   472→   472→
+   473→   473→// =====================================================
+   474→   474→// FASE 11: Affect Subsystem (Desperation/Frustration)
+   475→   475→// =====================================================
+   476→   476→
+   477→   477→// Campione di telemetria affettiva (timestamped)
+   478→   478→model AffectSample {
+   479→   479→  id           String   @id @default(cuid())
+   480→   480→  agentId      String
+   481→   481→  desperation  Float    // 0..1
+   482→   482→  frustration  Float    // 0..1
+   483→   483→  toolFailureRate Float // 0..1
+   484→   484→  gateRejectRate Float  // 0..1
+   485→   485→  repeatedToolCalls Int  // count di chiamate ripetute allo stesso tool
+   486→   486→  intervention String?  // azione intrapresa dal Meta-Observer
+   487→   487→  cycleId      Int
+   488→   488→  timestamp    DateTime @default(now())
+   489→   489→}
+   490→   490→
+   491→   491→// Soglie di intervento configurabili
+   492→   492→model AffectThreshold {
+   493→   493→  id           String   @id @default(cuid())
+   494→   494→  agentId      String   @unique
+   495→   495→  desperationCritical Float @default(0.7)
+   496→   496→  frustrationCritical Float @default(0.7)
+   497→   497→  cooldownMs   Int      @default(5000) // sleep forzato in ms
+   498→   498→  tighteningPct Float   @default(0.15) // riduzione soglie di accettazione
+   499→   499→  updatedAt    DateTime @updatedAt
+   500→   500→}
+   501→   501→
+   502→   502→// =====================================================
+   503→   503→// FASE 12: AgentObjective (BFS Rubric Tree)
+   504→   504→// =====================================================
+   505→   505→
+   506→   506→// Obiettivo macro decomposto in rubrica ad albero
+   507→   507→model ObjectiveTree {
+   508→   508→  id           String   @id @default(cuid())
+   509→   509→  rootGoal     String   // obiettivo macro (es. "ottimizza il deploy")
+   510→   510→  status       String   @default("drafted") // drafted|expanded|evaluating|done
+   511→   511→  totalNodes   Int      @default(0)
+   512→   512→  maxDepth     Int      @default(0)
+   513→   513→  createdAt    DateTime @default(now())
+   514→   514→  updatedAt    DateTime @updatedAt
+   515→   515→}
+   516→   516→
+   517→   517→// Nodo della rubrica (Pass/Fail binario)
+   518→   518→model ObjectiveNode {
+   519→   519→  id           String   @id @default(cuid())
+   520→   520→  treeId       String
+   521→   521→  parentId     String?  // null per la root
+   522→   522→  description  String   // sotto-obiettivo binario (Pass/Fail)
+   523→   523→  depth        Int      // 0 = root
+   524→   524→  weight       Float    @default(1.0) // peso (stop se < threshold)
+   525→   525→  contextTier  String   @default("strategic") // strategic|methodological|implementation
+   526→   526→  status       String   @default("pending") // pending|pass|fail|skipped
+   527→   527→  evidence     String?  // JSON: prove raccolte
+   528→   528→  evaluatedAt  DateTime?
+   529→   529→  createdAt    DateTime @default(now())
+   530→   530→}
+   531→   531→
+   532→   532→// =====================================================
+   533→   533→// FASE 13: Epistemic State Replication (ESR) + Quorum
+   534→   534→// =====================================================
+   535→   535→
+   536→   536→// Belief: convinzione di un agente (riassunto, prova, stato pianificato)
+   537→   537→model Belief {
+   538→   538→  id           String   @id @default(cuid())
+   539→   539→  agentId      String
+   540→   540→  content      String   // contenuto della convinzione (testuale)
+   541→   541→  beliefType   String   // summary|evidence|plan|observation
+   542→   542→  embedding    String   // JSON array di float
+   543→   543→  lineageId    String?  // ID della convinzione genitore (belief lineage)
+   544→   544→  confidence   Float    @default(1.0)
+   545→   545→  superseded   Boolean  @default(false) // true se sostituita da versione più recente
+   546→   546→  version      Int      @default(1)
+   547→   547→  createdAt    DateTime @default(now())
+   548→   548→}
+   549→   549→
+   550→   550→// Replica ESR: sincronizzazione convinzioni tra agenti
+   551→   551→model ESRSyncEvent {
+   552→   552→  id           String   @id @default(cuid())
+   553→   553→  sourceAgentId String
+   554→   554→  targetAgentId String
+   555→   555→  beliefId     String
+   556→   556→  syncStatus   String   @default("pending") // pending|synced|conflict
+   557→   557→  conflictReason String?
+   558→   558→  timestamp    DateTime @default(now())
+   559→   559→}
+   560→   560→
+   561→   561→// Quorum semantico: validazione di un'azione da parte di N validatori
+   562→   562→model QuorumVote {
+   563→   563→  id           String   @id @default(cuid())
+   564→   564→  workflowJoinId String // identificativo del join point nel DAG
+   565→   565→  action       String   // azione da certificare
+   566→   566→  voterAgentId String
+   567→   567→  vote         String   // accept|reject
+   568→   568→  reason       String?
+   569→   569→  confidence   Float    @default(1.0)
+   570→   570→  timestamp    DateTime @default(now())
+   571→   571→}
+   572→   572→
+   573→   573→model QuorumDecision {
+   574→   574→  id           String   @id @default(cuid())
+   575→   575→  workflowJoinId String
+   576→   576→  action       String
+   577→   577→  requiredQuorum Int    @default(2) // numero minimo di accept
+   578→   578→  acceptCount  Int      @default(0)
+   579→   579→  rejectCount  Int      @default(0)
+   580→   580→  verdict      String   @default("pending") // pending|accepted|rejected
+   581→   581→  decidedAt    DateTime?
+   582→   582→  createdAt    DateTime @default(now())
+   583→   583→}
+   584→   584→
+   585→   585→// =====================================================
+   586→   586→// FASE 14: TimeRouter (Adaptive Routing + Ensemble Fallback)
+   587→   587→// =====================================================
+   588→   588→
+   589→   589→// Modello Foundation disponibile
+   590→   590→model FoundationModel {
+   591→   591→  id           String   @id @default(cuid())
+   592→   592→  modelId      String   @unique
+   593→   593→  name         String
+   594→   594→  specialization String  // code|reasoning|math|logic|general
+   595→   595→  costPer1kTokens Float @default(0.0)
+   596→   596→  avgLatencyMs Int      @default(500)
+   597→   597→  active       Boolean  @default(true)
+   598→   598→}
+   599→   599→
+   600→   600→// Decisione di routing
+   601→   601→model RoutingDecision {
+   602→   602→  id           String   @id @default(cuid())
+   603→   603→  agentId      String
+   604→   604→  inputHash    String   // hash del prompt input per dedup
+   605→   605→  inputFeatures String  // JSON: feature estratte (lunghezza, dominio, complessità)
+   606→   606→  primaryModel String   // modello scelto come leader
+   607→   607→  confidence   Float    // confidenza del router
+   608→   608→  margin       Float    // margine tra top-2 modelli
+   609→   609→  diversity    Float    // diversità tra predizioni
+   610→   610→  routedTo     String   // primary|ensemble|critic
+   611→   611→  ensembleModels String? // JSON: modelli usati in ensemble
+   612→   612→  finalOutput  String?  // output finale fuso
+   613→   613→  createdAt    DateTime @default(now())
+   614→   614→}
+   615→   615→
+   616→   616→// Configurazione router
+   617→   617→model RouterConfig {
+   618→   618→  id           String   @id @default(cuid())
+   619→   619→  marginThreshold Float @default(0.2)  // τm
+   620→   620→  diversityThreshold Float @default(0.3) // τd
+   621→   621→  minConfidence Float   @default(0.6)
+   622→   622→  enableEnsemble Boolean @default(true)
+   623→   623→  enableCritic Boolean  @default(true)
+   624→   624→  updatedAt    DateTime @updatedAt
+   625→   625→}
+   626→   626→
+   627→   627→// =====================================================
+   628→   628→// FASE 15-18: Cockpit, Tool Ecosystem, Sovereign Validator
+   629→   629→// =====================================================
+   630→   630→
+   631→   631→// Cockpit: narrativa ad alto livello per il tab Narrative
+   632→   632→model CockpitNarrative {
+   633→   633→  id           String   @id @default(cuid())
+   634→   634→  agentId      String
+   635→   635→  narrative    String   // descrizione ad alto livello dell'azione
+   636→   636→  cycleId      Int?
+   637→   637→  level        String   @default("info") // info|warn|critical
+   638→   638→  relatedPhase String?  // fase che ha generato l'evento (1-14)
+   639→   639→  timestamp    DateTime @default(now())
+   640→   640→}
+   641→   641→
+   642→   642→// Azione bloccata dai cancelli di sicurezza (LTL/Taint/Normative)
+   643→   643→// In attesa di risoluzione umana (Sovereign Validator)
+   644→   644→model BlockedAction {
+   645→   645→  id           String   @id @default(cuid())
+   646→   646→  agentId      String
+   647→   647→  action       String   // azione tentata dall'agente
+   648→   648→  source       String   // ltl|taint|normative|hitl_gate
+   649→   649→  axiomTrail   String   // JSON: catena logica della violazione
+   650→   650→  readableExplanation String // traduzione in linguaggio naturale
+   651→   651→  status       String   @default("pending") // pending|approved|modified|downgraded|rejected
+   652→   652→  resolution   String?  // JSON: dettagli della risoluzione umana
+   653→   653→  resolvedBy   String?
+   654→   654→  resolvedAt   DateTime?
+   655→   655→  createdAt    DateTime @default(now())
+   656→   656→}
+   657→   657→
+   658→   658→// Tool installato nel Tool Ecosystem (Fase 18)
+   659→   659→model Tool {
+   660→   660→  id           String   @id @default(cuid())
+   661→   661→  toolId       String   @unique
+   662→   662→  name         String
+   663→   663→  version      String
+   664→   664→  signature    String   // hash crittografico (simulato)
+   665→   665→  description  String?
+   666→   666→  publisher    String?
+   667→   667→  active       Boolean  @default(true)
+   668→   668→  installedAt  DateTime @default(now())
+   669→   669→  installedBy  String?
+   670→   670→  revokedAt    DateTime?
+   671→   671→  revokeReason String?
+   672→   672→}
+   673→   673→
+   674→   674→// Permessi a grana fine per ogni tool
+   675→   675→model ToolPermission {
+   676→   676→  id           String   @id @default(cuid())
+   677→   677→  toolId       String
+   678→   678→  scope        String   // es. filesystem:read, network:post, tool:exec, db:write
+   679→   679→  granted      Boolean  @default(false)
+   680→   680→  grantedBy    String?
+   681→   681→  grantedAt    DateTime @default(now())
+   682→   682→  constraint   String?  // JSON: limiti aggiuntivi (maxCalls, paths, ecc.)
+   683→   683→}
+   684→   684→
+   685→   685→// =====================================================
+   686→   686→// FASE 20: Authentication & Multi-Tenancy
+   687→   687→// =====================================================
+   688→   688→
+   689→   689→model User {
+   690→   690→  id            String    @id @default(cuid())
+   691→   691→  email         String    @unique
+   692→   692→  name          String?
+   693→   693→  passwordHash  String?
+   694→   694→  role          String    @default("viewer") // admin|operator|viewer|sovereign
+   695→   695→  tenantId      String    @default("default")
+   696→   696→  active        Boolean   @default(true)
+   697→   697→  createdAt     DateTime  @default(now())
+   698→   698→  updatedAt     DateTime  @updatedAt
+   699→   699→  sessions      Session[]
+   700→   700→}
+   701→   701→
+   702→   702→model Session {
+   703→   703→  id            String    @id @default(cuid())
+   704→   704→  userId        String
+   705→   705→  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   706→   706→  expiresAt     DateTime
+   707→   707→  createdAt     DateTime  @default(now())
+   708→   708→  token         String    @unique
+   709→   709→  ipAddress     String?
+   710→   710→  userAgent     String?
+   711→   711→}
+   712→   712→
+   713→   713→// =====================================================
+   714→   714→// FASE 21: Cryptographic Trust Layer
+   715→   715→// =====================================================
+   716→   716→
+   717→   717→// Publisher registry: chiavi pubbliche ECDSA per verifica firme tool
+   718→   718→model PublisherKey {
+   719→   719→  id            String   @id @default(cuid())
+   720→   720→  publisher     String   @unique
+   721→   721→  publicKeyPem  String   // chiave pubblica ECDSA P-256 in formato PEM
+   722→   722→  fingerprint   String   // SHA-256 della chiave pubblica
+   723→   723→  active        Boolean  @default(true)
+   724→   724→  revokedAt     DateTime?
+   725→   725→  createdAt     DateTime @default(now())
+   726→   726→}
+   727→   727→
+   728→   728→// =====================================================
+   729→   729→// FASE 22: Production Observability Stack
+   730→   730→// =====================================================
+   731→   731→
+   732→   732→// Error tracking
+   733→   733→model ErrorRecord {
+   734→   734→  id            String   @id @default(cuid())
+   735→   735→  fingerprint   String   @unique // hash per dedup
+   736→   736→  message       String
+   737→   737→  stack         String?
+   738→   738→  source        String   // kernel|api|ui
+   739→   739→  phase         String?
+   740→   740→  userId        String?
+   741→   741→  tenantId      String?
+   742→   742→  context       String?  // JSON: additional context
+   743→   743→  status        String   @default("open") // open|acknowledged|resolved
+   744→   744→  count         Int      @default(1)
+   745→   745→  firstSeen     DateTime @default(now())
+   746→   746→  lastSeen      DateTime @default(now())
+   747→   747→  resolvedAt    DateTime?
+   748→   748→  resolvedBy    String?
+   749→   749→}
+   750→   750→
+   751→   751→// Distributed tracing
+   752→   752→model TraceSpan {
+   753→   753→  id            String   @id @default(cuid())
+   754→   754→  traceId       String
+   755→   755→  spanId        String   @unique
+   756→   756→  parentSpanId  String?
+   757→   757→  operation     String   // es. "ltl.verify", "patchboard.apply"
+   758→   758→  phase         String?
+   759→   759→  userId        String?
+   760→   760→  status        String   @default("ok") // ok|error
+   761→   761→  durationMs    Int      @default(0)
+   762→   762→  metadata      String?  // JSON
+   763→   763→  timestamp     DateTime @default(now())
+   764→   764→}
+   765→   765→
+   766→   766→// Backup records
+   767→   767→model BackupRecord {
+   768→   768→  id            String   @id @default(cuid())
+   769→   769→  filePath      String
+   770→   770→  sizeBytes     Int
+   771→   771→  checksum      String
+   772→   772→  status        String   @default("created") // created|verified|failed|restored
+   773→   773→  trigger       String   @default("manual") // manual|scheduled
+   774→   774→  createdAt     DateTime @default(now())
+   775→   775→  verifiedAt    DateTime?
+   776→   776→}
+   777→   777→
+   778→   778→// =====================================================
+   779→   779→// FASE 23: Scalability & Persistence
+   780→   780→// =====================================================
+   781→   781→
+   782→   782→// Job queue per background processing
+   783→   783→model JobRecord {
+   784→   784→  id            String   @id @default(cuid())
+   785→   785→  jobType       String   // embeddings_recompute|summarize|backup|fsm_checkpoint|taint_cleanup
+   786→   786→  status        String   @default("queued") // queued|running|completed|failed|retry
+   787→   787→  priority      Int      @default(0) // 0=normal, 1=high, 2=critical
+   788→   788→  payload       String   // JSON: parametri del job
+   789→   789→  result        String?  // JSON: risultato
+   790→   790→  error         String?
+   791→   791→  retryCount    Int      @default(0)
+   792→   792→  maxRetries    Int      @default(3)
+   793→   793→  queuedAt      DateTime @default(now())
+   794→   794→  startedAt     DateTime?
+   795→   795→  completedAt   DateTime?
+   796→   796→  durationMs    Int      @default(0)
+   797→   797→}
+   798→   798→
+   799→   799→// FSM LTL persistence: snapshot periodici dello stato FSM
+   800→   800→model FSMSnapshot {
+   801→   801→  id            String   @id @default(cuid())
+   802→   802→  ruleId        String   // LTL rule ID
+   803→   803→  state         String   // stato corrente della FSM
+   804→   804→  historyJson   String   // JSON: ultimi N eventi
+   805→   805→  eventCount    Int      @default(0) // totale eventi processati
+   806→   806→  snapshotAt    DateTime @default(now())
+   807→   807→}
+   808→   808→
+   809→   809→// Taint flow con TTL per scadenza automatica
+   810→   810→model TaintFlow {
+   811→   811→  id            String   @id @default(cuid())
+   812→   812→  taintRecordId String
+   813→   813→  source        String
+   814→   814→  flowTraceJson String   // JSON array di step
+   815→   815→  expiresAt     DateTime // TTL: scadenza automatica
+   816→   816→  expired       Boolean  @default(false)
+   817→   817→  blockedSink   String?  // sink che ha bloccato il flow
+   818→   818→  createdAt     DateTime @default(now())
+   819→   819→}
+   820→   820→
+   821→   821→
+   822→   822→
+   823→   823→// === Release 1.1: Cost tracking ===
+   824→   824→model CostEntry {
+   825→   825→  id         String   @id @default(cuid())
+   826→   826→  agentId    String   // planner | orchestrator | curator | controller | verifier | reflective | lean | router | etc.
+   827→   827→  model      String   // zai-glm | gpt-4 | gpt-3.5-turbo | claude-3-opus | etc.
+   828→   828→  phase      String   // plan_generation | task_execution | steering | reflection | routing | compilation
+   829→   829→  tokensIn   Int      // input tokens
+   830→   830→  tokensOut  Int      // output tokens
+   831→   831→  cost       Float    // USD cost
+   832→   832→  timestamp  DateTime @default(now())
+   833→   833→
+   834→   834→  @@index([timestamp])
+   835→   835→  @@index([agentId])
+   836→   836→  @@index([model])
+   837→   837→  @@index([phase])
+   838→   838→}
+   839→   839→
+   840→   840→// === Release 1.2: Branch & Share conversations ===
+   841→   841→model ConversationBranch {
+   842→   842→  id            String   @id @default(cuid())
+   843→   843→  parentId      String   // parent branch id (root has "root")
+   844→   844→  messageId     String   // message id from which we forked
+   845→   845→  title         String   // branch label (auto-generated or user-provided)
+   846→   846→  taskText      String   // original task text
+   847→   847→  messagesJson  String   // JSON array of messages snapshot
+   848→   848→  createdAt     DateTime @default(now())
+   849→   849→
+   850→   850→  @@index([parentId])
+   851→   851→  @@index([createdAt])
+   852→   852→}
+   853→   853→
+   854→   854→model SharedConversation {
+   855→   855→  id            String   @id @default(cuid())
+   856→   856→  token         String   @unique // signed URL token
+   857→   857→  branchId      String   // reference to ConversationBranch
+   858→   858→  title         String
+   859→   859→  messagesJson  String   // snapshot of messages at share time
+   860→   860→  createdBy     String
+   861→   861→  expiresAt     DateTime?  // null = never expires
+   862→   862→  viewCount     Int      @default(0)
+   863→   863→  createdAt     DateTime @default(now())
+   864→   864→
+   865→   865→  @@index([token])
+   866→   866→}
+   867→   867→
+   868→   868→// === FASE 1: Context Graph (relational, AGE views in PostgreSQL) ===
+   869→   869→
+   870→   870→model GraphNode {
+   871→   871→  id            String   @id @default(cuid())
+   872→   872→  uri           String   @unique // agent://planner, task://uuid, etc. (Fase 0.5.2)
+   873→   873→  entityType    String   // Agent, Task, Skill, etc. (Fase 0.5.1)
+   874→   874→  lifecycleState String  @default("draft") // Fase 0.5.1
+   875→   875→  attributes    String   @default("{}") // JSON
+   876→   876→  // Provenance (Fase 0.5.3 — obbligatorio)
+   877→   877→  createdByAgent String
+   878→   878→  createdByModel String?
+   879→   879→  source        String
+   880→   880→  confidence    Float    @default(1.0)
+   881→   881→  provenanceTs  DateTime @default(now())
+   882→   882→  // Metadata
+   883→   883→  createdAt     DateTime @default(now())
+   884→   884→  updatedAt     DateTime @updatedAt
+   885→   885→  version       Int      @default(1)
+   886→   886→
+   887→   887→  edgesFrom     GraphEdge[] @relation("EdgeFrom")
+   888→   888→  edgesTo       GraphEdge[] @relation("EdgeTo")
+   889→   889→
+   890→   890→  @@index([entityType])
+   891→   891→  @@index([uri])
+   892→   892→  @@index([lifecycleState])
+   893→   893→}
+   894→   894→
+   895→   895→model GraphEdge {
+   896→   896→  id          String   @id @default(cuid())
+   897→   897→  fromNodeId  String
+   898→   898→  toNodeId    String
+   899→   899→  relationType String   // EXECUTED, GENERATED, RESULTED_IN, etc.
+   900→   900→  properties  String   @default("{}") // JSON
+   901→   901→  // Provenance
+   902→   902→  createdByAgent String
+   903→   903→  createdAt   DateTime @default(now())
+   904→   904→
+   905→   905→  fromNode    GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+   906→   906→  toNode      GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+   907→   907→
+   908→   908→  @@unique([fromNodeId, toNodeId, relationType])
+   909→   909→  @@index([fromNodeId])
+   910→   910→  @@index([toNodeId])
+   911→   911→  @@index([relationType])
+   912→   912→}
+   913→   913→
+   914→   914→// === FASE 1: pgvector embedding storage ===
+   915→   915→
+   916→   916→model EmbeddingVector {
+   917→   917→  id          String   @id @default(cuid())
+   918→   918→  entityUri   String   @unique // URI of the entity this embedding represents
+   919→   919→  entityType  String
+   920→   920→  embedding   String   // JSON array of floats (SQLite) or pgvector (PostgreSQL)
+   921→   921→  model       String   @default("all-MiniLM-L6-v2")
+   922→   922→  dimensions  Int      @default(384)
+   923→   923→  createdAt   DateTime @default(now())
+   924→   924→  updatedAt   DateTime @updatedAt
+   925→   925→
+   926→   926→  @@index([entityUri])
+   927→   927→  @@index([entityType])
+   928→   928→}
+   929→   929→
+   930→   930→// === FASE 1: Agent Runtime Checkpoints ===
+   931→   931→
+   932→   932→model AgentCheckpoint {
+   933→   933→  id            String   @id @default(cuid())
+   934→   934→  agentUri      String   // agent://planner
+   935→   935→  taskId        String?  // task://uuid (null = agent-level checkpoint)
+   936→   936→  checkpointType String  // execution_state | tool_state | memory_state | workflow_state
+   937→   937→  stateJson     String   // JSON: serializable state snapshot
+   938→   938→  cycleId       Int?     // cognitive cycle number
+   939→   939→  createdAt     DateTime @default(now())
+   940→   940→
+   941→   941→  @@index([agentUri])
+   942→   942→  @@index([taskId])
+   943→   943→  @@index([checkpointType])
+   944→   944→}
+   945→   945→
+   946→   946→// === FASE 1: Memory Fabric layers ===
+   947→   947→
+   948→   948→model MemoryEntry {
+   949→   949→  id            String   @id @default(cuid())
+   950→   950→  layer         String   // episodic | semantic | procedural | reasoning
+   951→   951→  agentUri      String
+   952→   952→  content       String   // the memory content (text, JSON, etc.)
+   953→   953→  embedding     String?  // JSON float array (for semantic layer)
+   954→   954→  sourceUri     String?  // URI of source entity
+   955→   955→  utilityScore  Float    @default(0.5) // 0-1, how useful
+   956→   956→  recencyScore  Float    @default(1.0) // 0-1, decays over time
+   957→   957→  weight        Float    @default(0.5) // utility * recency
+   958→   958→  accessCount   Int      @default(0)
+   959→   959→  lastAccessedAt DateTime?
+   960→   960→  createdAt     DateTime @default(now())
+   961→   961→  updatedAt     DateTime @updatedAt
+   962→   962→
+   963→   963→  @@index([layer])
+   964→   964→  @@index([agentUri])
+   965→   965→  @@index([weight])
+   966→   966→}
+   967→   967→

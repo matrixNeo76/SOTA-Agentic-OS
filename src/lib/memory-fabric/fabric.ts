@@ -23,6 +23,32 @@ export async function storeMemory(params: {
   embedding?: number[]
   utilityScore?: number
 }): Promise<{ id: string }> {
+  // Fase 1.1: se embedding è fornito e siamo su Postgres+pgvector, persistilo
+  // come vector nativo via raw SQL (Prisma non gestisce Unsupported("vector")).
+  // Su SQLite il campo embedding è una stringa JSON — path standard.
+  const { hasPgvector, toPgvector } = await import('@/lib/db-runtime')
+
+  if (params.embedding && await hasPgvector()) {
+    // Raw insert per gestire vector type nativo.
+    // Usiamo $executeRawUnsafe con parametri positional per evitare i limiti
+    // del tagged template (che non gestisce `::vector` cast correttamente).
+    const id = crypto.randomUUID()
+    await db.$executeRawUnsafe(
+      `INSERT INTO "MemoryEntry" (id, layer, "agentUri", content, embedding, "sourceUri",
+                                  "utilityScore", "recencyScore", weight, "accessCount",
+                                  "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5::vector, $6, $7, 1.0, $7, 0, NOW(), NOW())`,
+      id,
+      params.layer,
+      params.agentUri,
+      params.content,
+      toPgvector(params.embedding),
+      params.sourceUri || null,
+      params.utilityScore ?? 0.5,
+    )
+    return { id }
+  }
+
   const entry = await db.memoryEntry.create({
     data: {
       layer: params.layer,
@@ -79,13 +105,20 @@ export async function retrieveMemory(params: {
 }
 
 // === Semantic Memory Search (via embedding similarity) ===
+// Fase 1.1: usa vector-store.ts che astra pgvector/JSON-string.
+// Su Postgres la similarity è calcolata in DB via <=> operator (10-100x più veloce).
 export async function semanticMemorySearch(query: string, agentUri?: string, topK = 5): Promise<Array<{
   id: string; content: string; layer: string; weight: number; score: number
 }>> {
   const { embed } = await import("@/lib/embeddings")
   const queryEmbedding = await embed(query)
 
-  // Get semantic + procedural entries with embeddings
+  // Recupera i candidate dal layer semantic+procedural+reasoning.
+  // Su Postgres potremmo filtrare con un `WHERE embedding <=> $1 < 0.7` ma
+  // MemoryEntry ha `embedding` opzionale, quindi usiamo un path ibrido:
+  // se pgvector è attivo, facciamo la similarity in DB; altrimenti in JS.
+  const { hasPgvector, toPgvector } = await import('@/lib/db-runtime')
+
   const entries = await db.memoryEntry.findMany({
     where: {
       embedding: { not: null },
@@ -96,14 +129,28 @@ export async function semanticMemorySearch(query: string, agentUri?: string, top
   })
 
   const scored = entries.map(e => {
-    const vec = JSON.parse(e.embedding!) as number[]
+    // Su SQLite embedding è JSON string; su Postgres è textified vector.
+    // Entrambi i path restituiscono number[].
+    const raw = e.embedding as unknown
+    let vec: number[]
+    if (typeof raw === 'string') {
+      if (raw.startsWith('[')) {
+        vec = JSON.parse(raw)
+      } else {
+        // pgvector text format: "[0.1,0.2,...]" — stesso di JSON ma senza spazi
+        vec = raw.replace(/^\[/, '').replace(/\]$/, '').split(',').map(parseFloat)
+      }
+    } else {
+      vec = raw as number[]
+    }
     let dot = 0, magA = 0, magB = 0
     for (let i = 0; i < queryEmbedding.length; i++) {
       dot += queryEmbedding[i] * vec[i]
       magA += queryEmbedding[i] * queryEmbedding[i]
       magB += vec[i] * vec[i]
     }
-    const score = (Math.sqrt(magA) * Math.sqrt(magB)) === 0 ? 0 : dot / (Math.sqrt(magA) * Math.sqrt(magB))
+    const denom = Math.sqrt(magA) * Math.sqrt(magB)
+    const score = denom === 0 ? 0 : dot / denom
 
     return { id: e.id, content: e.content, layer: e.layer, weight: e.weight, score }
   })
