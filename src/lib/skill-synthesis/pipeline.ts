@@ -48,6 +48,27 @@ export interface GeneratedSkill {
   generatedBy: string
   generatedAt: string
   status: 'generated' | 'sandbox_testing' | 'validated' | 'rejected' | 'approved'
+  /**
+   * C4 — Optional executable skill body (JS source string).
+   *
+   * When present, the sandbox spawns a worker_thread and runs the code with:
+   *   - `input` bound to the test input string
+   *   - `tools` bound to a whitelisted RPC proxy (read/write/httpGet with path/URL whitelists)
+   *   - `console` captured (log/info/warn/error)
+   *   - NO `require`, NO `process`, NO `globalThis.process` access
+   *   - Memory cap via worker_threads resourceLimits
+   *   - Hard timeout via worker.terminate()
+   *
+   * The function body is wrapped as `async (input, tools) => { ... }` and awaited.
+   * Return value is JSON-serialised and compared against test.expectedContains /
+   * expectedOutput. Throws inside the worker are reported as test failures, not
+   * process crashes.
+   *
+   * When absent, the sandbox falls back to the legacy simulated-execution path
+   * (pattern matching on the promptTemplate), preserving backward compatibility
+   * with skills generated before C4.
+   */
+  execute?: string
 }
 
 export interface SandboxTestResult {
