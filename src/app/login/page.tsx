@@ -1,25 +1,46 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { Lock, Mail, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react'
 
+// Allowed next-path prefixes (defence in depth against open-redirect via
+// `?next=//evil.com`). Only paths starting with one of these are honoured.
+const ALLOWED_NEXT_PREFIXES = ['/admin', '/dashboard', '/console', '/autonomous', '/']
+
+function safeNext(raw: string | null | undefined): string {
+  if (!raw) return '/'
+  // Reject anything that looks like an absolute URL or protocol-relative.
+  if (/^\/\//.test(raw) || /^[a-z]+:\/\//i.test(raw)) return '/'
+  // Must start with /
+  if (!raw.startsWith('/')) return '/'
+  // Must match one of the allowed prefixes.
+  if (!ALLOWED_NEXT_PREFIXES.some((p) => raw === p || raw.startsWith(p + '/') || raw.startsWith(p + '?'))) {
+    return '/'
+  }
+  return raw
+}
+
 function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('admin@sota-os.local')
   const [password, setPassword] = useState('admin123')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  // Read `next` once at mount — searchParams is stable per navigation.
+  const nextPath = safeNext(searchParams.get('next'))
+
   useEffect(() => {
     fetch('/api/auth').then(r => r.json()).then(d => {
-      if (d.authenticated) router.push('/')
+      if (d.authenticated) router.push(nextPath)
     })
-  }, [router])
+  }, [router, nextPath])
 
   const login = async () => {
     setLoading(true)
@@ -32,7 +53,7 @@ function LoginContent() {
       const d = await r.json()
       if (d.ok) {
         toast.success(`Benvenuto, ${d.user.name || d.user.email}`)
-        router.push('/')
+        router.push(nextPath)
       } else {
         toast.error(d.error || 'Login fallito')
       }
