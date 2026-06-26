@@ -34,7 +34,7 @@ Verificato leggendo i file sorgente, non i commenti:
 
 ## I BUCHI REALI (in ordine di priorità)
 
-### C0 — Residui ambiente z-ai hardcoded (rompono portabilità ed esecuzione) — **P0**
+### C0 — Residui ambiente z-ai hardcoded (rompono portabilità ed esecuzione) — **P0** ✅ COMPLETATO
 
 Path `/home/z/my-project` (inesistente in questo ambiente) ancora hardcoded in:
 - `src/lib/db.ts` → `DEFAULT_SQLITE_PATH = '/home/z/my-project/db/custom.db'` (default su path inesistente)
@@ -48,7 +48,7 @@ relativo; `builtin-tools` default a `cwd`+`/tmp`+`upload/download`. Validazione 
 **Accettazione:** clone pulito su qualsiasi macchina → app parte, filesystem tool leggono/scrivono
 in path reali, nessun riferimento a `/home/z`.
 
-### C1 — Moduli "AGI" sono euristiche rule-based, non ragionamento LLM — **P0 (il cuore del problema)**
+### C1 — Moduli "AGI" sono euristiche rule-based, non ragionamento LLM — **P0** ✅ COMPLETATO
 
 Il file `llm-client/client.ts` definisce helper LLM per questi moduli, ma **i moduli non li chiamano**.
 Solo 4 file importano `llm-client`: `cognitive-router`, `kernel/erl`, `skill-synthesis`, e il client stesso.
@@ -76,7 +76,7 @@ fallback rule-based deterministico). Concretamente:
 con le soglie); con LLM spento, fallback rule-based identico a oggi (zero regressioni nei test).
 Rimuovere o cablare il dead code di `client.ts`.
 
-### C2 — Tool esterni (registrati / MCP) non eseguono — **P1**
+### C2 — Tool esterni (registrati / MCP) non eseguono — **P0** ✅ COMPLETATO
 
 - `tool-dispatcher.executeRegistered()` ritorna **sempre** errore: *"Registered tool has no
   execution endpoint configured"*. Quindi **solo i 7 builtin funzionano**; qualunque tool
@@ -90,7 +90,7 @@ Rimuovere o cablare il dead code di `client.ts`.
 **Accettazione:** registro un tool HTTP e un tool MCP dal pannello, l'agente li chiama nel ReAct
 loop e ne riceve il risultato reale.
 
-### C3 — Embeddings non semantici (TF-IDF locale) — **P1**
+### C3 — Embeddings non semantici (TF-IDF locale) — **P0** ✅ COMPLETATO
 
 `embeddings.ts` = hashing TF-IDF 256-dim + dizionario di alias hardcoded. Similarità debole,
 dipendente dall'ortografia/alias, non dal significato. `vector-store` è pronto a ricevere un
@@ -103,7 +103,7 @@ Cablare in `vector-store.storeEmbedding` + `recomputeAllEmbeddings`. Gestire dim
 **Accettazione:** con provider reale attivo, due testi sinonimi ma senza parole comuni hanno
 cosine > 0.6; con `local`, comportamento odierno invariato.
 
-### C4 — Skill sandbox senza isolamento reale — **P2**
+### C4 — Skill sandbox senza isolamento reale — **P0** ✅ COMPLETATO
 
 `skill-sandbox/sandbox.ts` è `try/catch` + regex su pattern proibiti (ammesso nei commenti).
 Una skill non fidata gira **nello stesso processo** con accesso pieno.
@@ -113,7 +113,7 @@ whitelist tool reale. Mantenere l'API `runSkillInSandbox` invariata.
 **Accettazione:** una skill che tenta `require('fs')`/loop infinito/over-memory viene terminata
 e isolata, non impatta il processo principale.
 
-### C5 — MCP server: manca il transport Streamable HTTP/SSE — **P2**
+### C5 — MCP server: manca il transport Streamable HTTP/SSE — **P0** ✅ COMPLETATO
 
 `/api/mcp` è solo **POST request/response** JSON-RPC. I client MCP standard (Claude Desktop,
 Cursor, VS Code) si aspettano **Streamable HTTP** (handshake, session id, notifiche) o stdio.
@@ -124,7 +124,7 @@ piccolo bridge **stdio** (`scripts/mcp-stdio.ts`) per le config locali di Claude
 **Accettazione:** aggiungo l'OS come server MCP in Claude Code con URL+token (o comando stdio)
 senza glue custom e i tool compaiono nativamente.
 
-### C6 — Admin/Settings: lettura sì, scrittura no — **P2**
+### C6 — Admin/Settings: lettura sì, scrittura no — **P0** ✅ COMPLETATO
 
 `GET /api/admin/settings` legge config **live** (provider DB, LLM health, mesh, integration).
 Ma la config è **basata su env**: il POST non può cambiarla a runtime → la UI "salva" ciò che
@@ -136,18 +136,23 @@ Langfuse on/off, tool paths) diventano davvero scrivibili. Restano read-only sol
 richiedono restart (es. `DATABASE_URL`), marcate come tali.
 **Accettazione:** cambio il modello LLM default da UI, l'esecuzione successiva lo usa senza restart.
 
-### C7 — Postgres/pgvector parziale & test crash/resume mancante — **P3**
+### C7 — Postgres/pgvector parziale & test crash/resume mancante — **P3** ✅ COMPLETATO (C7a + C7b)
 
-- `prisma/schema.postgres.prisma` copre ~15 modelli vs 67 dello schema SQLite → la modalità
-  Postgres+pgvector reale non è completa; il vector search nativo non è esercitato.
-- I ~514 test coprono i moduli ma **non** il percorso end-to-end **kill → resume** dell'executor
-  (proprio la promessa centrale del sistema).
+- ~~`prisma/schema.postgres.prisma` copre ~15 modelli vs 67 dello schema SQLite~~ → **C7a risolto**:
+  `schema.postgres.prisma` ora copre tutti i 69 modelli (stesso set di `schema.prisma`), con
+  6 campi `embedding` convertiti a `Unsupported("vector(256)")` per pgvector nativo
+  (EpisodicMemory, SemanticEntity, Heuristic, Belief, EmbeddingVector, MemoryEntry).
+  Script `bun run db:check-schema-sync` verifica l'allineamento (exit 0 = OK).
+- ~~I ~514 test coprono i moduli ma non il percorso kill → resume~~ → **C7b risolto**:
+  `tests/e2e/crash-resume.test.ts` con 10 test che simulano crash mid-batch, recovery,
+  idempotency, e verificano che i task `done` non vengano rieseguiti e il piano completi.
 
-**Fix:** completare `schema.postgres.prisma` (generarlo dallo schema SQLite con annotazioni
-`vector`), e aggiungere un test e2e che: avvia un piano, simula crash a metà batch (orphan
-`running`), invoca `recoverOrphanedPlans`, verifica che i task `done` non vengano rieseguiti e
-il piano completi.
-**Accettazione:** test e2e crash/resume verde; `db:push` su Postgres con schema completo.
+**Fix applicato:**
+- C7a: `prisma/schema.postgres.prisma` completo (69 modelli) + `scripts/check-schema-sync.ts`
+- C7b: `tests/e2e/crash-resume.test.ts` (10 test, 4 suite)
+
+**Accettazione:** ✅ test e2e crash/resume verde; ✅ `prisma validate` su schema.postgres.prisma OK;
+✅ `prisma generate` su schema.postgres.prisma OK; ✅ script `db:check-schema-sync` esce 0.
 
 ---
 

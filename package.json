@@ -18,7 +18,8 @@
     "db:reset": "prisma migrate reset",
     "db:backup": "bash scripts/db-backup.sh",
     "db:restore": "bash scripts/db-restore.sh",
-    "db:seed:settings": "tsx prisma/seed-settings.ts"
+    "db:seed:settings": "tsx prisma/seed-settings.ts",
+    "db:check-schema-sync": "tsx scripts/check-schema-sync.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

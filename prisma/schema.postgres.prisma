@@ -1,26 +1,30 @@
 // ============================================================
-// SOTA Agentic OS — PostgreSQL schema (Fase 1.1)
+// SOTA Agentic OS — PostgreSQL schema (C7a — completo)
 // ============================================================
 //
 // Questo schema è il sibling di `schema.prisma` (SQLite, usato in dev).
 // Quando il runtime rileva provider=postgresql, usa questo schema per db:push.
 //
 // Differenze chiave rispetto a schema.prisma:
-//   1. `provider = "postgresql"`
-//   2. Campi `embedding` diventano `Unsupported("vector(256)")` per pgvector nativo
-//   3. Campi `embedding` di MemoryEntry (opzionali) → vector nullable
-//   4. Indici ulteriori su colonne ad alta cardinalità
+//   1. `provider = "postgresql"` + `extensions = [vector, age]`
+//   2. Campi `embedding` (5 modelli) diventano `Unsupported("vector(256)")`
+//      per pgvector nativo. Il runtime gestisce la differenza tramite
+//      `src/lib/db-runtime.ts` + `src/lib/vector-store.ts`.
+//   3. Tutti gli altri 64 modelli sono identici al sibling SQLite —
+//      mantenuti in sync manualmente (C7a ha allineato i due file).
 //
 // Per attivare in produzione:
 //   cp prisma/schema.postgres.prisma prisma/schema.prisma
 //   DATABASE_URL=postgresql://sota:sota@localhost:5432/sota bun run db:push
 //   psql -f scripts/pg-bootstrap.sql
 //
-// Il runtime (src/lib/db-runtime.ts) gestisce la differenza tra JSON-string
-// (SQLite) e vector nativo (Postgres) tramite il modulo vector-store.ts.
+// Verifica periodica dell'allineamento:
+//   bun run scripts/check-schema-sync.ts
+//   (restituisce 0 se i due schema hanno lo stesso set di modelli + campi,
+//    a meno delle differenze pgvector documentate sopra)
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
 }
 
@@ -31,75 +35,73 @@ datasource db {
 }
 
 // =====================================================
-// FASE 1: Stato e Memoria Persistente
+// FASE 1: Sottosistema di Stato e Memoria Persistente
 // =====================================================
 
+// Livello Episodico: osservazioni grezze basate sul tempo
 model EpisodicMemory {
-  id          String   @id @default(cuid())
-  timestamp   DateTime @default(now())
+  id          String                      @id @default(cuid())
+  timestamp   DateTime                    @default(now())
   observation String
-  embedding   Unsupported("vector(256)")?
-  decay       Float    @default(1.0)
+  embedding   Unsupported("vector(256)")? // pgvector nativo (SQLite: JSON string in schema.prisma)
+  decay       Float                       @default(1.0) // EMA decay factor
   source      String?
   agentId     String?
-  tags        String?
-
-  @@index([timestamp])
-  @@index([agentId])
+  tags        String? // JSON array di tag
 }
 
+// Livello Semantico: entità coerenti (database vettoriale simulato)
 model SemanticEntity {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String                      @id @default(cuid())
+  name        String                      @unique
   type        String
-  embedding   Unsupported("vector(256)")?
+  embedding   Unsupported("vector(256)")? // pgvector nativo (SQLite: JSON string in schema.prisma)
   description String?
-  attributes  String?
-  decay       Float    @default(1.0)
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
-
-  @@index([type])
+  attributes  String? // JSON object di attributi
+  decay       Float                       @default(1.0)
+  updatedAt   DateTime                    @updatedAt
+  createdAt   DateTime                    @default(now())
 }
 
+// Livello Logico: regole procedurali deterministiche (DAG)
 model LogicalRule {
-  id            String   @id @default(cuid())
-  ruleId        String   @unique
-  expression    String
-  dependencies  String
-  priority      Int      @default(0)
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  ruleId       String   @unique
+  expression   String // espressione del nodo DAG
+  dependencies String // JSON array di ruleId
+  priority     Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 }
 
+// PatchBoard: transazioni JSON Patch validate
 model PatchTransaction {
   id         String   @id @default(cuid())
-  path       String
-  op         String
-  value      String?
-  actor      String
+  path       String // percorso JSON target
+  op         String // add|remove|replace|move|copy|test
+  value      String? // valore (JSON serializzato)
+  actor      String // agente richiedente
   authorized Boolean  @default(false)
-  status     String   @default("pending")
+  status     String   @default("pending") // pending|accepted|rejected
   reason     String?
-  snapshot   String?
+  snapshot   String? // stato precedente (per replay)
   createdAt  DateTime @default(now())
-
-  @@index([status])
-  @@index([actor])
 }
 
+// Stato Globale: albero JSON condiviso
 model GlobalState {
   id        String   @id @default(cuid())
   key       String   @unique
-  value     String
-  schemaRef String?
+  value     String // JSON serializzato
+  schemaRef String? // riferimento allo schema di autorizzazione
   updatedAt DateTime @updatedAt
 }
 
+// Sensorium: snapshot dei cicli cognitivi
 model SensoriumSnapshot {
   id            String   @id @default(cuid())
   cycleId       Int      @unique
-  xmlContent    String
+  xmlContent    String // blocco XML compilato dal Curator
   queueDepth    Int
   activeThreads Int
   systemLoad    Float
@@ -110,49 +112,46 @@ model SensoriumSnapshot {
 // FASE 2: Orchestrazione e Compiled AI
 // =====================================================
 
+// Piani JSON Schema-validati (DynAMO)
 model AgentPlan {
-  id          String    @id @default(cuid())
-  taskGoal    String
-  planJson    String
-  dagJson     String?
-  status      String    @default("drafted")
-  agentCount  Int       @default(0)
-  tasks       PlanTask[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([status])
+  id         String     @id @default(cuid())
+  taskGoal   String
+  planJson   String // piano JSON strutturato
+  dagJson    String? // DAG compilato
+  status     String     @default("drafted") // drafted|scheduled|running|completed|failed
+  agentCount Int        @default(0)
+  tasks      PlanTask[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 }
 
 model PlanTask {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   planId       String
   taskId       String
   agentId      String
   description  String
-  dependencies String
-  status       String   @default("pending")
+  dependencies String // JSON array di taskId
+  status       String    @default("pending") // pending|ready|running|done|failed
   result       String?
   startedAt    DateTime?
   finishedAt   DateTime?
   plan         AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([planId])
-  @@index([status])
 }
 
+// Compiled AI: artefatti generati e validati
 model CompiledArtifact {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String
   templateId       String
   generatedCode    String
-  validationSafety Boolean  @default(false)
-  validationSyntax Boolean  @default(false)
-  validationExec   Boolean  @default(false)
-  validationAcc    Boolean  @default(false)
-  deployed         Boolean  @default(false)
+  validationSafety Boolean   @default(false)
+  validationSyntax Boolean   @default(false)
+  validationExec   Boolean   @default(false)
+  validationAcc    Boolean   @default(false)
+  deployed         Boolean   @default(false)
   deployedAt       DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 }
 
 model CompiledTemplate {
@@ -160,40 +159,783 @@ model CompiledTemplate {
   templateId  String   @unique
   name        String
   description String?
-  skeleton    String
-  schemaJson  String
+  skeleton    String // template con placeholder
+  schemaJson  String // schema di validazione output
   createdAt   DateTime @default(now())
 }
 
 // =====================================================
-// FASE 3-11 (identiche a schema.prisma — omesse per brevità,
-// mantenute in sync manualmente finché non automatizziamo il diff)
+// FASE 3: Steering (ACTS)
 // =====================================================
 
-// Per evitare divergenze, il resto dei modelli è copiato integralmente
-// da schema.prisma. Vedere quello per i modelli FASE 3 → FASE 23.
+model SteeringEvent {
+  id          String   @id @default(cuid())
+  cycleId     Int
+  agentId     String
+  strategy    String // PLAN|EXECUTE|CHECK|REFLECT
+  phrase      String // steering phrase inviata
+  tokenBudget Int
+  tokenUsed   Int
+  timestamp   DateTime @default(now())
+}
+
+model SteeringStrategy {
+  id            String  @id @default(cuid())
+  name          String  @unique
+  triggerPhrase String
+  description   String?
+  budgetCost    Int     @default(50)
+  active        Boolean @default(true)
+}
 
 // =====================================================
-// FASE 1: Context Graph (relational + AGE views)
+// FASE 4: Zero-Trust e Verifica Formale (AgentVerify)
 // =====================================================
+
+model LTLRule {
+  id          String   @id @default(cuid())
+  ruleId      String   @unique
+  ltlFormula  String // formula LTL (es. "G(high_risk -> X human_approval)")
+  description String?
+  severity    String   @default("block") // block|warn|log
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model VerificationEvent {
+  id         String   @id @default(cuid())
+  ruleId     String?
+  eventType  String // tool_call|state_change|output_intent
+  payload    String
+  stateLabel String // etichetta di stato discreto
+  verdict    String // accept|reject|warn
+  reason     String?
+  timestamp  DateTime @default(now())
+}
+
+model TaintRecord {
+  id         String   @id @default(cuid())
+  source     String // origine input (es. "user_chat", "api_response")
+  payload    String // contenuto tainted
+  taintLabel String   @default("TAINTED")
+  flowTrace  String // JSON array di passaggi
+  blocked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// Normative Computing: gerarchia di priorità
+model NormativeRule {
+  id        String   @id @default(cuid())
+  axiom     String
+  priority  Int // 1=massima (legale), 2=operativo, 3=efficienza
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// =====================================================
+// FASE 5: Riflessione ed Evoluzione (ERL + AutoSOTA)
+// =====================================================
+
+model Heuristic {
+  id           String                      @id @default(cuid())
+  trigger      String // "Quando incontro situazione X"
+  action       String // "devo fare Y"
+  context      String // contesto semantico per RAG
+  embedding    Unsupported("vector(256)")? // pgvector nativo (SQLite: JSON string in schema.prisma)
+  source       String? // operazione che l'ha generata
+  redLineOk    Boolean                     @default(true)
+  appliedCount Int                         @default(0)
+  successRate  Float                       @default(0.0)
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+}
+
+model RedLine {
+  id          String   @id @default(cuid())
+  description String   @unique
+  rationale   String
+  severity    String   @default("absolute") // absolute|strong|soft
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model ReflectionLog {
+  id                 String   @id @default(cuid())
+  operationId        String?
+  outcome            String // success|failure|partial
+  analysis           String
+  extractedHeuristic String?
+  redLineFlag        Boolean  @default(false)
+  timestamp          DateTime @default(now())
+}
+
+// =====================================================
+// Cross-cutting: Agent Log (audit trail)
+// =====================================================
+
+model AgentLog {
+  id        String   @id @default(cuid())
+  agentId   String
+  phase     String // 1..9
+  event     String
+  payload   String // JSON
+  level     String   @default("info") // info|warn|error
+  timestamp DateTime @default(now())
+}
+
+// =====================================================
+// FASE 6: Gestione Dinamica del Contesto (Pruning & Summarization)
+// =====================================================
+
+// Coppie Tool Call/Response nel ring buffer di working memory
+model ToolCallEntry {
+  id              String    @id @default(cuid())
+  agentId         String
+  toolName        String
+  callPayload     String // JSON args
+  responsePayload String // JSON result
+  tokenCost       Int       @default(0)
+  evicted         Boolean   @default(false) // true quando esce dal ring buffer
+  evictedAt       DateTime?
+  summaryId       String? // riferimento al riassunto che lo ha compresso
+  createdAt       DateTime  @default(now())
+}
+
+// Riassunto generato dal summarizer (compressione del contesto evicto)
+model ContextSummary {
+  id             String   @id @default(cuid())
+  agentId        String
+  narrative      String // log narrativo compatto
+  coveredCallIds String // JSON array di ToolCallEntry.id riassunti
+  tokenCost      Int      @default(0)
+  cycleId        Int // ciclo cognitivo di generazione
+  createdAt      DateTime @default(now())
+}
+
+// Policy di pruning configurabile
+model PruningPolicy {
+  id                 String   @id @default(cuid())
+  agentId            String   @unique
+  windowSize         Int      @default(5) // N coppie recenti mantenute
+  summarizeThreshold Int      @default(10) // soglia per trigger summarization
+  autoSummarize      Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 7: Dominator Trees (PTA + Dominators + Coverage)
+// =====================================================
+
+// Tracce di esecuzione positive catturate per training PTA
+model ExecutionTrace {
+  id          String   @id @default(cuid())
+  workflowId  String
+  traceLabel  String // etichetta leggibile
+  statesJson  String // JSON array di stati discreti
+  actionsJson String // JSON array di azioni
+  outcome     String   @default("success") // success|failure|partial
+  capturedAt  DateTime @default(now())
+}
+
+// PTA: Prefix Tree Automaton fuso da più tracce
+model PrefixTreeAutomaton {
+  id             String   @id @default(cuid())
+  workflowId     String   @unique
+  nodesJson      String // JSON: nodi con stato + transizioni
+  dominatorsJson String // JSON: array di nodeId dominatori
+  startNodeId    String
+  acceptNodeIds  String // JSON array
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+}
+
+// Validazione di una nuova traccia contro il PTA + dominators
+model TraceValidation {
+  id                 String   @id @default(cuid())
+  ptaId              String
+  traceId            String?
+  statesJson         String // traccia validata
+  dominatorCoverage  Float    @default(0.0) // 0..1
+  passedDominatorIds String // JSON array di dominatori raggiunti
+  verdict            String   @default("accept") // accept|reject|warn
+  reason             String?
+  timestamp          DateTime @default(now())
+}
+
+// =====================================================
+// FASE 8: Lean4Agent (Formal Verification + LeanEvolve)
+// =====================================================
+
+// Contratto formale associato a un nodo del DAG
+model FormalContract {
+  id              String   @id @default(cuid())
+  planId          String
+  taskId          String
+  preconditions   String // JSON array di predicati Lean4
+  postconditions  String // JSON array di predicati Lean4
+  variableTypes   String // JSON: {var: type}
+  verified        Boolean  @default(false)
+  verificationLog String? // output della verifica Lean4
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Evoluzione guidata dalla verifica formale
+model LeanEvolveEvent {
+  id                   String   @id @default(cuid())
+  planId               String
+  failedTaskId         String
+  failureReason        String
+  leanFeedback         String // output Lean4 con errori localizzati
+  rewrittenInstruction String // nuova istruzione generata dall'LLM
+  revalidated          Boolean  @default(false)
+  revalidationLog      String?
+  cycle                Int      @default(1) // iterazione di evolve
+  createdAt            DateTime @default(now())
+}
+
+// Workflow formalmente verificato (snapshot)
+model VerifiedWorkflow {
+  id            String   @id @default(cuid())
+  planId        String
+  contractsJson String // JSON array di FormalContract snapshot
+  leanSource    String // codice Lean4 generato
+  verified      Boolean  @default(false)
+  deployed      Boolean  @default(false)
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+}
+
+// =====================================================
+// FASE 9: Artificial Retainer (Delegation + HITL + Audit Ledger)
+// =====================================================
+
+// Contratto di delega: permessi concessi a un agente
+model DelegationContract {
+  id           String    @id @default(cuid())
+  agentId      String
+  scope        String // es. "filesystem.read:/tmp/*" o "tool:exec"
+  constraints  String // JSON: limiti (maxCalls, maxSpend, timeWindow)
+  grantedBy    String // userId o "system"
+  grantedAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  active       Boolean   @default(true)
+  revokedAt    DateTime?
+  revokeReason String?
+}
+
+// Gate di approvazione umana (Human-in-the-loop)
+model ApprovalGate {
+  id         String    @id @default(cuid())
+  agentId    String
+  action     String // azione che richiede approvazione
+  payload    String // JSON dettagli
+  reason     String // perché richiede HITL (irreversibile / viola LTL / spesa)
+  status     String    @default("pending") // pending|approved|rejected|expired
+  decidedBy  String? // userId che ha deciso
+  decidedAt  DateTime?
+  axiomTrail String? // JSON: catena logica della decisione
+  expiresAt  DateTime? // auto-expire
+  createdAt  DateTime  @default(now())
+}
+
+// Calcolo normativo: risoluzione conflitti prompt utente vs policy
+model NormativeResolution {
+  id               String   @id @default(cuid())
+  conflictType     String // user_vs_safety | user_vs_operational | ...
+  userInstruction  String
+  systemPolicy     String
+  verdict          String // accept|block|modify
+  modifiedAction   String? // se verdict=modify, nuova azione proposta
+  hierarchyApplied String // JSON: gerarchia usata (safety > operational > aesthetic)
+  axiomTrail       String // JSON: catena logica auditabile
+  decidedAt        DateTime @default(now())
+}
+
+// Audit Ledger: voce del registro di delega comprensibile all'umano
+model AuditLedgerEntry {
+  id                String   @id @default(cuid())
+  agentId           String
+  action            String
+  decision          String // JSON: {source, intent, gate, outcome}
+  delegationId      String? // riferimento al DelegationContract
+  readableNarrative String // traduzione umana della decisione
+  reversible        Boolean  @default(true)
+  timestamp         DateTime @default(now())
+}
+
+// =====================================================
+// FASE 10: Grounded Inference (Model Encapsulator)
+// =====================================================
+
+// Sessione incapsulata: ogni chiamata LLM è isolata, niente stato tra chiamate
+model EncapsulatedSession {
+  id              String   @id @default(cuid())
+  agentId         String
+  taskGoal        String
+  contextInjected String // JSON: contesto minimale iniettato nel prompt
+  modelOutput     String // output raw dell'LLM
+  parsedScript    String? // script deterministico estratto dall'output (per parsing sandbox)
+  sandboxResult   String? // JSON: risultato dell'esecuzione sandboxed
+  sandboxOk       Boolean  @default(false)
+  retryCount      Int      @default(0)
+  status          String   @default("pending") // pending|executed|failed|sandbox_blocked
+  createdAt       DateTime @default(now())
+}
+
+// Policy di incapsulamento per agente
+model EncapsulationPolicy {
+  id                   String   @id @default(cuid())
+  agentId              String   @unique
+  maxRetries           Int      @default(3)
+  contextBudget        Int      @default(2000) // token max iniettabili
+  sandboxEnabled       Boolean  @default(true)
+  forbidDirectMutation Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 11: Affect Subsystem (Desperation/Frustration)
+// =====================================================
+
+// Campione di telemetria affettiva (timestamped)
+model AffectSample {
+  id                String   @id @default(cuid())
+  agentId           String
+  desperation       Float // 0..1
+  frustration       Float // 0..1
+  toolFailureRate   Float // 0..1
+  gateRejectRate    Float // 0..1
+  repeatedToolCalls Int // count di chiamate ripetute allo stesso tool
+  intervention      String? // azione intrapresa dal Meta-Observer
+  cycleId           Int
+  timestamp         DateTime @default(now())
+}
+
+// Soglie di intervento configurabili
+model AffectThreshold {
+  id                  String   @id @default(cuid())
+  agentId             String   @unique
+  desperationCritical Float    @default(0.7)
+  frustrationCritical Float    @default(0.7)
+  cooldownMs          Int      @default(5000) // sleep forzato in ms
+  tighteningPct       Float    @default(0.15) // riduzione soglie di accettazione
+  updatedAt           DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 12: AgentObjective (BFS Rubric Tree)
+// =====================================================
+
+// Obiettivo macro decomposto in rubrica ad albero
+model ObjectiveTree {
+  id         String   @id @default(cuid())
+  rootGoal   String // obiettivo macro (es. "ottimizza il deploy")
+  status     String   @default("drafted") // drafted|expanded|evaluating|done
+  totalNodes Int      @default(0)
+  maxDepth   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// Nodo della rubrica (Pass/Fail binario)
+model ObjectiveNode {
+  id          String    @id @default(cuid())
+  treeId      String
+  parentId    String? // null per la root
+  description String // sotto-obiettivo binario (Pass/Fail)
+  depth       Int // 0 = root
+  weight      Float     @default(1.0) // peso (stop se < threshold)
+  contextTier String    @default("strategic") // strategic|methodological|implementation
+  status      String    @default("pending") // pending|pass|fail|skipped
+  evidence    String? // JSON: prove raccolte
+  evaluatedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// =====================================================
+// FASE 13: Epistemic State Replication (ESR) + Quorum
+// =====================================================
+
+// Belief: convinzione di un agente (riassunto, prova, stato pianificato)
+model Belief {
+  id         String                      @id @default(cuid())
+  agentId    String
+  content    String // contenuto della convinzione (testuale)
+  beliefType String // summary|evidence|plan|observation
+  embedding  Unsupported("vector(256)")? // pgvector nativo (SQLite: JSON string in schema.prisma)
+  lineageId  String? // ID della convinzione genitore (belief lineage)
+  confidence Float                       @default(1.0)
+  superseded Boolean                     @default(false) // true se sostituita da versione più recente
+  version    Int                         @default(1)
+  createdAt  DateTime                    @default(now())
+}
+
+// Replica ESR: sincronizzazione convinzioni tra agenti
+model ESRSyncEvent {
+  id             String   @id @default(cuid())
+  sourceAgentId  String
+  targetAgentId  String
+  beliefId       String
+  syncStatus     String   @default("pending") // pending|synced|conflict
+  conflictReason String?
+  timestamp      DateTime @default(now())
+}
+
+// Quorum semantico: validazione di un'azione da parte di N validatori
+model QuorumVote {
+  id             String   @id @default(cuid())
+  workflowJoinId String // identificativo del join point nel DAG
+  action         String // azione da certificare
+  voterAgentId   String
+  vote           String // accept|reject
+  reason         String?
+  confidence     Float    @default(1.0)
+  timestamp      DateTime @default(now())
+}
+
+model QuorumDecision {
+  id             String    @id @default(cuid())
+  workflowJoinId String
+  action         String
+  requiredQuorum Int       @default(2) // numero minimo di accept
+  acceptCount    Int       @default(0)
+  rejectCount    Int       @default(0)
+  verdict        String    @default("pending") // pending|accepted|rejected
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+// =====================================================
+// FASE 14: TimeRouter (Adaptive Routing + Ensemble Fallback)
+// =====================================================
+
+// Modello Foundation disponibile
+model FoundationModel {
+  id              String  @id @default(cuid())
+  modelId         String  @unique
+  name            String
+  specialization  String // code|reasoning|math|logic|general
+  costPer1kTokens Float   @default(0.0)
+  avgLatencyMs    Int     @default(500)
+  active          Boolean @default(true)
+}
+
+// Decisione di routing
+model RoutingDecision {
+  id             String   @id @default(cuid())
+  agentId        String
+  inputHash      String // hash del prompt input per dedup
+  inputFeatures  String // JSON: feature estratte (lunghezza, dominio, complessità)
+  primaryModel   String // modello scelto come leader
+  confidence     Float // confidenza del router
+  margin         Float // margine tra top-2 modelli
+  diversity      Float // diversità tra predizioni
+  routedTo       String // primary|ensemble|critic
+  ensembleModels String? // JSON: modelli usati in ensemble
+  finalOutput    String? // output finale fuso
+  createdAt      DateTime @default(now())
+}
+
+// Configurazione router
+model RouterConfig {
+  id                 String   @id @default(cuid())
+  marginThreshold    Float    @default(0.2) // τm
+  diversityThreshold Float    @default(0.3) // τd
+  minConfidence      Float    @default(0.6)
+  enableEnsemble     Boolean  @default(true)
+  enableCritic       Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+}
+
+// =====================================================
+// FASE 15-18: Cockpit, Tool Ecosystem, Sovereign Validator
+// =====================================================
+
+// Cockpit: narrativa ad alto livello per il tab Narrative
+model CockpitNarrative {
+  id           String   @id @default(cuid())
+  agentId      String
+  narrative    String // descrizione ad alto livello dell'azione
+  cycleId      Int?
+  level        String   @default("info") // info|warn|critical
+  relatedPhase String? // fase che ha generato l'evento (1-14)
+  timestamp    DateTime @default(now())
+}
+
+// Azione bloccata dai cancelli di sicurezza (LTL/Taint/Normative)
+// In attesa di risoluzione umana (Sovereign Validator)
+model BlockedAction {
+  id                  String    @id @default(cuid())
+  agentId             String
+  action              String // azione tentata dall'agente
+  source              String // ltl|taint|normative|hitl_gate
+  axiomTrail          String // JSON: catena logica della violazione
+  readableExplanation String // traduzione in linguaggio naturale
+  status              String    @default("pending") // pending|approved|modified|downgraded|rejected
+  resolution          String? // JSON: dettagli della risoluzione umana
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+}
+
+// Tool installato nel Tool Ecosystem (Fase 18)
+model Tool {
+  id           String    @id @default(cuid())
+  toolId       String    @unique
+  name         String
+  version      String
+  signature    String // hash crittografico (simulato)
+  description  String?
+  publisher    String?
+  active       Boolean   @default(true)
+  installedAt  DateTime  @default(now())
+  installedBy  String?
+  revokedAt    DateTime?
+  revokeReason String?
+  // C2 — Campi per esecuzione tool esterni
+  transport    String? // "http" | "mcp" | null (null = builtin/no exec)
+  endpoint     String? // URL per http, o server MCP URL per mcp
+  apiKey       String? // API key per il server esterno (opzionale)
+  inputSchema  String? // JSON schema per i parametri (opzionale, per MCP tool discovery)
+}
+
+// Permessi a grana fine per ogni tool
+model ToolPermission {
+  id         String   @id @default(cuid())
+  toolId     String
+  scope      String // es. filesystem:read, network:post, tool:exec, db:write
+  granted    Boolean  @default(false)
+  grantedBy  String?
+  grantedAt  DateTime @default(now())
+  constraint String? // JSON: limiti aggiuntivi (maxCalls, paths, ecc.)
+}
+
+// =====================================================
+// FASE 20: Authentication & Multi-Tenancy
+// =====================================================
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?
+  role         String    @default("viewer") // admin|operator|viewer|sovereign
+  tenantId     String    @default("default")
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+}
+
+// === IO-0: API Key per auth machine-to-machine ===
+model ApiKey {
+  id              String    @id @default(cuid())
+  keyId           String    @unique // prefisso pubblico (es. "sak_abc123")
+  keyHash         String    @unique // hash del secret (SHA-256)
+  name            String // nome descrittivo
+  scopes          String    @default("read") // JSON array: ["read","exec","admin"]
+  userId          String? // utente associato (null = service account)
+  tenantId        String    @default("default")
+  active          Boolean   @default(true)
+  rateLimitPerMin Int       @default(60)
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  createdBy       String // email o "system"
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  revokeReason    String?
+
+  @@index([keyId])
+  @@index([tenantId])
+  @@index([active])
+}
+
+// =====================================================
+// FASE 21: Cryptographic Trust Layer
+// =====================================================
+
+// Publisher registry: chiavi pubbliche ECDSA per verifica firme tool
+model PublisherKey {
+  id           String    @id @default(cuid())
+  publisher    String    @unique
+  publicKeyPem String // chiave pubblica ECDSA P-256 in formato PEM
+  fingerprint  String // SHA-256 della chiave pubblica
+  active       Boolean   @default(true)
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// =====================================================
+// FASE 22: Production Observability Stack
+// =====================================================
+
+// Error tracking
+model ErrorRecord {
+  id          String    @id @default(cuid())
+  fingerprint String    @unique // hash per dedup
+  message     String
+  stack       String?
+  source      String // kernel|api|ui
+  phase       String?
+  userId      String?
+  tenantId    String?
+  context     String? // JSON: additional context
+  status      String    @default("open") // open|acknowledged|resolved
+  count       Int       @default(1)
+  firstSeen   DateTime  @default(now())
+  lastSeen    DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+}
+
+// Distributed tracing
+model TraceSpan {
+  id           String   @id @default(cuid())
+  traceId      String
+  spanId       String   @unique
+  parentSpanId String?
+  operation    String // es. "ltl.verify", "patchboard.apply"
+  phase        String?
+  userId       String?
+  status       String   @default("ok") // ok|error
+  durationMs   Int      @default(0)
+  metadata     String? // JSON
+  timestamp    DateTime @default(now())
+}
+
+// Backup records
+model BackupRecord {
+  id         String    @id @default(cuid())
+  filePath   String
+  sizeBytes  Int
+  checksum   String
+  status     String    @default("created") // created|verified|failed|restored
+  trigger    String    @default("manual") // manual|scheduled
+  createdAt  DateTime  @default(now())
+  verifiedAt DateTime?
+}
+
+// =====================================================
+// FASE 23: Scalability & Persistence
+// =====================================================
+
+// Job queue per background processing
+model JobRecord {
+  id          String    @id @default(cuid())
+  jobType     String // embeddings_recompute|summarize|backup|fsm_checkpoint|taint_cleanup
+  status      String    @default("queued") // queued|running|completed|failed|retry
+  priority    Int       @default(0) // 0=normal, 1=high, 2=critical
+  payload     String // JSON: parametri del job
+  result      String? // JSON: risultato
+  error       String?
+  retryCount  Int       @default(0)
+  maxRetries  Int       @default(3)
+  queuedAt    DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  durationMs  Int       @default(0)
+}
+
+// FSM LTL persistence: snapshot periodici dello stato FSM
+model FSMSnapshot {
+  id          String   @id @default(cuid())
+  ruleId      String // LTL rule ID
+  state       String // stato corrente della FSM
+  historyJson String // JSON: ultimi N eventi
+  eventCount  Int      @default(0) // totale eventi processati
+  snapshotAt  DateTime @default(now())
+}
+
+// Taint flow con TTL per scadenza automatica
+model TaintFlow {
+  id            String   @id @default(cuid())
+  taintRecordId String
+  source        String
+  flowTraceJson String // JSON array di step
+  expiresAt     DateTime // TTL: scadenza automatica
+  expired       Boolean  @default(false)
+  blockedSink   String? // sink che ha bloccato il flow
+  createdAt     DateTime @default(now())
+}
+
+// === Release 1.1: Cost tracking ===
+model CostEntry {
+  id        String   @id @default(cuid())
+  agentId   String // planner | orchestrator | curator | controller | verifier | reflective | lean | router | etc.
+  model     String // zai-glm | gpt-4 | gpt-3.5-turbo | claude-3-opus | etc.
+  phase     String // plan_generation | task_execution | steering | reflection | routing | compilation
+  tokensIn  Int // input tokens
+  tokensOut Int // output tokens
+  cost      Float // USD cost
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([agentId])
+  @@index([model])
+  @@index([phase])
+}
+
+// === Release 1.2: Branch & Share conversations ===
+model ConversationBranch {
+  id           String   @id @default(cuid())
+  parentId     String // parent branch id (root has "root")
+  messageId    String // message id from which we forked
+  title        String // branch label (auto-generated or user-provided)
+  taskText     String // original task text
+  messagesJson String // JSON array of messages snapshot
+  createdAt    DateTime @default(now())
+
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+model SharedConversation {
+  id           String    @id @default(cuid())
+  token        String    @unique // signed URL token
+  branchId     String // reference to ConversationBranch
+  title        String
+  messagesJson String // snapshot of messages at share time
+  createdBy    String
+  expiresAt    DateTime? // null = never expires
+  viewCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([token])
+}
+
+// === FASE 1: Context Graph (relational, AGE views in PostgreSQL) ===
 
 model GraphNode {
-  id            String   @id @default(cuid())
-  uri           String   @unique
-  entityType    String
-  lifecycleState String  @default("draft")
-  attributes    String   @default("{}")
+  id             String   @id @default(cuid())
+  uri            String   @unique // agent://planner, task://uuid, etc. (Fase 0.5.2)
+  entityType     String // Agent, Task, Skill, etc. (Fase 0.5.1)
+  lifecycleState String   @default("draft") // Fase 0.5.1
+  attributes     String   @default("{}") // JSON
+  // Provenance (Fase 0.5.3 — obbligatorio)
   createdByAgent String
   createdByModel String?
-  source        String
-  confidence    Float    @default(1.0)
-  provenanceTs  DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  version       Int      @default(1)
+  source         String
+  confidence     Float    @default(1.0)
+  provenanceTs   DateTime @default(now())
+  // Metadata
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(1)
 
-  edgesFrom     GraphEdge[] @relation("EdgeFrom")
-  edgesTo       GraphEdge[] @relation("EdgeTo")
+  edgesFrom GraphEdge[] @relation("EdgeFrom")
+  edgesTo   GraphEdge[] @relation("EdgeTo")
 
   @@index([entityType])
   @@index([uri])
@@ -201,16 +943,17 @@ model GraphNode {
 }
 
 model GraphEdge {
-  id          String   @id @default(cuid())
-  fromNodeId  String
-  toNodeId    String
-  relationType String
-  properties  String   @default("{}")
+  id             String   @id @default(cuid())
+  fromNodeId     String
+  toNodeId       String
+  relationType   String // EXECUTED, GENERATED, RESULTED_IN, etc.
+  properties     String   @default("{}") // JSON
+  // Provenance
   createdByAgent String
-  createdAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
 
-  fromNode    GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
-  toNode      GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  fromNode GraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode   GraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
 
   @@unique([fromNodeId, toNodeId, relationType])
   @@index([fromNodeId])
@@ -218,62 +961,74 @@ model GraphEdge {
   @@index([relationType])
 }
 
-// =====================================================
-// FASE 1: pgvector embedding storage (nativo)
-// =====================================================
+// === FASE 1: pgvector embedding storage ===
 
 model EmbeddingVector {
-  id          String   @id @default(cuid())
-  entityUri   String   @unique
-  entityType  String
-  embedding   Unsupported("vector(256)")
-  model       String   @default("all-MiniLM-L6-v2")
-  dimensions  Int      @default(256)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String                     @id @default(cuid())
+  entityUri  String                     @unique // URI of the entity this embedding represents
+  entityType String
+  embedding  Unsupported("vector(256)") // pgvector nativo, NON nullable (SQLite: JSON string in schema.prisma)
+  model      String                     @default("all-MiniLM-L6-v2")
+  dimensions Int                        @default(384)
+  createdAt  DateTime                   @default(now())
+  updatedAt  DateTime                   @updatedAt
 
   @@index([entityUri])
   @@index([entityType])
 }
 
-// =====================================================
-// FASE 1: Agent Runtime Checkpoints
-// =====================================================
+// === FASE 1: Agent Runtime Checkpoints ===
 
 model AgentCheckpoint {
-  id            String   @id @default(cuid())
-  agentUri      String
-  taskId        String?
-  checkpointType String
-  stateJson     String
-  cycleId       Int?
-  createdAt     DateTime @default(now())
+  id             String   @id @default(cuid())
+  agentUri       String // agent://planner
+  taskId         String? // task://uuid (null = agent-level checkpoint)
+  checkpointType String // execution_state | tool_state | memory_state | workflow_state
+  stateJson      String // JSON: serializable state snapshot
+  cycleId        Int? // cognitive cycle number
+  createdAt      DateTime @default(now())
 
   @@index([agentUri])
   @@index([taskId])
   @@index([checkpointType])
 }
 
-// =====================================================
-// FASE 1: Memory Fabric layers
-// =====================================================
+// === FASE 1: Memory Fabric layers ===
 
 model MemoryEntry {
-  id            String   @id @default(cuid())
-  layer         String
-  agentUri      String
-  content       String
-  embedding     Unsupported("vector(256)")?
-  sourceUri     String?
-  utilityScore  Float    @default(0.5)
-  recencyScore  Float    @default(1.0)
-  weight        Float    @default(0.5)
-  accessCount   Int      @default(0)
+  id             String                      @id @default(cuid())
+  layer          String // episodic | semantic | procedural | reasoning
+  agentUri       String
+  content        String // the memory content (text, JSON, etc.)
+  embedding      Unsupported("vector(256)")? // pgvector nativo (SQLite: JSON string in schema.prisma)
+  sourceUri      String? // URI of source entity
+  utilityScore   Float                       @default(0.5) // 0-1, how useful
+  recencyScore   Float                       @default(1.0) // 0-1, decays over time
+  weight         Float                       @default(0.5) // utility * recency
+  accessCount    Int                         @default(0)
   lastAccessedAt DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
 
   @@index([layer])
   @@index([agentUri])
   @@index([weight])
+}
+
+// === C6: System Settings — runtime-writable key/value overrides ===
+//
+// Cache in src/lib/settings/store.ts; priority: DB > env > default.
+// readOnly=true means the setting requires a server restart to take effect
+// (e.g. DATABASE_URL). All other settings are hot-swappable via the admin API.
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "llm.default_model", "tool.allowed_read_paths"
+  value     String // JSON-encoded value (string, number, bool, array)
+  category  String   @default("general") // llm | tools | mesh | observability | embedding | server | database | general
+  readOnly  Boolean  @default(false) // true => requires restart
+  updatedBy String? // userId or 'system' for seeds
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([category])
 }
