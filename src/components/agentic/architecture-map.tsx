@@ -26,10 +26,14 @@ export function ArchitectureMap() {
  const phases = categories[cat] || []
  return (
  <div key={cat} className="space-y-1.5">
- <div className={cn(
+ <div
+ className={cn(
  'text-[10px] font-medium uppercase tracking-wide pb-1.5 border-b',
  CATEGORY_COLORS[cat]
- )}>
+ )}
+ role="heading"
+ aria-level={3}
+ >
  {catLabels[cat]}
  </div>
  {phases.map((p) => {
@@ -39,6 +43,8 @@ export function ArchitectureMap() {
  <button
  key={p.id}
  onClick={() => setActivePhase(p.id as Phase)}
+ aria-label={`${active ? 'Active: ' : ''}${p.name}${p.subtitle ? ` — ${p.subtitle}` : ''}`}
+ aria-pressed={active}
  className={cn(
  'w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all',
  active
@@ -46,7 +52,7 @@ export function ArchitectureMap() {
  : 'hover:bg-accent/50'
  )}
  >
- <Icon className={cn('size-3.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+ <Icon className={cn('size-3.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
  <span className={cn('text-xs leading-tight truncate', active && 'font-medium')}>
  {p.name}
  </span>
