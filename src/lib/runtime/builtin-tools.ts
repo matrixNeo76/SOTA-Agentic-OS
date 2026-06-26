@@ -17,6 +17,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join, resolve, isAbsolute } from 'path'
+import { getCachedArray, isCacheLoaded } from '@/lib/settings'
 
 // === Tipi ============================================================
 
@@ -49,12 +50,34 @@ export interface ToolResult {
 const DEFAULT_TIMEOUT = 10_000 // 10s
 // C0 — Derive allowed paths from cwd instead of hardcoded /home/z/my-project.
 const CWD = process.cwd()
-const ALLOWED_READ_PATHS = process.env.TOOL_ALLOWED_READ_PATHS
-  ? process.env.TOOL_ALLOWED_READ_PATHS.split(',')
-  : ['/tmp', join(CWD, 'src'), join(CWD, 'download')]
-const ALLOWED_WRITE_PATHS = process.env.TOOL_ALLOWED_WRITE_PATHS
-  ? process.env.TOOL_ALLOWED_WRITE_PATHS.split(',')
-  : ['/tmp', join(CWD, 'upload')]
+
+// C6 — Fallback defaults used when neither the settings cache nor the env
+// var has been populated. Keeping these as functions (not consts) ensures
+// we always see the latest value from the settings store, so admin updates
+// via /api/admin/settings take effect on the next tool call without restart.
+const FALLBACK_READ_PATHS = ['/tmp', join(CWD, 'src'), join(CWD, 'download')]
+const FALLBACK_WRITE_PATHS = ['/tmp', join(CWD, 'upload')]
+
+function getAllowedReadPaths(): string[] {
+  // Settings cache wins (DB > env > default), then env var, then fallback.
+  if (isCacheLoaded()) {
+    const fromCache = getCachedArray('tool.allowed_read_paths')
+    if (fromCache.length > 0) return fromCache
+  }
+  return process.env.TOOL_ALLOWED_READ_PATHS
+    ? process.env.TOOL_ALLOWED_READ_PATHS.split(',').map((s) => s.trim()).filter(Boolean)
+    : FALLBACK_READ_PATHS
+}
+
+function getAllowedWritePaths(): string[] {
+  if (isCacheLoaded()) {
+    const fromCache = getCachedArray('tool.allowed_write_paths')
+    if (fromCache.length > 0) return fromCache
+  }
+  return process.env.TOOL_ALLOWED_WRITE_PATHS
+    ? process.env.TOOL_ALLOWED_WRITE_PATHS.split(',').map((s) => s.trim()).filter(Boolean)
+    : FALLBACK_WRITE_PATHS
+}
 
 // === Builtin tools ===================================================
 
@@ -73,7 +96,7 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
     requiredScopes: ['filesystem:read'],
     async execute(params, ctx) {
       const filePath = resolvePath(params.path as string, ctx)
-      if (!isPathAllowed(filePath, ctx.allowedPaths || ALLOWED_READ_PATHS)) {
+      if (!isPathAllowed(filePath, ctx.allowedPaths || getAllowedReadPaths())) {
         return { success: false, output: '', error: `Path not allowed: ${filePath}` }
       }
       if (!existsSync(filePath)) {
@@ -109,7 +132,7 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
     requiredScopes: ['filesystem:write'],
     async execute(params, ctx) {
       const filePath = resolvePath(params.path as string, ctx)
-      if (!isPathAllowed(filePath, ctx.allowedPaths || ALLOWED_WRITE_PATHS)) {
+      if (!isPathAllowed(filePath, ctx.allowedPaths || getAllowedWritePaths())) {
         return { success: false, output: '', error: `Path not allowed: ${filePath}` }
       }
       try {
@@ -141,7 +164,7 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
     requiredScopes: ['filesystem:read'],
     async execute(params, ctx) {
       const dirPath = resolvePath(params.path as string, ctx)
-      if (!isPathAllowed(dirPath, ctx.allowedPaths || ALLOWED_READ_PATHS)) {
+      if (!isPathAllowed(dirPath, ctx.allowedPaths || getAllowedReadPaths())) {
         return { success: false, output: '', error: `Path not allowed: ${dirPath}` }
       }
       try {

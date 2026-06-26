@@ -992,3 +992,21 @@ model MemoryEntry {
   @@index([agentUri])
   @@index([weight])
 }
+
+// === C6: System Settings — runtime-writable key/value overrides ===
+//
+// Cache in src/lib/settings/store.ts; priority: DB > env > default.
+// readOnly=true means the setting requires a server restart to take effect
+// (e.g. DATABASE_URL). All other settings are hot-swappable via the admin API.
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "llm.default_model", "tool.allowed_read_paths"
+  value     String   // JSON-encoded value (string, number, bool, array)
+  category  String   @default("general") // llm | tools | mesh | observability | embedding | server | database | general
+  readOnly  Boolean  @default(false) // true => requires restart
+  updatedBy String?  // userId or 'system' for seeds
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([category])
+}
