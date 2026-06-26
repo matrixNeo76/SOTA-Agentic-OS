@@ -14,6 +14,19 @@ const globalForPrisma = globalThis as unknown as {
 // Works zero-config on any machine: clone → bun install → bun run dev.
 const DEFAULT_SQLITE_PATH = require('path').join(process.cwd(), 'db', 'custom.db')
 
+// C6.1 — Prisma requires DATABASE_URL to be set in process.env at client
+// init time. The .env file shipped with this repo has DATABASE_URL commented
+// out (so users can pick SQLite vs Postgres), which means a fresh clone
+// with no .env edits would crash Prisma with "Environment variable not
+// found: DATABASE_URL". Inject the default SQLite URL into process.env
+// here if the user hasn't set one, so the zero-config path actually works.
+//
+// We do this BEFORE the first PrismaClient construction (in createClient)
+// so the env var is always present when Prisma reads it.
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = `file:${DEFAULT_SQLITE_PATH}`
+}
+
 /**
  * Estrae il path del file SQLite da DATABASE_URL.
  * Supporta i formati:
