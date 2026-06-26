@@ -44,12 +44,24 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
 
-  const { action } = await req.json()
+  // Parse the body once and reuse. Calling req.json() twice throws because
+  // the body stream is already consumed.
+  const body = await req.json()
+  const { action } = body
+
+  const VALID_ROLES = ['admin', 'operator', 'sovereign', 'viewer']
 
   if (action === 'create') {
-    const { email, name, role, password } = await req.json()
+    const { email, name, role, password } = body
     if (!email || !password) {
       return NextResponse.json({ error: 'Missing email or password' }, { status: 400 })
+    }
+    if (password.length < 8) {
+      return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+    }
+    const finalRole = role || 'viewer'
+    if (!VALID_ROLES.includes(finalRole)) {
+      return NextResponse.json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` }, { status: 400 })
     }
 
     const existing = await db.user.findUnique({ where: { email } })
@@ -57,18 +69,27 @@ export async function POST(req: NextRequest) {
 
     const { hashPassword } = await import('@/lib/auth/session')
     const { hash, salt } = hashPassword(password)
+    // Store as "salt:hash" — verifyPassword + authenticateUser expect this format.
+    // Without the salt prefix, created users cannot log in.
+    const passwordHash = `${salt}:${hash}`
 
     const user = await db.user.create({
-      data: { email, name, role: role || 'viewer', passwordHash: hash },
+      data: { email, name, role: finalRole, passwordHash },
     })
-    return NextResponse.json({ created: true, userId: user.id })
+    return NextResponse.json({ created: true, userId: user.id, email: user.email, role: user.role })
   }
 
   if (action === 'update-role') {
-    const { userId, role } = await req.json()
+    const { userId, role } = body
     if (!userId || !role) {
       return NextResponse.json({ error: 'Missing userId or role' }, { status: 400 })
     }
+    if (!VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` }, { status: 400 })
+    }
+
+    const existing = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!existing) return NextResponse.json({ error: `User not found: ${userId}` }, { status: 404 })
 
     const user = await db.user.update({
       where: { id: userId },
@@ -78,20 +99,27 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'toggle-active') {
-    const { userId, active } = await req.json()
+    const { userId, active } = body
     if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+    if (typeof active !== 'boolean') return NextResponse.json({ error: 'active must be boolean' }, { status: 400 })
+
+    const existing = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!existing) return NextResponse.json({ error: `User not found: ${userId}` }, { status: 404 })
 
     await db.user.update({ where: { id: userId }, data: { active } })
-    return NextResponse.json({ updated: true })
+    return NextResponse.json({ updated: true, userId, active })
   }
 
   if (action === 'revoke-sessions') {
-    const { userId } = await req.json()
+    const { userId } = body
     if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
-    await db.session.deleteMany({ where: { userId } })
-    return NextResponse.json({ revoked: true })
+    const existing = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+    if (!existing) return NextResponse.json({ error: `User not found: ${userId}` }, { status: 404 })
+
+    const result = await db.session.deleteMany({ where: { userId } })
+    return NextResponse.json({ revoked: true, userId, count: result.count })
   }
 
-  return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  return NextResponse.json({ error: 'Unknown action. Use: create, update-role, toggle-active, revoke-sessions' }, { status: 400 })
 }

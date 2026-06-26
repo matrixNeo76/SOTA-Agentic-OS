@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
 
-  const { action } = await req.json()
+  // Parse the body once and reuse. Calling req.json() twice throws because
+  // the body stream is already consumed.
+  const body = await req.json()
+  const { action } = body
 
   if (action === 'recover') {
     const result = await recoverOrphanedPlans()
@@ -66,8 +69,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'cancel-plan') {
-    const { planId } = await req.json()
+    const { planId } = body
     if (!planId) return NextResponse.json({ error: 'Missing planId' }, { status: 400 })
+
+    // Check the plan exists first — db.agentPlan.update throws P2025 if not.
+    const existing = await db.agentPlan.findUnique({ where: { id: planId }, select: { id: true, status: true } })
+    if (!existing) {
+      return NextResponse.json({ error: `Plan not found: ${planId}` }, { status: 404 })
+    }
 
     // Mark all running/pending tasks as 'failed' with a cancellation reason,
     // then mark the plan itself as 'failed'. This frees the worker to pick
@@ -80,7 +89,7 @@ export async function POST(req: NextRequest) {
       where: { id: planId },
       data: { status: 'failed' },
     })
-    return NextResponse.json({ cancelled: true, planId, affectedTasks: updated.count })
+    return NextResponse.json({ cancelled: true, planId, affectedTasks: updated.count, previousStatus: existing.status })
   }
 
   return NextResponse.json({ error: 'Unknown action. Use: recover, gc-consolidate, gc-archive, cancel-plan' }, { status: 400 })

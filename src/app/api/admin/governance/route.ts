@@ -73,11 +73,18 @@ export async function POST(req: NextRequest) {
     if (!blockedActionId || !choice) {
       return NextResponse.json({ error: 'Missing blockedActionId or choice' }, { status: 400 })
     }
+    const VALID_CHOICES = ['approved', 'modified', 'downgraded', 'rejected']
+    if (!VALID_CHOICES.includes(choice)) {
+      return NextResponse.json({ error: `Invalid choice. Must be one of: ${VALID_CHOICES.join(', ')}` }, { status: 400 })
+    }
+
+    const existing = await db.blockedAction.findUnique({ where: { id: blockedActionId }, select: { id: true, status: true } })
+    if (!existing) return NextResponse.json({ error: `Blocked action not found: ${blockedActionId}` }, { status: 404 })
 
     const updated = await db.blockedAction.update({
       where: { id: blockedActionId },
       data: {
-        status: choice, // approved | modified | downgraded | rejected
+        status: choice,
         resolvedBy: auth.email,
         resolvedAt: new Date(),
         resolution: JSON.stringify({ reason }),
@@ -91,11 +98,18 @@ export async function POST(req: NextRequest) {
     if (!gateId || !choice) {
       return NextResponse.json({ error: 'Missing gateId or choice' }, { status: 400 })
     }
+    const VALID_CHOICES = ['approved', 'rejected', 'expired']
+    if (!VALID_CHOICES.includes(choice)) {
+      return NextResponse.json({ error: `Invalid choice. Must be one of: ${VALID_CHOICES.join(', ')}` }, { status: 400 })
+    }
+
+    const existing = await db.approvalGate.findUnique({ where: { id: gateId }, select: { id: true, status: true } })
+    if (!existing) return NextResponse.json({ error: `Approval gate not found: ${gateId}` }, { status: 404 })
 
     const updated = await db.approvalGate.update({
       where: { id: gateId },
       data: {
-        status: choice, // approved | rejected | expired
+        status: choice,
         decidedBy: auth.email,
         decidedAt: new Date(),
       },
@@ -106,9 +120,13 @@ export async function POST(req: NextRequest) {
   if (action === 'toggle-ltl') {
     const { ruleId, active } = body
     if (!ruleId) return NextResponse.json({ error: 'Missing ruleId' }, { status: 400 })
+    if (typeof active !== 'boolean') return NextResponse.json({ error: 'active must be boolean' }, { status: 400 })
+
+    const existing = await db.lTLRule.findUnique({ where: { id: ruleId }, select: { id: true, active: true } })
+    if (!existing) return NextResponse.json({ error: `LTL rule not found: ${ruleId}` }, { status: 404 })
 
     await db.lTLRule.update({ where: { id: ruleId }, data: { active } })
-    return NextResponse.json({ toggled: true })
+    return NextResponse.json({ toggled: true, ruleId, active, previousActive: existing.active })
   }
 
   if (action === 'add-redline') {

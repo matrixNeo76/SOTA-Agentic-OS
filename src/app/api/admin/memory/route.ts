@@ -52,10 +52,13 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
 
-  const { action } = await req.json()
+  // Parse the body once and reuse. Calling req.json() twice throws because
+  // the body stream is already consumed.
+  const body = await req.json()
+  const { action } = body
 
   if (action === 'search') {
-    const { query, agentUri, topK } = await req.json()
+    const { query, agentUri, topK } = body
     if (!query) return NextResponse.json({ error: 'Missing query' }, { status: 400 })
 
     const results = await semanticMemorySearch(query, agentUri, topK || 10)

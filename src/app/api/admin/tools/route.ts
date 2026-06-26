@@ -39,10 +39,17 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
 
-  const { action } = await req.json()
+  // Parse the body once and reuse. Calling req.json() twice throws because
+  // the body stream is already consumed.
+  const body = await req.json()
+  const { action } = body
 
   if (action === 'test') {
-    const { toolName, args, agentId } = await req.json().then((b) => ({ toolName: b.toolName, args: b.args || {}, agentId: b.agentId || 'admin' }))
+    const { toolName, args, agentId } = {
+      toolName: body.toolName,
+      args: body.args || {},
+      agentId: body.agentId || 'admin',
+    }
     if (!toolName) return NextResponse.json({ error: 'Missing toolName' }, { status: 400 })
 
     const result = await dispatchTool(
@@ -53,8 +60,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'register') {
-    const { toolId, name, version, description, publisher, transport, endpoint, apiKey } = await req.json()
+    const { toolId, name, version, description, publisher, transport, endpoint, apiKey } = body
     if (!toolId || !name) return NextResponse.json({ error: 'Missing toolId or name' }, { status: 400 })
+
+    // Check for duplicate toolId first — db.tool.create throws P2002 on unique violation.
+    const existing = await db.tool.findUnique({ where: { toolId }, select: { toolId: true } })
+    if (existing) {
+      return NextResponse.json({ error: `Tool with toolId '${toolId}' already exists` }, { status: 409 })
+    }
 
     const tool = await db.tool.create({
       data: {
@@ -63,6 +76,7 @@ export async function POST(req: NextRequest) {
         description, publisher,
         signature: 'admin-registered',
         active: true,
+        installedBy: auth.email,
         // C2 — Campi per esecuzione tool esterni
         ...(transport && { transport }),
         ...(endpoint && { endpoint }),
@@ -73,8 +87,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'grant-scope') {
-    const { toolId, scope } = await req.json()
+    const { toolId, scope } = body
     if (!toolId || !scope) return NextResponse.json({ error: 'Missing toolId or scope' }, { status: 400 })
+
+    // Verify the tool exists — ToolPermission.toolId is a free string (not FK),
+    // so we validate here to avoid orphan permissions.
+    const toolExists = await db.tool.findUnique({ where: { toolId }, select: { toolId: true } })
+    if (!toolExists) {
+      return NextResponse.json({ error: `Tool not found: ${toolId}` }, { status: 404 })
+    }
 
     const perm = await db.toolPermission.create({
       data: { toolId, scope, granted: true, grantedBy: auth.email },
