@@ -39,7 +39,14 @@ export function Topbar() {
  // eslint-disable-next-line react-hooks/set-state-in-effect
  setMounted(true)
  fetch('/api/auth').then(r => r.json()).then(d => {
- if (d.authenticated) setUser(d.user)
+ if (d.authenticated) {
+   setUser(d.user)
+ } else {
+   // Session expired or missing — redirect to login.
+   // Preserve the current path so the user comes back here after login.
+   const next = window.location.pathname + window.location.search
+   window.location.href = `/login?next=${encodeURIComponent(next)}`
+ }
  })
  }, [])
 

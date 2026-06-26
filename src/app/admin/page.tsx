@@ -83,7 +83,17 @@ function useAdminData<T>(endpoint: string): { data: T | null; loading: boolean; 
     setLoading(true)
     try {
       const res = await fetch(`/api/admin/${endpoint}`)
-      if (res.status === 401) { setError('Not authenticated'); return }
+      if (res.status === 401) {
+        // Session expired or missing — redirect to login.
+        // Use window.location so it works even when AdminPage is rendered
+        // inline inside the home page (where router.push would only change
+        // the active view, not navigate away).
+        if (typeof window !== 'undefined') {
+          const next = window.location.pathname + window.location.search
+          window.location.href = `/login?next=${encodeURIComponent(next)}`
+        }
+        return
+      }
       if (res.status === 403) { setError('Insufficient permissions (admin/operator required)'); return }
       if (!res.ok) { setError(`HTTP ${res.status}`); return }
       setData(await res.json())
