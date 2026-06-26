@@ -25,7 +25,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { RefreshCw, Settings, Activity, Wrench, Shield, Database, Users, Play, AlertTriangle, Check, X, Save, RotateCcw, Lock } from 'lucide-react'
+import { RefreshCw, Settings, Activity, Wrench, Shield, Database, Users, Play, AlertTriangle, Check, X, Save, RotateCcw, Lock, Eye, EyeOff } from 'lucide-react'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('settings')
@@ -134,6 +134,7 @@ interface SettingValue {
   readOnly: boolean
   description: string
   source: 'db' | 'env' | 'default'
+  sensitive: boolean
   updatedAt?: string
   updatedBy?: string | null
 }
@@ -482,9 +483,11 @@ function SettingRow({
   onDraft: (key: string, value: string) => void
   onResetDraft: (key: string) => void
 }) {
+  const [showSecret, setShowSecret] = useState(false)
   const currentValue = draft !== undefined ? draft : setting.value
   const sourceVariant = setting.source === 'db' ? 'success' : setting.source === 'env' ? 'secondary' : 'outline'
   const sourceLabel = setting.source === 'db' ? 'DB override' : setting.source === 'env' ? 'env' : 'default'
+  const isSensitive = setting.sensitive === true
 
   return (
     <div className="grid grid-cols-12 gap-2 items-start py-1 border-b last:border-b-0">
@@ -509,6 +512,22 @@ function SettingRow({
               </Tooltip>
             </TooltipProvider>
           )}
+          {isSensitive && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Badge variant="outline" className="text-xs">
+                      <Lock className="w-3 h-3 mr-1" /> secret
+                    </Badge>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Sensitive: value is masked. To update, type a new value. Leave empty to keep current.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           {isDirty && (
             <Badge variant="warning" className="text-xs">unsaved</Badge>
           )}
@@ -529,6 +548,30 @@ function SettingRow({
             disabled
             className="text-xs font-mono bg-muted/50"
           />
+        ) : isSensitive ? (
+          <div className="flex gap-2">
+            <Input
+              type={showSecret ? 'text' : 'password'}
+              value={currentValue}
+              onChange={(e) => onDraft(setting.key, e.target.value)}
+              placeholder={currentValue ? '•••• (type to replace)' : '(not set)'}
+              className="text-xs font-mono"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowSecret((s) => !s)}
+              className="h-7 px-2 text-xs"
+              type="button"
+            >
+              {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            </Button>
+            {isDirty && (
+              <Button size="sm" variant="ghost" onClick={() => onResetDraft(setting.key)} className="h-7 px-2 text-xs" type="button">
+                <RotateCcw className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
         ) : isBoolean ? (
           <div className="flex items-center gap-3">
             <Switch

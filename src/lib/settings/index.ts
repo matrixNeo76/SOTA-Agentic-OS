@@ -17,6 +17,8 @@ export {
   getCachedNumber,
   getCachedArray,
   isCacheLoaded,
+  maskSensitiveValue,
+  isMaskSentinel,
   __resetCacheForTests,
 } from './store'
 

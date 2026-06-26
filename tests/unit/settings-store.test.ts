@@ -30,16 +30,31 @@ const WRITABLE_KEYS = [
   'llm.default_model',
   'llm.fallback_enabled',
   'llm.max_tokens',
+  'llm.api_key',
   'tool.allowed_read_paths',
   'tool.allowed_write_paths',
   'mesh.backend',
+  'mesh.nats_url',
+  'mesh.redis_url',
   'observability.langfuse_enabled',
+  'observability.langfuse_url',
+  'observability.langfuse_public_key',
+  'observability.langfuse_secret_key',
   'embedding.provider',
   'embedding.ollama_model',
+  'embedding.ollama_url',
+  'embedding.openai_api_key',
   'mcp.external_servers',
 ] as const
 
 const READONLY_KEYS = ['database.url', 'server.port'] as const
+
+const SENSITIVE_KEYS = [
+  'llm.api_key',
+  'observability.langfuse_public_key',
+  'observability.langfuse_secret_key',
+  'embedding.openai_api_key',
+] as const
 
 // === Helpers =========================================================
 
@@ -265,6 +280,89 @@ describe('C6 Settings Store', () => {
     const after = await store.getSetting('llm.max_tokens')
     expect(after?.value).toBe('1000')
     expect(after?.source).toBe('db')
+  })
+
+  // --- Sensitive masking (C6.2) --------------------------------------
+
+  it('sensitive settings list is exactly the expected set', () => {
+    const sensitive = store.SETTING_DEFS.filter((d) => d.sensitive === true).map((d) => d.key).sort()
+    expect(sensitive).toEqual([...SENSITIVE_KEYS].sort())
+  })
+
+  it('getSetting masks sensitive values in the response', async () => {
+    await store.reloadCache()
+    await store.setSetting('llm.api_key', 'sk-secret-key-12345', 'tester')
+
+    const v = await store.getSetting('llm.api_key')
+    expect(v?.sensitive).toBe(true)
+    expect(v?.value).toBe('****2345') // last 4 chars visible
+    expect(v?.value).not.toContain('secret-key')
+  })
+
+  it('getAllSettings masks sensitive values', async () => {
+    await store.reloadCache()
+    await store.setSetting('observability.langfuse_secret_key', 'sk-lf-secret-abcdef', 'tester')
+
+    const all = await store.getAllSettings()
+    const secret = all.find((s) => s.key === 'observability.langfuse_secret_key')!
+    expect(secret.sensitive).toBe(true)
+    expect(secret.value).toBe('****cdef')
+    expect(secret.value).not.toContain('lf-secret')
+  })
+
+  it('setSetting with mask sentinel is a no-op (keeps existing value)', async () => {
+    await store.reloadCache()
+    await store.setSetting('llm.api_key', 'sk-original-key-9999', 'tester')
+
+    // Submit the mask sentinel — should NOT overwrite
+    const result = await store.setSetting('llm.api_key', '****', 'tester')
+    expect(result.set).toBe(true)
+
+    // Verify the actual stored value is unchanged
+    const v = await store.getSetting('llm.api_key')
+    expect(v?.value).toBe('****9999') // still the original, masked
+
+    // Also verify via DB directly (the raw value should be the original)
+    const { db } = await import('@/lib/db')
+    const row = await db.systemSetting.findUnique({ where: { key: 'llm.api_key' } })
+    expect(row?.value).toBe('sk-original-key-9999')
+  })
+
+  it('setSetting with empty string is also a no-op for sensitive', async () => {
+    await store.reloadCache()
+    await store.setSetting('llm.api_key', 'sk-keep-this-key', 'tester')
+
+    const result = await store.setSetting('llm.api_key', '', 'tester')
+    expect(result.set).toBe(true)
+
+    const { db } = await import('@/lib/db')
+    const row = await db.systemSetting.findUnique({ where: { key: 'llm.api_key' } })
+    expect(row?.value).toBe('sk-keep-this-key')
+  })
+
+  it('non-sensitive settings are NOT masked', async () => {
+    await store.reloadCache()
+    await store.setSetting('mesh.backend', 'redis', 'tester')
+
+    const v = await store.getSetting('mesh.backend')
+    expect(v?.sensitive).toBe(false)
+    expect(v?.value).toBe('redis') // raw, not masked
+  })
+
+  it('maskSensitiveValue returns **** for short values', () => {
+    expect(store.maskSensitiveValue('')).toBe('')
+    expect(store.maskSensitiveValue('ab')).toBe('****')
+    expect(store.maskSensitiveValue('abcd')).toBe('****')
+    expect(store.maskSensitiveValue('abcde')).toBe('****bcde')
+    expect(store.maskSensitiveValue('sk-secret-key-12345')).toBe('****2345')
+  })
+
+  it('isMaskSentinel detects mask and empty strings', () => {
+    expect(store.isMaskSentinel('')).toBe(true)
+    expect(store.isMaskSentinel('****')).toBe(true)
+    expect(store.isMaskSentinel('******')).toBe(true)
+    expect(store.isMaskSentinel('****2345')).toBe(false) // has non-* chars
+    expect(store.isMaskSentinel('sk-real-key')).toBe(false)
   })
 
   // --- Sync helpers ---------------------------------------------------
