@@ -583,13 +583,55 @@ function RuntimeTab() {
   const runAction = async (action: string) => {
     setActionLoading(action)
     try {
-      await fetch('/api/admin/runtime', {
+      const res = await fetch('/api/admin/runtime', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`${action} failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      // Action-specific success messages
+      if (action === 'recover') {
+        toast.success(`Recovered ${body.recoveredPlans} plan(s), ${body.recoveredTasks} task(s)`)
+      } else if (action === 'gc-consolidate') {
+        toast.success(`GC consolidate: ${JSON.stringify(body).slice(0, 100)}`)
+      } else if (action === 'gc-archive') {
+        toast.success(`GC archive: ${JSON.stringify(body).slice(0, 100)}`)
+      } else {
+        toast.success(`${action} completed`)
+      }
       refresh()
+    } catch (err: any) {
+      toast.error(`${action} failed: ${err.message}`)
     } finally { setActionLoading(null) }
+  }
+
+  const cancelPlan = async (planId: string) => {
+    if (!confirm(`Cancel plan ${planId}?\n\nAll pending/running tasks will be marked as failed.`)) {
+      return
+    }
+    setActionLoading(`cancel:${planId}`)
+    try {
+      const res = await fetch('/api/admin/runtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel-plan', planId }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Cancel failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Plan cancelled: ${planId} (${body.affectedTasks} task(s) marked failed)`)
+      refresh()
+    } catch (err: any) {
+      toast.error(`Cancel failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   if (loading) return <div className="flex justify-center p-8"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
@@ -602,12 +644,15 @@ function RuntimeTab() {
         <h2 className="text-lg font-semibold">Runtime & Workers</h2>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => runAction('recover')} disabled={actionLoading !== null}>
-            <Play className="w-4 h-4 mr-1" /> {actionLoading === 'recover' ? 'Recovering...' : 'Recover Orphans'}
+            {actionLoading === 'recover' ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Play className="w-4 h-4 mr-1" />}
+            {actionLoading === 'recover' ? 'Recovering...' : 'Recover Orphans'}
           </Button>
           <Button size="sm" variant="outline" onClick={() => runAction('gc-consolidate')} disabled={actionLoading !== null}>
+            {actionLoading === 'gc-consolidate' ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : null}
             GC Consolidate
           </Button>
           <Button size="sm" variant="outline" onClick={() => runAction('gc-archive')} disabled={actionLoading !== null}>
+            {actionLoading === 'gc-archive' ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : null}
             GC Archive
           </Button>
           <RefreshButton onClick={refresh} />
@@ -628,11 +673,26 @@ function RuntimeTab() {
             <div className="space-y-2 text-xs">
               {data.runningPlans.map((p: any) => (
                 <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div>
-                    <div className="font-medium">{p.goal}</div>
-                    <div className="text-muted-foreground">{p.id} · {p.runningTasks} running tasks</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{p.goal}</div>
+                    <div className="text-muted-foreground font-mono text-xs">{p.id}</div>
+                    <div className="text-muted-foreground">
+                      {p.runningTasks} running task(s) · created {new Date(p.createdAt).toLocaleString()}
+                    </div>
                   </div>
-                  <Badge variant="warning">{p.status}</Badge>
+                  <div className="flex items-center gap-2 ml-2">
+                    <Badge variant="warning">{p.status}</Badge>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => cancelPlan(p.id)}
+                      disabled={actionLoading !== null}
+                      className="h-6 px-2 text-xs"
+                    >
+                      {actionLoading === `cancel:${p.id}` ? <RefreshCw className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3 mr-1" />}
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -663,8 +723,11 @@ function ToolsTab() {
   const [testTool, setTestTool] = useState('')
   const [testResult, setTestResult] = useState<any>(null)
   const [testing, setTesting] = useState(false)
+  const [showRegister, setShowRegister] = useState(false)
+  const [showGrantScope, setShowGrantScope] = useState(false)
 
   const runTest = async () => {
+    if (!testTool) return
     setTesting(true)
     setTestResult(null)
     try {
@@ -672,8 +735,19 @@ function ToolsTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'test', toolName: testTool, args: {} }),
-      }).then((r) => r.json())
-      setTestResult(res)
+      })
+      const body = await res.json()
+      setTestResult(body)
+      if (!res.ok) {
+        toast.error(`Tool test failed: ${body.error || `HTTP ${res.status}`}`)
+      } else if (body.success === false) {
+        toast.warning(`Tool ${testTool} returned success=false`)
+      } else {
+        toast.success(`Tool ${testTool} executed`)
+      }
+    } catch (err: any) {
+      toast.error(`Tool test failed: ${err.message}`)
+      setTestResult({ error: err.message })
     } finally { setTesting(false) }
   }
 
@@ -685,24 +759,51 @@ function ToolsTab() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Tools & Permissions</h2>
-        <RefreshButton onClick={refresh} />
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowGrantScope((s) => !s)}>
+            Grant Scope
+          </Button>
+          <Button size="sm" onClick={() => setShowRegister((s) => !s)}>
+            {showRegister ? 'Close' : '+ Register Tool'}
+          </Button>
+          <RefreshButton onClick={refresh} />
+        </div>
       </div>
 
       {/* Tool tester */}
       <Card>
         <CardHeader><CardTitle className="text-sm">Test a Tool</CardTitle></CardHeader>
-        <CardContent className="flex gap-2">
-          <Input placeholder="tool name (e.g. filesystem.read)" value={testTool} onChange={(e) => setTestTool(e.target.value)} />
-          <Button size="sm" onClick={runTest} disabled={testing || !testTool}>
-            {testing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          </Button>
+        <CardContent className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              placeholder="tool name (e.g. filesystem.read)"
+              value={testTool}
+              onChange={(e) => setTestTool(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && runTest()}
+              className="text-xs font-mono"
+            />
+            <Button size="sm" onClick={runTest} disabled={testing || !testTool}>
+              {testing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Tip: try <code>filesystem.read</code>, <code>http.get</code>, or any registered tool name.
+          </p>
+          {testResult && (
+            <pre className={`text-xs overflow-auto max-h-48 border rounded p-2 ${testResult.success === false || testResult.error ? 'bg-destructive/5 border-destructive/20' : 'bg-muted/30'}`}>
+              {JSON.stringify(testResult, null, 2)}
+            </pre>
+          )}
         </CardContent>
-        {testResult && (
-          <CardContent>
-            <pre className="text-xs overflow-auto max-h-48 border rounded p-2">{JSON.stringify(testResult, null, 2)}</pre>
-          </CardContent>
-        )}
       </Card>
+
+      {/* Register new tool form */}
+      {showRegister && <RegisterToolCard onRegistered={() => { refresh(); setShowRegister(false) }} />}
+
+      {/* Grant scope form */}
+      {showGrantScope && (
+        <GrantScopeCard tools={data.registered} onGranted={() => { refresh(); setShowGrantScope(false) }} />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -710,7 +811,7 @@ function ToolsTab() {
           <CardContent className="text-xs space-y-1 max-h-64 overflow-auto">
             {data.builtin.map((t: any) => (
               <div key={t.name} className="border rounded p-1.5">
-                <div className="font-medium">{t.name}</div>
+                <div className="font-medium font-mono">{t.name}</div>
                 <div className="text-muted-foreground truncate">{t.description}</div>
               </div>
             ))}
@@ -722,10 +823,13 @@ function ToolsTab() {
           <CardContent className="text-xs space-y-1 max-h-64 overflow-auto">
             {data.registered.length > 0 ? data.registered.map((t: any) => (
               <div key={t.toolId} className="border rounded p-1.5">
-                <div className="font-medium">{t.name} <Badge variant={t.active ? 'success' : 'secondary'}>{t.active ? 'active' : 'inactive'}</Badge></div>
-                <div className="text-muted-foreground">{t.toolId} v{t.version}</div>
+                <div className="font-medium">
+                  {t.name} <Badge variant={t.active ? 'success' : 'secondary'}>{t.active ? 'active' : 'inactive'}</Badge>
+                </div>
+                <div className="text-muted-foreground font-mono">{t.toolId} v{t.version}</div>
+                {t.transport && <div className="text-muted-foreground">transport: {t.transport}</div>}
                 <div className="flex flex-wrap gap-0.5 mt-1">
-                  {t.permissions.map((p: string) => <Badge key={p} variant="outline" className="text-xs">{p}</Badge>)}
+                  {t.permissions?.map((p: string) => <Badge key={p} variant="outline" className="text-xs">{p}</Badge>)}
                 </div>
               </div>
             )) : <span className="text-muted-foreground">No registered tools</span>}
@@ -740,7 +844,9 @@ function ToolsTab() {
             {data.mcpExternal.serverNames.length > 0 && (
               <div className="mt-2">
                 <div className="font-medium">Servers:</div>
-                {data.mcpExternal.serverNames.map((s: string) => <Badge key={s} variant="outline" className="mr-1">{s}</Badge>)}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {data.mcpExternal.serverNames.map((s: string) => <Badge key={s} variant="outline">{s}</Badge>)}
+                </div>
               </div>
             )}
           </CardContent>
@@ -750,23 +856,184 @@ function ToolsTab() {
   )
 }
 
+function RegisterToolCard({ onRegistered }: { onRegistered: () => void }) {
+  const [toolId, setToolId] = useState('')
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [version, setVersion] = useState('1.0.0')
+  const [publisher, setPublisher] = useState('')
+  const [transport, setTransport] = useState('http')
+  const [endpoint, setEndpoint] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!toolId || !name) {
+      toast.error('toolId e name sono obbligatori')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/tools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          toolId, name, description, version, publisher,
+          transport, endpoint, apiKey,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Register failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Tool registered: ${name} (${toolId})`)
+      // Clear form
+      setToolId(''); setName(''); setDescription(''); setVersion('1.0.0')
+      setPublisher(''); setTransport('http'); setEndpoint(''); setApiKey('')
+      onRegistered()
+    } catch (err: any) {
+      toast.error(`Register failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">Register New Tool</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Tool ID *</Label>
+            <Input value={toolId} onChange={(e) => setToolId(e.target.value)} placeholder="com.example.mytool" className="text-xs font-mono" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Tool" className="text-xs" />
+          </div>
+          <div className="space-y-1 md:col-span-2">
+            <Label className="text-xs">Description</Label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this tool does" className="text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Version</Label>
+            <Input value={version} onChange={(e) => setVersion(e.target.value)} className="text-xs font-mono" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Publisher</Label>
+            <Input value={publisher} onChange={(e) => setPublisher(e.target.value)} placeholder="org name" className="text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Transport</Label>
+            <select
+              value={transport}
+              onChange={(e) => setTransport(e.target.value)}
+              className="w-full text-xs border rounded px-2 py-1.5 bg-background"
+            >
+              <option value="http">HTTP</option>
+              <option value="mcp">MCP</option>
+              <option value="stdio">stdio</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Endpoint URL</Label>
+            <Input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://..." className="text-xs font-mono" />
+          </div>
+          <div className="space-y-1 md:col-span-2">
+            <Label className="text-xs">API Key (optional)</Label>
+            <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="stored encrypted at rest" className="text-xs font-mono" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => { setToolId(''); setName(''); setDescription(''); setEndpoint(''); setApiKey('') }} disabled={saving}>
+            Clear
+          </Button>
+          <Button size="sm" onClick={submit} disabled={saving || !toolId || !name}>
+            {saving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+            {saving ? 'Registering...' : 'Register Tool'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function GrantScopeCard({ tools, onGranted }: { tools: any[]; onGranted: () => void }) {
+  const [toolId, setToolId] = useState('')
+  const [scope, setScope] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!toolId || !scope) {
+      toast.error('Seleziona un tool e inserisci uno scope')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/tools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'grant-scope', toolId, scope }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Grant failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Scope '${scope}' granted to ${toolId}`)
+      setToolId(''); setScope('')
+      onGranted()
+    } catch (err: any) {
+      toast.error(`Grant failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">Grant Permission Scope</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Tool *</Label>
+            <select
+              value={toolId}
+              onChange={(e) => setToolId(e.target.value)}
+              className="w-full text-xs border rounded px-2 py-1.5 bg-background"
+            >
+              <option value="">— select tool —</option>
+              {tools.map((t: any) => (
+                <option key={t.toolId} value={t.toolId}>{t.name} ({t.toolId})</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Scope *</Label>
+            <Input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="filesystem:read" className="text-xs font-mono" />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Scopes follow the <code>category:action</code> pattern: <code>filesystem:read</code>, <code>filesystem:write</code>, <code>network:get</code>, etc.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" onClick={submit} disabled={saving || !toolId || !scope}>
+            {saving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+            {saving ? 'Granting...' : 'Grant Scope'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // === 4. Governance Tab ===============================================
 
 function GovernanceTab() {
   const { data, loading, error, refresh } = useAdminData<any>('governance')
-  const [resolving, setResolving] = useState<string | null>(null)
-
-  const resolveBlocked = async (id: string, choice: string) => {
-    setResolving(`${id}:${choice}`)
-    try {
-      await fetch('/api/admin/governance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'resolve-blocked', blockedActionId: id, choice }),
-      })
-      refresh()
-    } finally { setResolving(null) }
-  }
+  const [showAddRedline, setShowAddRedline] = useState(false)
 
   if (loading) return <div className="flex justify-center p-8"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
   if (error) return <Card><CardContent className="p-4 text-destructive">{error}</CardContent></Card>
@@ -776,7 +1043,12 @@ function GovernanceTab() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Governance & Safety</h2>
-        <RefreshButton onClick={refresh} />
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setShowAddRedline((s) => !s)}>
+            {showAddRedline ? 'Close' : '+ Add Red Line'}
+          </Button>
+          <RefreshButton onClick={refresh} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -793,30 +1065,7 @@ function GovernanceTab() {
           {data.blockedActions.length > 0 ? (
             <div className="space-y-2 text-xs">
               {data.blockedActions.map((b: any) => (
-                <div key={b.id} className="border rounded p-3 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{b.action}</div>
-                      <div className="text-muted-foreground">{b.readableExplanation}</div>
-                      <div className="text-muted-foreground mt-1">Agent: {b.agentId} · Source: {b.source}</div>
-                    </div>
-                    <Badge variant="destructive">{b.status}</Badge>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="default" onClick={() => resolveBlocked(b.id, 'approved')} disabled={resolving !== null}>
-                      <Check className="w-3 h-3 mr-1" /> Approve
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => resolveBlocked(b.id, 'rejected')} disabled={resolving !== null}>
-                      <X className="w-3 h-3 mr-1" /> Reject
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => resolveBlocked(b.id, 'modified')} disabled={resolving !== null}>
-                      Modify
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => resolveBlocked(b.id, 'downgraded')} disabled={resolving !== null}>
-                      Downgrade
-                    </Button>
-                  </div>
-                </div>
+                <BlockedActionRow key={b.id} blocked={b} onResolved={refresh} />
               ))}
             </div>
           ) : (
@@ -825,36 +1074,281 @@ function GovernanceTab() {
         </CardContent>
       </Card>
 
+      {/* Approval Gates */}
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Approval Gates</CardTitle></CardHeader>
+        <CardContent>
+          {data.approvalGates.length > 0 ? (
+            <div className="space-y-2 text-xs">
+              {data.approvalGates.map((g: any) => (
+                <ApprovalGateRow key={g.id} gate={g} onResolved={refresh} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">No pending approval gates</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Red Line form */}
+      {showAddRedline && <AddRedLineCard onAdded={() => { refresh(); setShowAddRedline(false) }} />}
+
       {/* Red Lines */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Red Lines</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-sm">Red Lines ({data.redLines.length})</CardTitle></CardHeader>
         <CardContent className="text-xs space-y-1">
-          {data.redLines.map((r: any) => (
+          {data.redLines.length > 0 ? data.redLines.map((r: any) => (
             <div key={r.id} className="border rounded p-2 flex items-center justify-between">
               <div>
                 <div className="font-medium">{r.description}</div>
-                <div className="text-muted-foreground">{r.rationale}</div>
+                {r.rationale && <div className="text-muted-foreground">{r.rationale}</div>}
               </div>
               <Badge variant={r.severity === 'absolute' ? 'destructive' : r.severity === 'strong' ? 'warning' : 'secondary'}>
                 {r.severity}
               </Badge>
             </div>
-          ))}
+          )) : (
+            <p className="text-sm text-muted-foreground text-center py-4">No red lines defined</p>
+          )}
         </CardContent>
       </Card>
 
       {/* LTL Rules */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">LTL Rules (active)</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-sm">LTL Rules ({data.ltlRules.length})</CardTitle></CardHeader>
         <CardContent className="text-xs space-y-1">
-          {data.ltlRules.map((r: any) => (
-            <div key={r.id} className="border rounded p-2">
-              <div className="font-mono">{r.ltlFormula}</div>
-              <div className="text-muted-foreground">{r.ruleId} · {r.severity}</div>
-            </div>
-          ))}
+          {data.ltlRules.length > 0 ? data.ltlRules.map((r: any) => (
+            <LtlRuleRow key={r.id} rule={r} onToggled={refresh} />
+          )) : (
+            <p className="text-sm text-muted-foreground text-center py-4">No LTL rules defined</p>
+          )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function BlockedActionRow({ blocked, onResolved }: { blocked: any; onResolved: () => void }) {
+  const [resolving, setResolving] = useState<string | null>(null)
+
+  const resolve = async (choice: string) => {
+    setResolving(choice)
+    try {
+      const res = await fetch('/api/admin/governance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolve-blocked', blockedActionId: blocked.id, choice }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Resolve failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Blocked action ${choice}: ${blocked.action}`)
+      onResolved()
+    } catch (err: any) {
+      toast.error(`Resolve failed: ${err.message}`)
+    } finally {
+      setResolving(null)
+    }
+  }
+
+  return (
+    <div className="border rounded p-3 space-y-2">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-medium">{blocked.action}</div>
+          <div className="text-muted-foreground">{blocked.readableExplanation}</div>
+          <div className="text-muted-foreground mt-1">Agent: {blocked.agentId} · Source: {blocked.source}</div>
+        </div>
+        <Badge variant="destructive">{blocked.status}</Badge>
+      </div>
+      <div className="flex gap-1">
+        <Button size="sm" variant="default" onClick={() => resolve('approved')} disabled={resolving !== null}>
+          {resolving === 'approved' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Check className="w-3 h-3 mr-1" />}
+          Approve
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => resolve('rejected')} disabled={resolving !== null}>
+          {resolving === 'rejected' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <X className="w-3 h-3 mr-1" />}
+          Reject
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => resolve('modified')} disabled={resolving !== null}>
+          {resolving === 'modified' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+          Modify
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => resolve('downgraded')} disabled={resolving !== null}>
+          {resolving === 'downgraded' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+          Downgrade
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ApprovalGateRow({ gate, onResolved }: { gate: any; onResolved: () => void }) {
+  const [resolving, setResolving] = useState<string | null>(null)
+
+  const resolve = async (choice: 'approved' | 'rejected') => {
+    setResolving(choice)
+    try {
+      const res = await fetch('/api/admin/governance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolve-approval', gateId: gate.id, choice }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Resolve failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Approval gate ${choice}`)
+      onResolved()
+    } catch (err: any) {
+      toast.error(`Resolve failed: ${err.message}`)
+    } finally {
+      setResolving(null)
+    }
+  }
+
+  return (
+    <div className="border rounded p-3 space-y-2">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-medium">{gate.action || gate.id}</div>
+          {gate.reason && <div className="text-muted-foreground">{gate.reason}</div>}
+          <div className="text-muted-foreground mt-1">
+            Agent: {gate.agentId || '—'} · Requested: {gate.requestedAt ? new Date(gate.requestedAt).toLocaleString() : '—'}
+          </div>
+        </div>
+        <Badge variant="warning">{gate.status || 'pending'}</Badge>
+      </div>
+      <div className="flex gap-1">
+        <Button size="sm" variant="default" onClick={() => resolve('approved')} disabled={resolving !== null}>
+          {resolving === 'approved' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Check className="w-3 h-3 mr-1" />}
+          Approve
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => resolve('rejected')} disabled={resolving !== null}>
+          {resolving === 'rejected' ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <X className="w-3 h-3 mr-1" />}
+          Reject
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function AddRedLineCard({ onAdded }: { onAdded: () => void }) {
+  const [description, setDescription] = useState('')
+  const [rationale, setRationale] = useState('')
+  const [severity, setSeverity] = useState('strong')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!description) {
+      toast.error('Description is required')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/governance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add-redline', description, rationale, severity }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Add Red Line failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Red Line added: ${description}`)
+      setDescription(''); setRationale(''); setSeverity('strong')
+      onAdded()
+    } catch (err: any) {
+      toast.error(`Add Red Line failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">Add Red Line</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Description *</Label>
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Never delete user data without explicit confirmation" className="text-xs" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Rationale</Label>
+          <Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="Why this red line exists" className="text-xs min-h-[60px]" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Severity</Label>
+          <select
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value)}
+            className="w-full text-xs border rounded px-2 py-1.5 bg-background"
+          >
+            <option value="absolute">absolute (never override)</option>
+            <option value="strong">strong (requires admin override)</option>
+            <option value="soft">soft (warns only)</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" onClick={submit} disabled={saving || !description}>
+            {saving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+            {saving ? 'Adding...' : 'Add Red Line'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function LtlRuleRow({ rule, onToggled }: { rule: any; onToggled: () => void }) {
+  const [toggling, setToggling] = useState(false)
+
+  const toggle = async () => {
+    setToggling(true)
+    try {
+      const res = await fetch('/api/admin/governance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle-ltl', ruleId: rule.id, active: !rule.active }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Toggle failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`LTL rule ${rule.ruleId} ${!rule.active ? 'activated' : 'deactivated'}`)
+      onToggled()
+    } catch (err: any) {
+      toast.error(`Toggle failed: ${err.message}`)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  return (
+    <div className="border rounded p-2 flex items-center justify-between">
+      <div className="flex-1 min-w-0">
+        <div className="font-mono text-xs truncate">{rule.ltlFormula}</div>
+        <div className="text-muted-foreground">{rule.ruleId} · {rule.severity}</div>
+      </div>
+      <div className="flex items-center gap-2 ml-2">
+        <Badge variant={rule.active ? 'success' : 'secondary'}>
+          {rule.active ? 'active' : 'inactive'}
+        </Badge>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={toggle}
+          disabled={toggling}
+          className="h-6 px-2 text-xs"
+        >
+          {toggling ? <RefreshCw className="w-3 h-3 animate-spin" /> : rule.active ? 'Disable' : 'Enable'}
+        </Button>
+      </div>
     </div>
   )
 }
@@ -865,15 +1359,56 @@ function MemoryTab() {
   const { data, loading, error, refresh } = useAdminData<any>('memory')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [browseType, setBrowseType] = useState<string | null>(null)
+  const [browseNodes, setBrowseNodes] = useState<any[]>([])
+  const [browsing, setBrowsing] = useState(false)
 
   const search = async () => {
     if (!searchQuery) return
-    const res = await fetch('/api/admin/memory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'search', query: searchQuery, topK: 10 }),
-    }).then((r) => r.json())
-    setSearchResults(res.results || [])
+    setSearching(true)
+    try {
+      const res = await fetch('/api/admin/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'search', query: searchQuery, topK: 10 }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Search failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      setSearchResults(body.results || [])
+      if ((body.results || []).length === 0) {
+        toast.info('No results found')
+      } else {
+        toast.success(`Found ${body.results.length} result(s)`)
+      }
+    } catch (err: any) {
+      toast.error(`Search failed: ${err.message}`)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const browse = async (entityType: string) => {
+    setBrowseType(entityType)
+    setBrowsing(true)
+    setBrowseNodes([])
+    try {
+      const res = await fetch(`/api/admin/memory?entityType=${encodeURIComponent(entityType)}&limit=50`)
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Browse failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      setBrowseNodes(body.nodes || [])
+      toast.info(`Loaded ${body.nodes?.length || 0} node(s) of type '${entityType}'`)
+    } catch (err: any) {
+      toast.error(`Browse failed: ${err.message}`)
+    } finally {
+      setBrowsing(false)
+    }
   }
 
   if (loading) return <div className="flex justify-center p-8"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
@@ -900,8 +1435,17 @@ function MemoryTab() {
         <CardHeader><CardTitle className="text-sm">Semantic Memory Search</CardTitle></CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            <Input placeholder="search query..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
-            <Button size="sm" onClick={search}>Search</Button>
+            <Input
+              placeholder="search query..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && search()}
+              className="text-xs"
+            />
+            <Button size="sm" onClick={search} disabled={searching || !searchQuery}>
+              {searching ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+              {searching ? 'Searching...' : 'Search'}
+            </Button>
           </div>
           {searchResults.length > 0 && (
             <div className="mt-3 space-y-1 text-xs max-h-64 overflow-auto">
@@ -909,9 +1453,9 @@ function MemoryTab() {
                 <div key={i} className="border rounded p-2">
                   <div className="flex items-center justify-between">
                     <Badge variant="outline">{r.layer}</Badge>
-                    <span className="text-muted-foreground">score: {r.score.toFixed(3)}</span>
+                    <span className="text-muted-foreground">score: {r.score?.toFixed(3) ?? '—'}</span>
                   </div>
-                  <div className="mt-1">{r.content.slice(0, 200)}</div>
+                  <div className="mt-1 break-words">{r.content?.slice(0, 200) ?? JSON.stringify(r).slice(0, 200)}</div>
                 </div>
               ))}
             </div>
@@ -919,14 +1463,64 @@ function MemoryTab() {
         </CardContent>
       </Card>
 
-      {/* Graph stats by type */}
+      {/* Graph stats by type — clickable to browse nodes */}
       {data.graph?.nodesByType && Object.keys(data.graph.nodesByType).length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">Nodes by Entity Type</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm">Nodes by Entity Type (click to browse)</CardTitle></CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {Object.entries(data.graph.nodesByType).map(([type, count]) => (
-              <Badge key={type} variant="outline">{type}: {count as number}</Badge>
+              <Button
+                key={type}
+                size="sm"
+                variant={browseType === type ? 'default' : 'outline'}
+                onClick={() => browse(type)}
+                className="text-xs h-7"
+              >
+                {type}: {count as number}
+              </Button>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Browse results drill-down */}
+      {browseType && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Browse: {browseType} ({browseNodes.length} nodes)</CardTitle>
+              <Button size="sm" variant="ghost" onClick={() => { setBrowseType(null); setBrowseNodes([]) }} className="h-6 px-2 text-xs">
+                <X className="w-3 h-3 mr-1" /> Close
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {browsing ? (
+              <div className="flex justify-center py-4"><RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+            ) : browseNodes.length > 0 ? (
+              <div className="space-y-2 text-xs max-h-96 overflow-auto">
+                {browseNodes.map((n: any) => (
+                  <div key={n.id} className="border rounded p-2">
+                    <div className="flex items-center justify-between">
+                      <code className="font-mono text-xs break-all">{n.uri}</code>
+                      <Badge variant="outline">{n.lifecycleState}</Badge>
+                    </div>
+                    <div className="text-muted-foreground mt-1 font-mono text-xs">
+                      created {new Date(n.createdAt).toLocaleString()}
+                    </div>
+                    {n.attributes && n.attributes !== '{}' && (
+                      <pre className="mt-1 text-xs overflow-auto max-h-24 bg-muted/30 p-1 rounded">
+                        {(() => {
+                          try { return JSON.stringify(JSON.parse(n.attributes), null, 2) } catch { return n.attributes }
+                        })()}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">No nodes found for this type</p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -938,6 +1532,7 @@ function MemoryTab() {
 
 function UsersTab() {
   const { data, loading, error, refresh } = useAdminData<any>('users')
+  const [showCreate, setShowCreate] = useState(false)
 
   if (loading) return <div className="flex justify-center p-8"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
   if (error) return <Card><CardContent className="p-4 text-destructive">{error}</CardContent></Card>
@@ -947,38 +1542,247 @@ function UsersTab() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">Users & Tenants</h2>
-        <RefreshButton onClick={refresh} />
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setShowCreate((s) => !s)}>
+            {showCreate ? 'Close' : '+ Add User'}
+          </Button>
+          <RefreshButton onClick={refresh} />
+        </div>
       </div>
+
+      {showCreate && <CreateUserCard onCreated={() => { refresh(); setShowCreate(false) }} />}
 
       <Card>
         <CardHeader><CardTitle className="text-sm">Users ({data.users.length})</CardTitle></CardHeader>
         <CardContent className="text-xs">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="pb-2">Email</th>
-                <th className="pb-2">Name</th>
-                <th className="pb-2">Role</th>
-                <th className="pb-2">Active</th>
-                <th className="pb-2">Sessions</th>
-                <th className="pb-2">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.users.map((u: any) => (
-                <tr key={u.id} className="border-b">
-                  <td className="py-2">{u.email}</td>
-                  <td>{u.name || '-'}</td>
-                  <td><Badge variant={u.role === 'admin' ? 'destructive' : u.role === 'operator' ? 'warning' : 'secondary'}>{u.role}</Badge></td>
-                  <td><Badge variant={u.active ? 'success' : 'secondary'}>{u.active ? 'yes' : 'no'}</Badge></td>
-                  <td>{u.activeSessions}</td>
-                  <td className="text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="pb-2 pr-3">Email</th>
+                  <th className="pb-2 pr-3">Name</th>
+                  <th className="pb-2 pr-3">Role</th>
+                  <th className="pb-2 pr-3">Active</th>
+                  <th className="pb-2 pr-3">Sessions</th>
+                  <th className="pb-2 pr-3">Created</th>
+                  <th className="pb-2 pr-3">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.users.map((u: any) => (
+                  <UserRow key={u.id} user={u} onUpdated={refresh} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function CreateUserCard({ onCreated }: { onCreated: () => void }) {
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState('viewer')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!email || !password) {
+      toast.error('Email e password sono obbligatorie')
+      return
+    }
+    if (password.length < 8) {
+      toast.error('Password deve essere di almeno 8 caratteri')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', email, name, password, role }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Create failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`User created: ${email} (${role})`)
+      setEmail(''); setName(''); setPassword(''); setRole('viewer')
+      onCreated()
+    } catch (err: any) {
+      toast.error(`Create failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">Create New User</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Email *</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" className="text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mario Rossi" className="text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Password *</Label>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min 8 chars" className="text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Role</Label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full text-xs border rounded px-2 py-1.5 bg-background"
+            >
+              <option value="viewer">viewer (read-only)</option>
+              <option value="sovereign">sovereign (read + approve)</option>
+              <option value="operator">operator (read + write + approve)</option>
+              <option value="admin">admin (full access)</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => { setEmail(''); setName(''); setPassword(''); setRole('viewer') }} disabled={saving}>
+            Clear
+          </Button>
+          <Button size="sm" onClick={submit} disabled={saving || !email || !password}>
+            {saving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : null}
+            {saving ? 'Creating...' : 'Create User'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function UserRow({ user, onUpdated }: { user: any; onUpdated: () => void }) {
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const updateRole = async (newRole: string) => {
+    setActionLoading(`role:${newRole}`)
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update-role', userId: user.id, role: newRole }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Role update failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`${user.email} → ${newRole}`)
+      onUpdated()
+    } catch (err: any) {
+      toast.error(`Role update failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const toggleActive = async () => {
+    setActionLoading('toggle')
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle-active', userId: user.id, active: !user.active }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Toggle failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`${user.email} ${!user.active ? 'activated' : 'deactivated'}`)
+      onUpdated()
+    } catch (err: any) {
+      toast.error(`Toggle failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const revokeSessions = async () => {
+    if (user.activeSessions === 0) {
+      toast.info('No active sessions to revoke')
+      return
+    }
+    if (!confirm(`Revoke ${user.activeSessions} session(s) for ${user.email}? User will be logged out immediately.`)) {
+      return
+    }
+    setActionLoading('revoke')
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'revoke-sessions', userId: user.id }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Revoke failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Sessions revoked for ${user.email}`)
+      onUpdated()
+    } catch (err: any) {
+      toast.error(`Revoke failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  return (
+    <tr className="border-b">
+      <td className="py-2 pr-3 font-mono">{user.email}</td>
+      <td className="pr-3">{user.name || '-'}</td>
+      <td className="pr-3">
+        <select
+          value={user.role}
+          onChange={(e) => updateRole(e.target.value)}
+          disabled={actionLoading !== null}
+          className="text-xs border rounded px-1.5 py-0.5 bg-background disabled:opacity-50"
+        >
+          <option value="viewer">viewer</option>
+          <option value="sovereign">sovereign</option>
+          <option value="operator">operator</option>
+          <option value="admin">admin</option>
+        </select>
+      </td>
+      <td className="pr-3">
+        <Button
+          size="sm"
+          variant={user.active ? 'default' : 'outline'}
+          onClick={toggleActive}
+          disabled={actionLoading !== null}
+          className="h-6 px-2 text-xs"
+        >
+          {actionLoading === 'toggle' ? <RefreshCw className="w-3 h-3 animate-spin" /> : user.active ? 'yes' : 'no'}
+        </Button>
+      </td>
+      <td className="pr-3">
+        <span>{user.activeSessions}</span>
+      </td>
+      <td className="pr-3 text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</td>
+      <td className="pr-3">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={revokeSessions}
+          disabled={actionLoading !== null || user.activeSessions === 0}
+          className="h-6 px-2 text-xs"
+        >
+          {actionLoading === 'revoke' ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Revoke Sessions'}
+        </Button>
+      </td>
+    </tr>
   )
 }

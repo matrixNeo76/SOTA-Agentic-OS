@@ -65,5 +65,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ...result })
   }
 
-  return NextResponse.json({ error: 'Unknown action. Use: recover, gc-consolidate, gc-archive' }, { status: 400 })
+  if (action === 'cancel-plan') {
+    const { planId } = await req.json()
+    if (!planId) return NextResponse.json({ error: 'Missing planId' }, { status: 400 })
+
+    // Mark all running/pending tasks as 'failed' with a cancellation reason,
+    // then mark the plan itself as 'failed'. This frees the worker to pick
+    // up other work without waiting for the orphan-recovery timeout.
+    const updated = await db.planTask.updateMany({
+      where: { planId, status: { in: ['pending', 'ready', 'running'] } },
+      data: { status: 'failed', result: 'Cancelled by admin', finishedAt: new Date() },
+    })
+    await db.agentPlan.update({
+      where: { id: planId },
+      data: { status: 'failed' },
+    })
+    return NextResponse.json({ cancelled: true, planId, affectedTasks: updated.count })
+  }
+
+  return NextResponse.json({ error: 'Unknown action. Use: recover, gc-consolidate, gc-archive, cancel-plan' }, { status: 400 })
 }
