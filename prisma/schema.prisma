@@ -858,11 +858,16 @@ model CostEntry {
   tokensOut  Int      // output tokens
   cost       Float    // USD cost
   timestamp  DateTime @default(now())
+  // C6.5 — Optional planId to correlate cost with a specific run.
+  // Populated when recordCostEntry is called from within executor / react-loop.
+  // Allows /api/runs/detail to query costs with equality instead of substring.
+  planId     String?
 
   @@index([timestamp])
   @@index([agentId])
   @@index([model])
   @@index([phase])
+  @@index([planId])
 }
 
 // === Release 1.2: Branch & Share conversations ===

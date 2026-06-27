@@ -21,6 +21,10 @@ export type CostEntryInput = {
   tokensIn: number
   tokensOut: number
   cost: number
+  // C6.5 — Optional planId to correlate cost with a specific run.
+  // When provided, the run detail view can show accurate per-run costs
+  // instead of the broken `phase: { contains: planId }` query that never matched.
+  planId?: string
 }
 
 // === Pricing table ===
@@ -48,6 +52,10 @@ export async function recordCostEntry(input: CostEntryInput): Promise<void> {
         tokensIn: input.tokensIn,
         tokensOut: input.tokensOut,
         cost: input.cost,
+        // C6.5 — Persist planId when provided so /api/runs/detail can query
+        // costs for a specific run with a direct equality filter (instead of
+        // the broken `phase: { contains: planId }` substring match).
+        ...(input.planId ? { planId: input.planId } : {}),
       },
     })
   } catch (e) {

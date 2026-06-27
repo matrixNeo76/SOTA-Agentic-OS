@@ -16,6 +16,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -343,29 +344,7 @@ function RunDetailView({ planId, detail, loading, onBack, onRefresh }: {
             {checkpoints.length > 0 ? (
               <div className="space-y-1">
                 {checkpoints.map((cp) => (
-                  <div key={cp.id} className="flex items-center justify-between border rounded p-2 text-xs">
-                    <div>
-                      <span className="font-mono">{cp.id.slice(0, 12)}...</span>
-                      <Badge variant="outline" className="ml-2">{cp.checkpointType}</Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">{new Date(cp.createdAt).toLocaleTimeString()}</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await fetch('/api/runs/checkpoint', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'rollback', agentUri: cp.agentUri, checkpointId: cp.id }),
-                          })
-                          onRefresh()
-                        }}
-                      >
-                        <RotateCcw className="w-3 h-3 mr-1" /> Rollback
-                      </Button>
-                    </div>
-                  </div>
+                  <CheckpointRow key={cp.id} cp={cp} onRefresh={onRefresh} />
                 ))}
               </div>
             ) : (
@@ -461,6 +440,96 @@ function TaskStep({ task, isExpanded, onToggle, traces }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// === Checkpoint Row (C6.5 — stateful rollback with toast feedback) ===
+
+function CheckpointRow({
+  cp,
+  onRefresh,
+}: {
+  cp: {
+    id: string
+    agentUri: string
+    taskId: string | null
+    checkpointType: string
+    cycleId: number | null
+    createdAt: string
+  }
+  onRefresh: () => void
+}) {
+  const [rolling, setRolling] = useState(false)
+
+  const handleRollback = async () => {
+    if (
+      !confirm(
+        `Rollback to checkpoint ${cp.id.slice(0, 12)}…?\n\n` +
+        `This will restore the agent state to when this checkpoint was created ` +
+        `(${new Date(cp.createdAt).toLocaleString()}). ` +
+        `Any progress made after this checkpoint will be lost.`,
+      )
+    ) {
+      return
+    }
+
+    setRolling(true)
+    try {
+      const res = await fetch('/api/runs/checkpoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rollback',
+          agentUri: cp.agentUri,
+          checkpointId: cp.id,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Rollback failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Rolled back to checkpoint ${cp.id.slice(0, 12)}…`, {
+        description: `Agent ${cp.agentUri} state restored to ${new Date(cp.createdAt).toLocaleString()}`,
+        duration: 6000,
+      })
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`Rollback failed: ${err.message}`)
+    } finally {
+      setRolling(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between border rounded p-2 text-xs">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-mono shrink-0">{cp.id.slice(0, 12)}…</span>
+        <Badge variant="outline" className="shrink-0">{cp.checkpointType}</Badge>
+        {cp.taskId && (
+          <span className="font-mono text-[10px] text-muted-foreground truncate" title={cp.taskId}>
+            {cp.taskId}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-muted-foreground">{new Date(cp.createdAt).toLocaleTimeString()}</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleRollback}
+          disabled={rolling}
+          className="h-6 text-xs"
+        >
+          {rolling ? (
+            <RotateCcw className="w-3 h-3 mr-1 animate-spin" />
+          ) : (
+            <RotateCcw className="w-3 h-3 mr-1" />
+          )}
+          {rolling ? 'Rolling back…' : 'Rollback'}
+        </Button>
+      </div>
     </div>
   )
 }

@@ -880,11 +880,14 @@ model CostEntry {
   tokensOut Int // output tokens
   cost      Float // USD cost
   timestamp DateTime @default(now())
+  // C6.5 — Optional planId for per-run cost correlation
+  planId    String?
 
   @@index([timestamp])
   @@index([agentId])
   @@index([model])
   @@index([phase])
+  @@index([planId])
 }
 
 // === Release 1.2: Branch & Share conversations ===

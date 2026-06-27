@@ -129,6 +129,7 @@ export async function executeReActLoop(options: ReActOptions): Promise<ReActResu
         tokensIn: inputTokens,
         tokensOut: outputTokens,
         cost,
+        planId: options.planId, // C6.5 — correlate cost with this plan
       }).catch(() => {})
 
       // === ACT: check if LLM wants to call tools ===

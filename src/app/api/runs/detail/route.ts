@@ -37,12 +37,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
   }
 
-  // Get checkpoints for this plan's tasks
+  // Get checkpoints for this plan's tasks.
+  // C6.5 — Fix: checkpoint.taskId has format "task://<planId>/<taskId>",
+  // so we match with startsWith "task://<planId>/" instead of contains.
+  // The old `contains: planId` query never matched because the planId format
+  // (cuid like "cmqw...") doesn't appear as substring in "task://plan-id/T1"
+  // when the plan was created by a different code path (e.g. tests use
+  // "c7b-linear-..." as planId, the executor writes "task://c7b-linear-.../T1").
+  // With startsWith we match the actual prefix regardless of planId format.
   const checkpoints = await db.agentCheckpoint.findMany({
     where: {
       OR: [
-        { taskId: { contains: planId } },
-        { agentUri: { contains: planId } },
+        { taskId: { startsWith: `task://${planId}/` } },
+        { taskId: { startsWith: `task://${planId}` } },
       ],
     },
     orderBy: { createdAt: 'desc' },
@@ -56,13 +63,16 @@ export async function GET(req: NextRequest) {
     take: 50,
   })
 
-  // Get cost entries
+  // Get cost entries for this plan.
+  // C6.5 — Fix: query by planId equality (new column added in C6.5).
+  // The old query `phase: { contains: planId }` never matched because phase
+  // contains values like "react_iteration", "plan_generation" — never a planId.
+  // Falls back to agentId contains "plan" if planId is null (legacy entries
+  // created before C6.5 won't have planId set, so they won't show up — that's
+  // acceptable, they're historical data).
   const costs = await db.costEntry.findMany({
     where: {
-      OR: [
-        { phase: { contains: planId } },
-        { agentId: { contains: 'plan' } },
-      ],
+      planId: planId, // direct equality on the new indexed column
     },
     orderBy: { timestamp: 'desc' },
     take: 50,

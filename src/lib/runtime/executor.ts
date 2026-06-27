@@ -124,6 +124,11 @@ Regole:
   // Record cost
   const inputTokens = Math.ceil((systemPrompt.length + params.task.length) / 4)
   const outputTokens = Math.ceil(raw.length / 4)
+  // C6.5 — Generate planId BEFORE recording cost so we can correlate it.
+  // The planId is also used when persisting the plan below; generating it
+  // here (instead of after parsing) ensures the cost entry has a planId
+  // even if parsing fails afterwards.
+  const planId = `plan_${Date.now()}`
   await recordCostEntry({
     agentId: 'planner',
     model: 'zai-glm',
@@ -131,6 +136,7 @@ Regole:
     tokensIn: inputTokens,
     tokensOut: outputTokens,
     cost: calculateCost('zai-glm', inputTokens, outputTokens),
+    planId, // C6.5 — correlate cost with this plan
   }).catch(() => {})
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
@@ -145,7 +151,6 @@ Regole:
   }
 
   // Persist plan
-  const planId = `plan_${Date.now()}`
   const batches = topologicalBatches(plan.tasks)
 
   await db.agentPlan.create({
