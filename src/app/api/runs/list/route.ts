@@ -2,8 +2,15 @@
  * GET /api/runs/list — List all plan executions (past + in-progress)
  *
  * Query params:
- *   ?status=running  → filter by status
- *   ?limit=20        → max results (default 50)
+ *   ?status=running    → filter by plan status (running|scheduled|paused|completed|failed|partial|drafted)
+ *   ?agent=orchestrator → filter by agent that worked on the plan (matches any task's agentId)
+ *   ?search=migration  → full-text search in plan goal
+ *   ?limit=20          → max results per page (default 50, max 200)
+ *   ?offset=0          → pagination offset (default 0)
+ *
+ * C6.7 — Added agent filter, search, and pagination (offset-based).
+ * Returns `total` (total count matching filters, not just the page) so
+ * the UI can show "X-Y of Z" and implement load-more.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,27 +23,48 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url)
   const status = url.searchParams.get('status')
-  const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+  const agent = url.searchParams.get('agent')
+  const search = url.searchParams.get('search')
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200)
+  const offset = parseInt(url.searchParams.get('offset') || '0', 10)
 
-  const plans = await db.agentPlan.findMany({
-    where: status ? { status } : undefined,
-    include: {
-      tasks: {
-        select: {
-          id: true,
-          taskId: true,
-          agentId: true,
-          description: true,
-          status: true,
-          startedAt: true,
-          finishedAt: true,
-          result: true,
+  // === Build where clause ===
+  const where: any = {}
+  if (status && status !== 'all') {
+    where.status = status
+  }
+  if (search) {
+    where.taskGoal = { contains: search }
+  }
+  // Agent filter: plan must have at least one task with this agentId
+  if (agent && agent !== 'all') {
+    where.tasks = { some: { agentId: agent } }
+  }
+
+  // === Fetch page + total count in parallel ===
+  const [plans, totalCount] = await Promise.all([
+    db.agentPlan.findMany({
+      where,
+      include: {
+        tasks: {
+          select: {
+            id: true,
+            taskId: true,
+            agentId: true,
+            description: true,
+            status: true,
+            startedAt: true,
+            finishedAt: true,
+            result: true,
+          },
         },
       },
-    },
-    take: limit,
-    orderBy: { createdAt: 'desc' },
-  })
+      take: limit,
+      skip: offset,
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.agentPlan.count({ where }),
+  ])
 
   const runs = plans.map((p) => {
     const tasks = p.tasks
@@ -51,6 +79,9 @@ export async function GET(req: NextRequest) {
       return sum
     }, 0)
 
+    // Unique agents for this plan (for the agent breakdown in the list)
+    const agents = Array.from(new Set(tasks.map((t) => t.agentId)))
+
     return {
       planId: p.id,
       goal: p.taskGoal,
@@ -64,6 +95,7 @@ export async function GET(req: NextRequest) {
       tasksRunning: running,
       totalDurationMs: totalDuration,
       agentCount: p.agentCount,
+      agents, // C6.7 — list of unique agent IDs for filter dropdown
       batches: p.dagJson ? JSON.parse(p.dagJson) : [],
       tasks: tasks.map((t) => ({
         taskId: t.taskId,
@@ -75,10 +107,21 @@ export async function GET(req: NextRequest) {
         durationMs: t.startedAt && t.finishedAt
           ? t.finishedAt.getTime() - t.startedAt.getTime()
           : null,
-        result: t.result?.slice(0, 500) || null, // truncate for list view
+        result: t.result?.slice(0, 500) || null,
       })),
     }
   })
 
-  return NextResponse.json({ runs, total: runs.length })
+  // C6.7 — Collect all unique agents across loaded runs for the filter dropdown
+  const allAgents = Array.from(new Set(runs.flatMap((r) => r.agents))).sort()
+
+  return NextResponse.json({
+    runs,
+    total: totalCount,        // total matching the filter (not just this page)
+    returned: runs.length,    // how many in this page
+    offset,
+    limit,
+    hasMore: offset + runs.length < totalCount,
+    agents: allAgents,        // unique agents for filter dropdown
+  })
 }

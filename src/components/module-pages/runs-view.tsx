@@ -22,7 +22,7 @@ import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign, Pause, Square } from 'lucide-react'
+import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign, Pause, Square, Search, X, ChevronLeft, Users } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +37,9 @@ interface RunTask {
   finishedAt: string | null
   durationMs: number | null
   result?: string | null
+  // C6.7 — LTL verdict + violations (populated by /api/runs/detail)
+  ltlVerdict?: string
+  ltlViolations?: string[]
 }
 
 interface Run {
@@ -52,6 +55,7 @@ interface Run {
   tasksRunning: number
   totalDurationMs: number
   agentCount: number
+  agents: string[] // C6.7 — unique agent IDs for this run
   batches: string[][]
   tasks: RunTask[]
 }
@@ -102,30 +106,62 @@ export function RunsView() {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // C6.7 — Filter + pagination state
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [agentFilter, setAgentFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [totalRuns, setTotalRuns] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const pageSize = 50
+
   // C6.6 — Real-time updates via Sensorium WS singleton.
-  // When the WS is connected and we receive agent_event for a task that
-  // belongs to a running plan, we trigger a soft refresh of the runs list.
-  // The singleton hook shares one connection across all subscribers.
   const { connected: wsConnected, events: wsEvents } = useSensoriumLive()
 
   // C6.6 — Deep-linking: read ?planId= from URL on mount.
-  // Allows sharing a run detail URL like /runs?planId=plan_12345
   const searchParams = useSearchParams()
   const initialPlanId = searchParams.get('planId')
 
-  const fetchRuns = useCallback(async () => {
-    setLoading(true)
+  // C6.7 — Build query string from filters
+  const buildQuery = useCallback((offset: number) => {
+    const params = new URLSearchParams()
+    params.set('limit', String(pageSize))
+    params.set('offset', String(offset))
+    if (statusFilter !== 'all') params.set('status', statusFilter)
+    if (agentFilter !== 'all') params.set('agent', agentFilter)
+    if (searchQuery) params.set('search', searchQuery)
+    return params.toString()
+  }, [statusFilter, agentFilter, searchQuery])
+
+  // C6.7 — Fetch runs with filters + pagination
+  const fetchRuns = useCallback(async (append = false) => {
+    if (!append) setLoading(true)
     try {
-      const res = await fetch('/api/runs/list?limit=50').then((r) => r.json())
-      setRuns(res.runs || [])
+      const offset = append ? runs.length : 0
+      const res = await fetch(`/api/runs/list?${buildQuery(offset)}`).then((r) => r.json())
+      if (append) {
+        setRuns(prev => [...prev, ...(res.runs || [])])
+      } else {
+        setRuns(res.runs || [])
+      }
+      setTotalRuns(res.total || 0)
+      setHasMore(res.hasMore || false)
+      if (res.agents) setAvailableAgents(res.agents)
     } catch (err: any) {
       toast.error(`Failed to load runs: ${err.message}`)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [buildQuery, runs.length])
 
-  useEffect(() => { fetchRuns() }, [fetchRuns])
+  // C6.7 — Refetch when filters change (debounced for search)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRuns(false)
+    }, searchQuery ? 300 : 0) // debounce search 300ms
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, agentFilter, searchQuery])
 
   // C6.6 — Auto-open detail if ?planId= is in the URL on first mount.
   useEffect(() => {
@@ -135,24 +171,27 @@ export function RunsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPlanId])
 
-  // C6.6 — Real-time: when WS receives a new event, check if any running plan
-  // is affected and trigger a soft refresh. We use a ref to track the last
-  // refresh timestamp to avoid spamming (max 1 refresh per 2s).
+  // C6.6 — Real-time: silent refresh on WS events (throttled)
   const lastWsRefreshRef = useRef(0)
   useEffect(() => {
     if (!wsConnected || wsEvents.length === 0) return
-    // Only refresh if there are running/scheduled plans in the list
-    const hasActiveRuns = runs.some(r => r.status === 'running' || r.status === 'scheduled')
+    const hasActiveRuns = runs.some(r => r.status === 'running' || r.status === 'scheduled' || r.status === 'paused')
     if (!hasActiveRuns) return
     const now = Date.now()
-    if (now - lastWsRefreshRef.current < 2000) return // throttle
+    if (now - lastWsRefreshRef.current < 2000) return
     lastWsRefreshRef.current = now
-    // Silent refresh (no loading spinner) — just update the data
-    fetch('/api/runs/list?limit=50')
+    // Silent refresh of the first page only (preserves filters)
+    fetch(`/api/runs/list?${buildQuery(0)}`)
       .then(r => r.json())
-      .then(d => { if (d.runs) setRuns(d.runs) })
-      .catch(() => {}) // silent — WS refresh is best-effort
-  }, [wsEvents, wsConnected, runs])
+      .then(d => {
+        if (d.runs) {
+          setRuns(d.runs)
+          setTotalRuns(d.total || 0)
+          setHasMore(d.hasMore || false)
+        }
+      })
+      .catch(() => {})
+  }, [wsEvents, wsConnected, runs, buildQuery])
 
   const openDetail = useCallback(async (planId: string) => {
     setSelectedPlanId(planId)
@@ -178,8 +217,7 @@ export function RunsView() {
         onBack={() => {
           setSelectedPlanId(null)
           setDetail(null)
-          fetchRuns()
-          // Clean the URL param when going back
+          fetchRuns(false)
           if (window.location.search.includes('planId=')) {
             window.history.replaceState({}, '', window.location.pathname)
           }
@@ -190,38 +228,135 @@ export function RunsView() {
   }
 
   // === Runs List View ===
+  const runningCount = runs.filter(r => r.status === 'running' || r.status === 'scheduled').length
+  const completedCount = runs.filter(r => r.status === 'completed').length
+  const failedCount = runs.filter(r => r.status === 'failed').length
+
   return (
     <ModulePage
       title="Runs"
       description="Workflow executions — past and in-progress"
       icon="Play"
       loading={loading}
-      onRefresh={fetchRuns}
+      onRefresh={() => fetchRuns(false)}
       stats={[
-        { label: 'Total Runs', value: runs.length, icon: 'Play' },
-        { label: 'Running', value: runs.filter(r => r.status === 'running' || r.status === 'scheduled').length, tone: 'warn' as const, icon: 'Activity' },
-        { label: 'Completed', value: runs.filter(r => r.status === 'completed').length, tone: 'ok' as const, icon: 'CheckCircle2' },
-        { label: 'Failed', value: runs.filter(r => r.status === 'failed').length, tone: 'danger' as const, icon: 'XCircle' },
+        { label: 'Total', value: totalRuns, icon: 'Play' },
+        { label: 'Running', value: runningCount, tone: 'warn' as const, icon: 'Activity' },
+        { label: 'Completed', value: completedCount, tone: 'ok' as const, icon: 'CheckCircle2' },
+        { label: 'Failed', value: failedCount, tone: 'danger' as const, icon: 'XCircle' },
       ]}
     >
-      {/* C6.6 — Live indicator when WS is connected and there are active runs */}
-      {wsConnected && runs.some(r => r.status === 'running' || r.status === 'scheduled') && (
+      {/* C6.7 — Filter bar */}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" aria-hidden />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="search by goal…"
+            aria-label="Search runs by goal"
+            className="w-full h-8 pl-7 pr-7 text-xs border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="Filter by status"
+          className="h-8 text-xs border rounded-md bg-background px-2"
+        >
+          <option value="all">all statuses</option>
+          <option value="running">running</option>
+          <option value="scheduled">scheduled</option>
+          <option value="paused">paused</option>
+          <option value="completed">completed</option>
+          <option value="failed">failed</option>
+          <option value="partial">partial</option>
+        </select>
+        <select
+          value={agentFilter}
+          onChange={(e) => setAgentFilter(e.target.value)}
+          aria-label="Filter by agent"
+          className="h-8 text-xs border rounded-md bg-background px-2"
+          disabled={availableAgents.length === 0}
+        >
+          <option value="all">all agents</option>
+          {availableAgents.map(a => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+        {(statusFilter !== 'all' || agentFilter !== 'all' || searchQuery) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => { setStatusFilter('all'); setAgentFilter('all'); setSearchQuery('') }}
+            className="h-8 text-xs"
+          >
+            <X className="size-3 mr-0.5" /> Clear filters
+          </Button>
+        )}
+      </div>
+
+      {/* C6.6 — Live indicator */}
+      {wsConnected && runningCount > 0 && (
         <div className="flex items-center gap-2 text-xs text-status-ok mb-3 px-1">
           <span className="size-1.5 rounded-full bg-status-ok animate-pulse" />
           <span>Live — auto-refreshing on agent events</span>
         </div>
       )}
+
+      {/* C6.7 — Result count */}
+      <div className="text-xs text-muted-foreground mb-2 px-1">
+        {runs.length === 0
+          ? 'No runs found'
+          : `${runs.length} of ${totalRuns} run${totalRuns === 1 ? '' : 's'}`
+        }
+        {(statusFilter !== 'all' || agentFilter !== 'all' || searchQuery) && ' (filtered)'}
+      </div>
+
       {runs.length > 0 ? (
-        <div className="space-y-2">
-          {runs.map((run) => (
-            <RunRow key={run.planId} run={run} onClick={() => openDetail(run.planId)} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {runs.map((run) => (
+              <RunRow key={run.planId} run={run} onClick={() => openDetail(run.planId)} />
+            ))}
+          </div>
+          {/* C6.7 — Load more pagination */}
+          {hasMore && (
+            <div className="flex justify-center mt-4">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fetchRuns(true)}
+                disabled={loading}
+              >
+                {loading ? (
+                  <RotateCcw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                ) : null}
+                Load more ({totalRuns - runs.length} remaining)
+              </Button>
+            </div>
+          )}
+        </>
       ) : (
         <EmptyState
           icon="Play"
-          title="No runs yet"
-          description="Execute a workflow from the Console to see it appear here. Runs are persistent — they survive crashes and can be resumed."
+          title={searchQuery || statusFilter !== 'all' || agentFilter !== 'all' ? 'No runs match your filters' : 'No runs yet'}
+          description={
+            searchQuery || statusFilter !== 'all' || agentFilter !== 'all'
+              ? 'Try adjusting your search or filters.'
+              : 'Execute a workflow from the Console to see it appear here. Runs are persistent — they survive crashes and can be resumed.'
+          }
         />
       )}
     </ModulePage>
@@ -478,6 +613,11 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
         <StatBox label="Tokens" value={`${costs.tokensIn + costs.tokensOut}`} />
       </div>
 
+      {/* C6.7 — Agent-level breakdown */}
+      {tasks.length > 0 && (
+        <AgentBreakdown tasks={tasks} costs={costs.entries || []} />
+      )}
+
       {/* Timeline by batch */}
       <Card>
         <CardHeader>
@@ -550,7 +690,7 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
 // === Task Step (expandable) ===========================================
 
 function TaskStep({ task, isExpanded, onToggle, traces }: {
-  task: RunTask & { dependencies?: string[]; id?: string }
+  task: RunTask & { dependencies?: string[]; id?: string; ltlVerdict?: string; ltlViolations?: string[] }
   isExpanded: boolean
   onToggle: () => void
   traces: any[]
@@ -565,6 +705,13 @@ function TaskStep({ task, isExpanded, onToggle, traces }: {
     }
   }
 
+  // C6.7 — LTL verdict badge
+  const ltlBadge = (verdict?: string) => {
+    if (!verdict) return null
+    const variant = verdict === 'accept' ? 'success' : verdict === 'reject' ? 'destructive' : verdict === 'warn' ? 'warning' : 'secondary'
+    return <Badge variant={variant as any} className="text-[10px]">LTL: {verdict}</Badge>
+  }
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <button
@@ -573,9 +720,10 @@ function TaskStep({ task, isExpanded, onToggle, traces }: {
       >
         {statusIcon(task.status)}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono">{task.taskId}</span>
             <Badge variant="outline" className="text-[10px]">{task.agentId}</Badge>
+            {ltlBadge(task.ltlVerdict)}
           </div>
           <div className="text-sm truncate">{task.description}</div>
         </div>
@@ -587,6 +735,28 @@ function TaskStep({ task, isExpanded, onToggle, traces }: {
 
       {isExpanded && (
         <div className="border-t bg-muted/20 p-3 space-y-2">
+          {/* C6.7 — LTL verdict + violations */}
+          {task.ltlVerdict && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1">LTL Verification</div>
+              <div className="flex items-center gap-2 text-xs">
+                {ltlBadge(task.ltlVerdict)}
+                {task.ltlViolations && task.ltlViolations.length > 0 && (
+                  <span className="text-destructive">{task.ltlViolations.length} violation{task.ltlViolations.length === 1 ? '' : 's'}</span>
+                )}
+              </div>
+              {task.ltlViolations && task.ltlViolations.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {task.ltlViolations.map((v, i) => (
+                    <li key={i} className="text-[11px] text-destructive font-mono border-l-2 border-destructive/30 pl-2">
+                      {v}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {/* Task result */}
           {task.result && (
             <div>
@@ -721,6 +891,111 @@ function CheckpointRow({
         </Button>
       </div>
     </div>
+  )
+}
+
+// === Agent Breakdown (C6.7) ===========================================
+
+function AgentBreakdown({
+  tasks,
+  costs,
+}: {
+  tasks: Array<RunTask & { durationMs: number | null }>
+  costs: Array<{ agentId: string; model: string; cost: number; tokensIn: number; tokensOut: number }>
+}) {
+  // Group tasks by agentId
+  const byAgent = new Map<string, {
+    taskCount: number
+    done: number
+    failed: number
+    running: number
+    blocked: number
+    pending: number
+    totalDurationMs: number
+    cost: number
+    tokensIn: number
+    tokensOut: number
+  }>()
+
+  for (const task of tasks) {
+    const agent = task.agentId
+    if (!byAgent.has(agent)) {
+      byAgent.set(agent, { taskCount: 0, done: 0, failed: 0, running: 0, blocked: 0, pending: 0, totalDurationMs: 0, cost: 0, tokensIn: 0, tokensOut: 0 })
+    }
+    const a = byAgent.get(agent)!
+    a.taskCount++
+    if (task.status === 'done') a.done++
+    else if (task.status === 'failed') a.failed++
+    else if (task.status === 'running') a.running++
+    else if (task.status === 'blocked') a.blocked++
+    else a.pending++
+    if (task.durationMs) a.totalDurationMs += task.durationMs
+  }
+
+  // Aggregate costs by agent
+  for (const c of costs) {
+    const a = byAgent.get(c.agentId)
+    if (a) {
+      a.cost += c.cost
+      a.tokensIn += c.tokensIn
+      a.tokensOut += c.tokensOut
+    }
+  }
+
+  const agents = Array.from(byAgent.entries()).sort((a, b) => b[1].taskCount - a[1].taskCount)
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Users className="w-4 h-4" /> Agent Breakdown
+        </CardTitle>
+        <CardDescription>
+          {agents.length} agent{agents.length === 1 ? '' : 's'} worked on this run
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {agents.map(([agentId, stats]) => (
+            <div key={agentId} className="border rounded p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Users className="size-3 shrink-0 text-muted-foreground" />
+                  <code className="text-xs font-mono truncate">{agentId}</code>
+                </div>
+                <Badge variant="outline" className="text-[9px] shrink-0">{stats.taskCount} task{stats.taskCount === 1 ? '' : 's'}</Badge>
+              </div>
+              {/* Status breakdown */}
+              <div className="flex gap-1.5 text-[10px] flex-wrap">
+                {stats.done > 0 && <span className="text-status-ok">✓ {stats.done}</span>}
+                {stats.running > 0 && <span className="text-blue-500">↻ {stats.running}</span>}
+                {stats.failed > 0 && <span className="text-status-danger">✗ {stats.failed}</span>}
+                {stats.blocked > 0 && <span className="text-status-warn">⚠ {stats.blocked}</span>}
+                {stats.pending > 0 && <span className="text-muted-foreground">○ {stats.pending}</span>}
+              </div>
+              {/* Metrics */}
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                {stats.totalDurationMs > 0 && (
+                  <span className="flex items-center gap-0.5">
+                    <Clock className="size-2.5" />
+                    {formatDuration(stats.totalDurationMs)}
+                  </span>
+                )}
+                {stats.cost > 0 && (
+                  <span className="flex items-center gap-0.5">
+                    <DollarSign className="size-2.5" />
+                    ${stats.cost.toFixed(4)}
+                  </span>
+                )}
+                {(stats.tokensIn + stats.tokensOut) > 0 && (
+                  <span>{(stats.tokensIn + stats.tokensOut).toLocaleString()} tok</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

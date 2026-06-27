@@ -112,6 +112,9 @@ model PlanTask {
   result      String?
   startedAt   DateTime?
   finishedAt  DateTime?
+  // C6.7 — LTL verdict + violations persisted for display in RunDetailView
+  ltlVerdict    String?  // accept | reject | warn | null (not yet verified)
+  ltlViolations String?  // JSON array of "ruleId: reason" strings
   plan        AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 }
 

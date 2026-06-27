@@ -106,6 +106,9 @@ export async function GET(req: NextRequest) {
       durationMs: t.startedAt && t.finishedAt
         ? t.finishedAt.getTime() - t.startedAt.getTime()
         : null,
+      // C6.7 — LTL verdict + violations for display in TaskStep
+      ltlVerdict: t.ltlVerdict || undefined,
+      ltlViolations: t.ltlViolations ? JSON.parse(t.ltlViolations) : undefined,
     })),
     checkpoints: checkpoints.map((c) => ({
       id: c.id,

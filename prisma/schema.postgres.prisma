@@ -136,6 +136,9 @@ model PlanTask {
   result       String?
   startedAt    DateTime?
   finishedAt   DateTime?
+  // C6.7 — LTL verdict + violations persisted for display
+  ltlVerdict    String?
+  ltlViolations String?
   plan         AgentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 }
 

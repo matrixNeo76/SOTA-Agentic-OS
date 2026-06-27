@@ -261,6 +261,9 @@ export async function executeTask(params: {
     step.ltlVerdict = ltlResult.verdict
     step.ltlViolations = ltlResult.violations.map((v) => `${v.ruleId}: ${v.reason}`)
 
+    // C6.7 — Persist LTL verdict + violations for display in RunDetailView
+    await updateTaskLtl(planId, taskDef.taskId, ltlResult.verdict, step.ltlViolations)
+
     if (ltlResult.verdict === 'reject') {
       step.status = 'blocked'
       step.error = `LTL reject: ${step.ltlViolations.join('; ') || 'no details'}`
@@ -623,6 +626,31 @@ async function updateTaskResult(
   await db.planTask.update({
     where: { id: task.id },
     data: { result },
+  })
+}
+
+/**
+ * C6.7 — Persist LTL verdict + violations on a task so the RunDetailView
+ * can display whether each task passed/failed LTL verification.
+ */
+async function updateTaskLtl(
+  planId: string,
+  taskId: string,
+  verdict: string,
+  violations: string[],
+): Promise<void> {
+  const task = await db.planTask.findFirst({
+    where: { planId, taskId },
+    select: { id: true },
+  })
+  if (!task) return
+
+  await db.planTask.update({
+    where: { id: task.id },
+    data: {
+      ltlVerdict: verdict,
+      ltlViolations: violations.length > 0 ? JSON.stringify(violations) : null,
+    },
   })
 }
 
