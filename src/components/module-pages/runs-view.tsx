@@ -15,13 +15,15 @@
  *   - Badge "ripreso dopo interruzione" quando resumed=true
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
+import { useSearchParams } from 'next/navigation'
 import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign } from 'lucide-react'
+import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign, Pause, Square } from 'lucide-react'
+import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { cn } from '@/lib/utils'
 
 // === Tipi ============================================================
@@ -100,11 +102,24 @@ export function RunsView() {
   const [detail, setDetail] = useState<RunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // C6.6 — Real-time updates via Sensorium WS singleton.
+  // When the WS is connected and we receive agent_event for a task that
+  // belongs to a running plan, we trigger a soft refresh of the runs list.
+  // The singleton hook shares one connection across all subscribers.
+  const { connected: wsConnected, events: wsEvents } = useSensoriumLive()
+
+  // C6.6 — Deep-linking: read ?planId= from URL on mount.
+  // Allows sharing a run detail URL like /runs?planId=plan_12345
+  const searchParams = useSearchParams()
+  const initialPlanId = searchParams.get('planId')
+
   const fetchRuns = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch('/api/runs/list?limit=50').then((r) => r.json())
       setRuns(res.runs || [])
+    } catch (err: any) {
+      toast.error(`Failed to load runs: ${err.message}`)
     } finally {
       setLoading(false)
     }
@@ -112,16 +127,45 @@ export function RunsView() {
 
   useEffect(() => { fetchRuns() }, [fetchRuns])
 
-  const openDetail = async (planId: string) => {
+  // C6.6 — Auto-open detail if ?planId= is in the URL on first mount.
+  useEffect(() => {
+    if (initialPlanId && !selectedPlanId) {
+      openDetail(initialPlanId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPlanId])
+
+  // C6.6 — Real-time: when WS receives a new event, check if any running plan
+  // is affected and trigger a soft refresh. We use a ref to track the last
+  // refresh timestamp to avoid spamming (max 1 refresh per 2s).
+  const lastWsRefreshRef = useRef(0)
+  useEffect(() => {
+    if (!wsConnected || wsEvents.length === 0) return
+    // Only refresh if there are running/scheduled plans in the list
+    const hasActiveRuns = runs.some(r => r.status === 'running' || r.status === 'scheduled')
+    if (!hasActiveRuns) return
+    const now = Date.now()
+    if (now - lastWsRefreshRef.current < 2000) return // throttle
+    lastWsRefreshRef.current = now
+    // Silent refresh (no loading spinner) — just update the data
+    fetch('/api/runs/list?limit=50')
+      .then(r => r.json())
+      .then(d => { if (d.runs) setRuns(d.runs) })
+      .catch(() => {}) // silent — WS refresh is best-effort
+  }, [wsEvents, wsConnected, runs])
+
+  const openDetail = useCallback(async (planId: string) => {
     setSelectedPlanId(planId)
     setDetailLoading(true)
     try {
       const res = await fetch(`/api/runs/detail?planId=${planId}`).then((r) => r.json())
       setDetail(res)
+    } catch (err: any) {
+      toast.error(`Failed to load run detail: ${err.message}`)
     } finally {
       setDetailLoading(false)
     }
-  }
+  }, [])
 
   // === Run Detail View ===
   if (selectedPlanId) {
@@ -130,7 +174,16 @@ export function RunsView() {
         planId={selectedPlanId}
         detail={detail}
         loading={detailLoading}
-        onBack={() => { setSelectedPlanId(null); setDetail(null); fetchRuns() }}
+        wsConnected={wsConnected}
+        onBack={() => {
+          setSelectedPlanId(null)
+          setDetail(null)
+          fetchRuns()
+          // Clean the URL param when going back
+          if (window.location.search.includes('planId=')) {
+            window.history.replaceState({}, '', window.location.pathname)
+          }
+        }}
         onRefresh={() => openDetail(selectedPlanId)}
       />
     )
@@ -151,6 +204,13 @@ export function RunsView() {
         { label: 'Failed', value: runs.filter(r => r.status === 'failed').length, tone: 'danger' as const, icon: 'XCircle' },
       ]}
     >
+      {/* C6.6 — Live indicator when WS is connected and there are active runs */}
+      {wsConnected && runs.some(r => r.status === 'running' || r.status === 'scheduled') && (
+        <div className="flex items-center gap-2 text-xs text-status-ok mb-3 px-1">
+          <span className="size-1.5 rounded-full bg-status-ok animate-pulse" />
+          <span>Live — auto-refreshing on agent events</span>
+        </div>
+      )}
       {runs.length > 0 ? (
         <div className="space-y-2">
           {runs.map((run) => (
@@ -221,15 +281,17 @@ function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
 
 // === Run Detail View ==================================================
 
-function RunDetailView({ planId, detail, loading, onBack, onRefresh }: {
+function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh }: {
   planId: string
   detail: RunDetail | null
   loading: boolean
+  wsConnected: boolean
   onBack: () => void
   onRefresh: () => void
 }) {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [showCheckpoints, setShowCheckpoints] = useState(false)
+  const [controlLoading, setControlLoading] = useState<string | null>(null)
 
   const toggleTask = (taskId: string) => {
     setExpandedTasks((prev) => {
@@ -238,6 +300,57 @@ function RunDetailView({ planId, detail, loading, onBack, onRefresh }: {
       else next.add(taskId)
       return next
     })
+  }
+
+  // C6.6 — Auto-refresh every 3s when the plan is in an active status.
+  // Stops auto-refreshing once the plan reaches a terminal state.
+  const isActive = detail?.plan?.status &&
+    ['running', 'scheduled', 'paused', 'partial'].includes(detail.plan.status)
+
+  useEffect(() => {
+    if (!isActive) return
+    const interval = setInterval(() => {
+      onRefresh()
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [isActive, onRefresh])
+
+  // C6.6 — Update URL with planId for deep-linking when detail opens.
+  useEffect(() => {
+    if (planId && !window.location.search.includes(`planId=${planId}`)) {
+      const url = `${window.location.pathname}?planId=${planId}`
+      window.history.replaceState({}, '', url)
+    }
+  }, [planId])
+
+  // C6.6 — Run control handler (pause/resume/abort).
+  const handleControl = async (action: 'pause' | 'resume' | 'abort') => {
+    setControlLoading(action)
+    try {
+      const res = await fetch('/api/runs/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, planId }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`${action} failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      // Action-specific success messages
+      if (action === 'pause') {
+        toast.success(`Plan paused`, { description: body.message, duration: 5000 })
+      } else if (action === 'resume') {
+        toast.success(`Plan resumed`, { description: body.message, duration: 5000 })
+      } else if (action === 'abort') {
+        toast.success(`Plan aborted`, { description: `${body.affectedTasks} task(s) cancelled`, duration: 6000 })
+      }
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`${action} failed: ${err.message}`)
+    } finally {
+      setControlLoading(null)
+    }
   }
 
   if (loading || !detail) {
@@ -255,29 +368,106 @@ function RunDetailView({ planId, detail, loading, onBack, onRefresh }: {
 
   const { plan, tasks, checkpoints, traces, costs } = detail
 
+  // C6.6 — Determine which control buttons to show based on plan status.
+  const canPause = ['running', 'scheduled'].includes(plan.status)
+  const canResume = plan.status === 'paused'
+  const canAbort = ['running', 'scheduled', 'paused', 'partial'].includes(plan.status)
+
   return (
     <div className="space-y-4 p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
             <ArrowLeft className="w-4 h-4 mr-1" /> Back
           </Button>
-          <div>
-            <h2 className="text-lg font-bold">{plan.goal}</h2>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold truncate">{plan.goal}</h2>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               <span className="font-mono">{plan.id}</span>
-              <Badge variant={plan.status === 'completed' ? 'success' : plan.status === 'failed' ? 'destructive' : 'warning'}>
+              <Badge variant={plan.status === 'completed' ? 'success' : plan.status === 'failed' ? 'destructive' : plan.status === 'paused' ? 'secondary' : 'warning'}>
                 {plan.status}
               </Badge>
               <span>{new Date(plan.createdAt).toLocaleString()}</span>
+              {/* C6.6 — Live indicator when WS connected and plan is active */}
+              {wsConnected && isActive && (
+                <span className="flex items-center gap-1 text-status-ok">
+                  <span className="size-1.5 rounded-full bg-status-ok animate-pulse" />
+                  live
+                </span>
+              )}
+              {/* C6.6 — Auto-refresh indicator */}
+              {isActive && (
+                <span className="text-muted-foreground/70">· auto-refresh 3s</span>
+              )}
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh}>
-          <RotateCcw className="w-4 h-4 mr-1" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* C6.6 — Run control buttons */}
+          {canPause && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleControl('pause')}
+              disabled={controlLoading !== null}
+            >
+              {controlLoading === 'pause' ? (
+                <RotateCcw className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Pause className="w-4 h-4 mr-1" />
+              )}
+              {controlLoading === 'pause' ? 'Pausing…' : 'Pause'}
+            </Button>
+          )}
+          {canResume && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => handleControl('resume')}
+              disabled={controlLoading !== null}
+            >
+              {controlLoading === 'resume' ? (
+                <RotateCcw className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4 mr-1" />
+              )}
+              {controlLoading === 'resume' ? 'Resuming…' : 'Resume'}
+            </Button>
+          )}
+          {canAbort && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (confirm(`Abort this run?\n\nAll pending and running tasks will be marked as failed. This cannot be undone.`)) {
+                  handleControl('abort')
+                }
+              }}
+              disabled={controlLoading !== null}
+            >
+              {controlLoading === 'abort' ? (
+                <RotateCcw className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Square className="w-4 h-4 mr-1" />
+              )}
+              {controlLoading === 'abort' ? 'Aborting…' : 'Abort'}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+            <RotateCcw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* C6.6 — Paused banner */}
+      {plan.status === 'paused' && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-status-warn/10 border border-status-warn/20 text-xs text-status-warn">
+          <Pause className="w-3.5 shrink-0" />
+          <span className="font-medium">Plan paused.</span>
+          <span className="text-muted-foreground">In-flight tasks have completed. Click Resume to continue with the next batch.</span>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
