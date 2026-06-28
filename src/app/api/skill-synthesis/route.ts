@@ -3,17 +3,22 @@
  * POST /api/skill-synthesis — detect gaps or run full pipeline
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   detectSkillGaps, runSynthesisPipeline, synthesisStats, synthesisProvenance,
 } from '@/lib/skill-synthesis/pipeline'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const stats = await synthesisStats()
   return NextResponse.json(stats)
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     const body = await req.json()
     const { action } = body

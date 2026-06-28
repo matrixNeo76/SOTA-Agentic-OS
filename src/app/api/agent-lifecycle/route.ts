@@ -3,7 +3,8 @@
  * POST /api/agent-lifecycle — register/suspend/resume/deprecate/upgrade
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   registerAgent, getAgent, suspendAgent, resumeAgent, deprecateAgent,
   upgradeAgentVersion, listAgentVersions, checkPermission, agentLifecycleStats,
@@ -11,7 +12,9 @@ import {
 } from '@/lib/agent-lifecycle/manager'
 import { db } from '@/lib/db'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const [stats, agents] = await Promise.all([
     agentLifecycleStats(),
     db.graphNode.findMany({ where: { entityType: 'Agent' }, take: 50, orderBy: { createdAt: 'desc' } }),
@@ -19,7 +22,9 @@ export async function GET() {
   return NextResponse.json({ stats, agents })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     const body = await req.json()
     const { action } = body

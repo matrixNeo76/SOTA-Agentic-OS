@@ -5,13 +5,16 @@
  * POST /api/agent-mesh/escalate — escalate an issue
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   bootstrapDefaultMesh, getMeshTopology, meshStats,
   delegateTask, escalateIssue, requestPeerQuorum, meshProvenance,
 } from '@/lib/agent-mesh/topology'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const [topology, stats] = await Promise.all([
     getMeshTopology(),
     meshStats(),
@@ -19,7 +22,9 @@ export async function GET() {
   return NextResponse.json({ topology, stats })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     const body = await req.json()
     const { action } = body

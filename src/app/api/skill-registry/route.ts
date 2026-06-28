@@ -3,14 +3,17 @@
  * POST /api/skill-registry — register/search/version/seed
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   registerSkill, getSkill, searchSkills, updateSkillLifecycle,
   versionSkill, listSkills, skillRegistryStats, seedDefaultSkills,
   codeAnalysisProvenanceSkill,
 } from '@/lib/skill-registry/registry'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const [stats, skills] = await Promise.all([
     skillRegistryStats(),
     listSkills({ limit: 50 }),
@@ -18,7 +21,9 @@ export async function GET() {
   return NextResponse.json({ stats, skills })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     const body = await req.json()
     const { action } = body

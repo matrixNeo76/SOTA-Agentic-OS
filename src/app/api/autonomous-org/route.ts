@@ -4,7 +4,8 @@
  *   actions: create, approve, reject, generate-auto
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   createProposal, approveProposal, rejectProposal,
   generateAutoProposals, listPendingProposals, getProposal,
@@ -12,7 +13,9 @@ import {
   type ProposalType,
 } from '@/lib/autonomous-org/governor'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   const [pending, stats] = await Promise.all([
     listPendingProposals(50),
     autonomousOrgStats(),
@@ -20,7 +23,9 @@ export async function GET() {
   return NextResponse.json({ pending, stats })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
   try {
     const body = await req.json()
     const { action } = body
