@@ -449,7 +449,7 @@ function RunRow({ run, onClick, onManaged }: { run: Run; onClick: () => void; on
             <span className="font-mono">{run.planId}</span>
             <span>{run.tasksCompleted}/{run.taskCount} done</span>
             {run.tasksFailed > 0 && <span className="text-destructive">{run.tasksFailed} failed</span>}
-            {run.tasksBlocked > 0 && <span className="text-yellow-600">{run.tasksBlocked} blocked</span>}
+            {run.tasksBlocked > 0 && <span className="text-status-warn">{run.tasksBlocked} blocked</span>}
             <span><Clock className="w-3 h-3 inline mr-0.5" />{formatDuration(run.totalDurationMs)}</span>
             <span>{new Date(run.createdAt).toLocaleString()}</span>
           </div>
@@ -506,10 +506,10 @@ function RunRow({ run, onClick, onManaged }: { run: Run; onClick: () => void; on
             key={t.taskId}
             className={cn(
               'flex-1 rounded-full',
-              t.status === 'done' && 'bg-green-500',
-              t.status === 'failed' && 'bg-red-500',
-              t.status === 'blocked' && 'bg-yellow-500',
-              t.status === 'running' && 'bg-blue-500 animate-pulse',
+              t.status === 'done' && 'bg-status-ok',
+              t.status === 'failed' && 'bg-status-danger',
+              t.status === 'blocked' && 'bg-status-warn',
+              t.status === 'running' && 'bg-status-info animate-pulse',
               t.status === 'pending' && 'bg-muted',
             )}
           />
@@ -532,6 +532,9 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [showCheckpoints, setShowCheckpoints] = useState(false)
   const [controlLoading, setControlLoading] = useState<string | null>(null)
+  // C6.10 — Keyboard navigation state
+  const [focusedTaskIdx, setFocusedTaskIdx] = useState<number>(-1)
+  const taskRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const toggleTask = (taskId: string) => {
     setExpandedTasks((prev) => {
@@ -543,7 +546,6 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
   }
 
   // C6.6 — Auto-refresh every 3s when the plan is in an active status.
-  // Stops auto-refreshing once the plan reaches a terminal state.
   const isActive = detail?.plan?.status &&
     ['running', 'scheduled', 'paused', 'partial'].includes(detail.plan.status)
 
@@ -554,6 +556,95 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
     }, 3000)
     return () => clearInterval(interval)
   }, [isActive, onRefresh])
+
+  // C6.10 — Keyboard navigation: Arrow Up/Down to move between tasks,
+  // Enter to expand/collapse, Escape to close detail.
+  useEffect(() => {
+    if (!detail) return
+    // Flatten all taskIds from batches for keyboard nav
+    const allTaskIds = detail.plan.batches.flat()
+    if (allTaskIds.length === 0) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input/textarea/select
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setFocusedTaskIdx(prev => {
+          const next = Math.min(prev + 1, allTaskIds.length - 1)
+          taskRefs.current[next]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          return next
+        })
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusedTaskIdx(prev => {
+          const next = Math.max(prev - 1, 0)
+          taskRefs.current[next]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+          return next
+        })
+      } else if (e.key === 'Enter' && focusedTaskIdx >= 0) {
+        e.preventDefault()
+        const taskId = allTaskIds[focusedTaskIdx]
+        if (taskId) toggleTask(taskId)
+      } else if (e.key === 'Escape') {
+        // If a task is expanded, collapse it first; otherwise go back
+        if (focusedTaskIdx >= 0 && expandedTasks.has(allTaskIds[focusedTaskIdx])) {
+          e.preventDefault()
+          toggleTask(allTaskIds[focusedTaskIdx])
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [detail, focusedTaskIdx, expandedTasks])
+
+  // C6.10 — Browser notification when run transitions to terminal state
+  const prevStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!detail) return
+    const currentStatus = detail.plan.status
+    const prevStatus = prevStatusRef.current
+    prevStatusRef.current = currentStatus
+
+    // Only notify if status transitioned FROM active TO terminal
+    if (!prevStatus) return // skip initial load
+    const wasActive = ['running', 'scheduled', 'paused'].includes(prevStatus)
+    const isTerminal = ['completed', 'failed'].includes(currentStatus)
+    if (!wasActive || !isTerminal) return
+
+    // Try browser notification
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const icon = currentStatus === 'completed' ? '✅' : '❌'
+      const title = `${icon} Run ${currentStatus}: ${detail.plan.goal}`
+      const body = `Plan ${planId.slice(0, 20)}… — ${detail.tasks.filter(t => t.status === 'done').length}/${detail.tasks.length} tasks completed`
+      try {
+        new Notification(title, { body, tag: planId })
+      } catch {}
+    }
+
+    // Also show a toast as fallback
+    if (currentStatus === 'completed') {
+      toast.success(`Run completed: ${detail.plan.goal}`, {
+        description: `${detail.tasks.filter(t => t.status === 'done').length}/${detail.tasks.length} tasks done`,
+        duration: 8000,
+      })
+    } else if (currentStatus === 'failed') {
+      toast.error(`Run failed: ${detail.plan.goal}`, {
+        description: `${detail.tasks.filter(t => t.status === 'failed').length} tasks failed`,
+        duration: 8000,
+      })
+    }
+  }, [detail?.plan?.status, detail, planId])
+
+  // C6.10 — Request notification permission when user opens an active run
+  useEffect(() => {
+    if (isActive && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [isActive])
 
   // C6.6 — Update URL with planId for deep-linking when detail opens.
   useEffect(() => {
@@ -768,13 +859,18 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
                     const task = tasks.find(t => t.taskId === taskId)
                     if (!task) return null
                     const isExpanded = expandedTasks.has(taskId)
+                    // C6.10 — Compute flat index for keyboard navigation
+                    const flatIdx = detail.plan.batches.flat().indexOf(taskId)
+                    const isFocused = focusedTaskIdx === flatIdx
                     return (
                       <TaskStep
                         key={taskId}
                         task={task}
                         isExpanded={isExpanded}
+                        isFocused={isFocused}
                         onToggle={() => toggleTask(taskId)}
                         traces={traces.filter(t => t.traceLabel.includes(taskId))}
+                        refCallback={(el) => { taskRefs.current[flatIdx] = el }}
                       />
                     )
                   })}
@@ -817,18 +913,20 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
 
 // === Task Step (expandable) ===========================================
 
-function TaskStep({ task, isExpanded, onToggle, traces }: {
+function TaskStep({ task, isExpanded, isFocused, onToggle, traces, refCallback }: {
   task: RunTask & { dependencies?: string[]; id?: string; ltlVerdict?: string; ltlViolations?: string[] }
   isExpanded: boolean
+  isFocused?: boolean
   onToggle: () => void
   traces: any[]
+  refCallback?: (el: HTMLButtonElement | null) => void
 }) {
   const statusIcon = (status: string) => {
     switch (status) {
-      case 'done': return <CheckCircle2 className="w-4 h-4 text-green-500" />
-      case 'failed': return <XCircle className="w-4 h-4 text-red-500" />
-      case 'blocked': return <AlertTriangle className="w-4 h-4 text-yellow-500" />
-      case 'running': return <RotateCcw className="w-4 h-4 text-blue-500 animate-spin" />
+      case 'done': return <CheckCircle2 className="w-4 h-4 text-status-ok" />
+      case 'failed': return <XCircle className="w-4 h-4 text-status-danger" />
+      case 'blocked': return <AlertTriangle className="w-4 h-4 text-status-warn" />
+      case 'running': return <RotateCcw className="w-4 h-4 text-status-info animate-spin" />
       default: return <Clock className="w-4 h-4 text-muted-foreground" />
     }
   }
@@ -843,8 +941,14 @@ function TaskStep({ task, isExpanded, onToggle, traces }: {
   return (
     <div className="border rounded-lg overflow-hidden">
       <button
+        ref={refCallback}
         onClick={onToggle}
-        className="w-full flex items-center gap-3 p-3 hover:bg-accent/30 transition-colors text-left"
+        aria-label={`Task ${task.taskId}: ${task.description}${isExpanded ? ' (expanded)' : ''}`}
+        aria-expanded={isExpanded}
+        className={cn(
+          'w-full flex items-center gap-3 p-3 transition-colors text-left',
+          isFocused ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-accent/30',
+        )}
       >
         {statusIcon(task.status)}
         <div className="flex-1 min-w-0">
@@ -1195,7 +1299,7 @@ function AgentBreakdown({
               {/* Status breakdown */}
               <div className="flex gap-1.5 text-[10px] flex-wrap">
                 {stats.done > 0 && <span className="text-status-ok">✓ {stats.done}</span>}
-                {stats.running > 0 && <span className="text-blue-500">↻ {stats.running}</span>}
+                {stats.running > 0 && <span className="text-status-info">↻ {stats.running}</span>}
                 {stats.failed > 0 && <span className="text-status-danger">✗ {stats.failed}</span>}
                 {stats.blocked > 0 && <span className="text-status-warn">⚠ {stats.blocked}</span>}
                 {stats.pending > 0 && <span className="text-muted-foreground">○ {stats.pending}</span>}
@@ -1229,7 +1333,7 @@ function AgentBreakdown({
 // === Helpers ==========================================================
 
 function StatBox({ label, value, tone, icon }: { label: string; value: string | number; tone?: 'ok' | 'danger'; icon?: string }) {
-  const colorClass = tone === 'ok' ? 'text-green-600' : tone === 'danger' ? 'text-red-600' : ''
+  const colorClass = tone === 'ok' ? 'text-status-ok' : tone === 'danger' ? 'text-status-danger' : ''
   return (
     <div className="border rounded p-3 text-center">
       <div className={`text-2xl font-bold ${colorClass}`}>
