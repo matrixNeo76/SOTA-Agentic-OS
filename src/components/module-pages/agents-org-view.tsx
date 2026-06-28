@@ -1,7 +1,10 @@
 'use client'
 
 /**
- * Agents Org View — C6.16 Fase 1
+ * Agents Org View — C6.16 Fase 1 + C6.17 Fase 2
+ *
+ * Fase 1: auth fix, error handling, tab structure, skill search, synthesis UI
+ * Fase 2: agent detail view, mesh visualization SVG, agent metrics
  *
  * Fixes:
  *   - Error handling with toast (distinguish empty DB from fetch error)
@@ -20,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Users, Wrench, GitBranch, Activity, Search, Loader2, Plus, Check, X, RefreshCw, Network, Sparkles } from 'lucide-react'
+import { Users, Wrench, GitBranch, Activity, Search, Loader2, Plus, Check, X, RefreshCw, Network, Sparkles, ArrowLeft, ChevronRight, ChevronDown, DollarSign, Clock, TrendingUp, Zap } from 'lucide-react'
 
 export function AgentsOrgView() {
   const [meshData, setMeshData] = useState<any>(null)
@@ -59,6 +62,7 @@ export function AgentsOrgView() {
 
   // C6.16 — Bootstrap with loading + toast
   const [bootstrapping, setBootstrapping] = useState(false)
+  const [selectedAgentUri, setSelectedAgentUri] = useState<string | null>(null)
   const bootstrap = async () => {
     setBootstrapping(true)
     try {
@@ -110,6 +114,15 @@ export function AgentsOrgView() {
         </div>
       )}
 
+      {/* C6.17 — Agent Detail View overlay */}
+      {selectedAgentUri && (
+        <AgentDetailView
+          uri={selectedAgentUri}
+          onBack={() => setSelectedAgentUri(null)}
+          onRefresh={fetchData}
+        />
+      )}
+
       <Tabs defaultValue="mesh" className="w-full">
         <TabsList className="grid w-full max-w-3xl grid-cols-5">
           <TabsTrigger value="mesh" className="text-xs"><Network className="w-3.5 h-3.5 mr-1" />Mesh</TabsTrigger>
@@ -121,12 +134,12 @@ export function AgentsOrgView() {
 
         {/* === MESH TAB === */}
         <TabsContent value="mesh" className="mt-4">
-          <MeshTab meshData={meshData} onBootstrap={bootstrap} bootstrapping={bootstrapping} />
+          <MeshTab meshData={meshData} onBootstrap={bootstrap} bootstrapping={bootstrapping} onAgentClick={(uri) => setSelectedAgentUri(uri)} />
         </TabsContent>
 
         {/* === LIFECYCLE TAB === */}
         <TabsContent value="lifecycle" className="mt-4">
-          <LifecycleTab lifecycleData={lifecycleData} onRefresh={fetchData} />
+          <LifecycleTab lifecycleData={lifecycleData} onRefresh={fetchData} onAgentClick={(uri) => setSelectedAgentUri(uri)} />
         </TabsContent>
 
         {/* === SKILLS TAB === */}
@@ -150,8 +163,9 @@ export function AgentsOrgView() {
 
 // === Mesh Tab ========================================================
 
-function MeshTab({ meshData, onBootstrap, bootstrapping }: { meshData: any; onBootstrap: () => void; bootstrapping: boolean }) {
+function MeshTab({ meshData, onBootstrap, bootstrapping, onAgentClick }: { meshData: any; onBootstrap: () => void; bootstrapping: boolean; onAgentClick?: (uri: string) => void }) {
   const tiers = ['executive', 'strategic', 'operational', 'specialized'] as const
+  const [showViz, setShowViz] = useState(true)
 
   if (!meshData?.topology?.nodes?.length) {
     return (
@@ -168,50 +182,160 @@ function MeshTab({ meshData, onBootstrap, bootstrapping }: { meshData: any; onBo
     )
   }
 
+  const tierColors: Record<string, string> = {
+    executive: '#10b981', strategic: '#f59e0b', operational: '#3b82f6', specialized: '#8b5cf6',
+  }
+  const nodes = meshData.topology.nodes || []
+  const edges = meshData.topology.edges || []
+
+  // C6.17 — SVG org chart layout
+  // Group nodes by tier, position in horizontal layers
+  const tierOrder = ['executive', 'strategic', 'operational', 'specialized']
+  const nodesByTier: Record<string, any[]> = {}
+  for (const t of tierOrder) { nodesByTier[t] = nodes.filter((n: any) => n.tier === t) }
+
+  // Calculate positions: each tier is a horizontal row
+  const tierY: Record<string, number> = { executive: 40, strategic: 120, operational: 200, specialized: 280 }
+  const svgWidth = 600
+  const nodeRadius = 18
+  const nodePositions = new Map<string, { x: number; y: number; tier: string }>()
+
+  for (const tier of tierOrder) {
+    const tierNodes = nodesByTier[tier] || []
+    const spacing = tierNodes.length > 1 ? (svgWidth - 80) / (tierNodes.length - 1) : 0
+    tierNodes.forEach((n, i) => {
+      const x = tierNodes.length === 1 ? svgWidth / 2 : 40 + i * spacing
+      nodePositions.set(n.agentUri, { x, y: tierY[tier], tier })
+    })
+  }
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Network className="w-4 h-4" /> Agent Mesh Topology
-        </CardTitle>
-        <CardDescription>
-          {meshData.stats?.totalAgents ?? 0} agents · {meshData.stats?.totalEdges ?? 0} edges ·
-          {' '}{meshData.stats?.executiveAgents ?? 0} executive · {meshData.stats?.strategicAgents ?? 0} strategic ·
-          {' '}{meshData.stats?.operationalAgents ?? 0} operational · {meshData.stats?.specializedAgents ?? 0} specialized
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {tiers.map(tier => {
-            const agents = meshData.topology.nodes.filter((n: any) => n.tier === tier)
-            if (agents.length === 0) return null
-            return (
-              <div key={tier} className="border rounded p-2">
-                <div className="text-xs font-semibold capitalize mb-1 text-muted-foreground flex items-center gap-2">
-                  <span className="size-1.5 rounded-full" style={{
-                    background: tier === 'executive' ? 'var(--status-ok)' : tier === 'strategic' ? 'var(--status-warn)' : tier === 'operational' ? 'var(--status-info)' : 'var(--muted-foreground)'
-                  }} />
-                  {tier} ({agents.length})
+    <div className="space-y-3">
+      {/* C6.17 — SVG Mesh Visualization */}
+      {showViz && nodes.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Network className="w-4 h-4" /> Mesh Visualization
+              </CardTitle>
+              <Button size="sm" variant="ghost" onClick={() => setShowViz(!showViz)} className="h-6 text-xs">
+                {showViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </Button>
+            </div>
+            <CardDescription>{nodes.length} agents · {edges.length} edges · org chart by tier</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="border rounded-lg overflow-hidden bg-muted/10">
+              <svg viewBox="0 0 600 320" className="w-full h-auto" style={{ maxHeight: '400px' }}>
+                {/* Edges */}
+                {edges.map((e: any, i: number) => {
+                  const fromPos = nodePositions.get(e.from)
+                  const toPos = nodePositions.get(e.to)
+                  if (!fromPos || !toPos) return null
+                  const isReport = e.relation === 'REPORTS_TO'
+                  return (
+                    <line key={i} x1={fromPos.x} y1={fromPos.y} x2={toPos.x} y2={toPos.y}
+                      stroke={isReport ? 'currentColor' : 'currentColor'}
+                      strokeWidth={isReport ? '1.5' : '1'}
+                      className={isReport ? 'text-border' : 'text-border/40'}
+                      strokeDasharray={isReport ? 'none' : '3 2'}
+                    />
+                  )
+                })}
+                {/* Nodes */}
+                {nodes.map((n: any) => {
+                  const pos = nodePositions.get(n.agentUri)
+                  if (!pos) return null
+                  const color = tierColors[pos.tier] || '#6b7280'
+                  const shortName = n.agentUri.replace('agent://', '')
+                  return (
+                    <g key={n.agentUri} className="cursor-pointer" onClick={() => onAgentClick?.(n.agentUri)}>
+                      <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} stroke="white" strokeWidth="2" opacity="0.9">
+                        <title>{n.agentUri} [{pos.tier}]</title>
+                      </circle>
+                      <text x={pos.x} y={pos.y + 4} textAnchor="middle" className="text-[8px] fill-white font-medium pointer-events-none">
+                        {shortName.slice(0, 6)}
+                      </text>
+                      <text x={pos.x} y={pos.y + nodeRadius + 12} textAnchor="middle" className="text-[7px] fill-muted-foreground pointer-events-none">
+                        {shortName}
+                      </text>
+                    </g>
+                  )
+                })}
+                {/* Tier labels */}
+                {tierOrder.map(tier => (
+                  (nodesByTier[tier] || []).length > 0 && (
+                    <text key={tier} x={10} y={tierY[tier] + 3} className="text-[8px] fill-muted-foreground capitalize pointer-events-none">
+                      {tier}
+                    </text>
+                  )
+                ))}
+              </svg>
+            </div>
+            {/* Legend */}
+            <div className="flex flex-wrap gap-2 mt-2">
+              {tierOrder.map(tier => {
+                const count = (nodesByTier[tier] || []).length
+                if (count === 0) return null
+                return (
+                  <div key={tier} className="flex items-center gap-1 text-[10px]">
+                    <span className="size-2 rounded-full" style={{ background: tierColors[tier] }} />
+                    <span className="text-muted-foreground">{tier}: {count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tier list (always visible) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Users className="w-4 h-4" /> Agent List by Tier
+          </CardTitle>
+          <CardDescription>
+            {meshData.stats?.totalAgents ?? 0} agents · {meshData.stats?.totalEdges ?? 0} edges
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {tiers.map(tier => {
+              const agents = meshData.topology.nodes.filter((n: any) => n.tier === tier)
+              if (agents.length === 0) return null
+              return (
+                <div key={tier} className="border rounded p-2">
+                  <div className="text-xs font-semibold capitalize mb-1 text-muted-foreground flex items-center gap-2">
+                    <span className="size-1.5 rounded-full" style={{ background: tierColors[tier] }} />
+                    {tier} ({agents.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {agents.map((a: any) => (
+                      <Badge
+                        key={a.agentUri}
+                        variant="outline"
+                        className="text-xs cursor-pointer hover:bg-accent/50"
+                        onClick={() => onAgentClick?.(a.agentUri)}
+                      >
+                        {a.agentUri.replace('agent://', '')}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {agents.map((a: any) => (
-                    <Badge key={a.agentUri} variant="outline" className="text-xs">
-                      {a.agentUri.replace('agent://', '')}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
 // === Lifecycle Tab ===================================================
 
-function LifecycleTab({ lifecycleData, onRefresh }: { lifecycleData: any; onRefresh: () => void }) {
+function LifecycleTab({ lifecycleData, onRefresh, onAgentClick }: { lifecycleData: any; onRefresh: () => void; onAgentClick?: (uri: string) => void }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const runAction = async (action: string, agentUri: string) => {
@@ -259,7 +383,7 @@ function LifecycleTab({ lifecycleData, onRefresh }: { lifecycleData: any; onRefr
       <CardContent>
         <div className="space-y-1 max-h-96 overflow-y-auto">
           {agents.map((a: any) => (
-            <div key={a.uri || a.agentUri} className="border rounded p-2 text-xs group">
+            <div key={a.uri || a.agentUri} className="border rounded p-2 text-xs group cursor-pointer hover:bg-accent/30 transition-colors" onClick={() => onAgentClick?.(a.uri || a.agentUri)}>
               <div className="flex items-center gap-2 mb-1">
                 <Badge variant={a.lifecycleState === 'active' ? 'success' : a.lifecycleState === 'suspended' ? 'warning' : 'secondary'} className="text-[9px]">
                   {a.lifecycleState || 'unknown'}
@@ -643,6 +767,260 @@ function ProposalsTab({ proposalData, onRefresh }: { proposalData: any; onRefres
             description="The system is stable — no autonomous actions require approval"
           />
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Agent Detail View (C6.17 Fase 2) ================================
+
+function AgentDetailView({ uri, onBack, onRefresh }: { uri: string; onBack: () => void; onRefresh: () => void }) {
+  const [detail, setDetail] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const fetchDetail = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/agent-lifecycle/detail?uri=${encodeURIComponent(uri)}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      const d = await res.json()
+      setDetail(d)
+    } catch (err: any) {
+      setError(err.message)
+      toast.error(`Failed to load agent: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [uri])
+
+  useEffect(() => { fetchDetail() }, [fetchDetail])
+
+  const runAction = async (action: string) => {
+    setActionLoading(action)
+    try {
+      const res = await fetch('/api/agent-lifecycle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, agentUri: uri }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`${action} failed: ${body.error}`); return }
+      toast.success(`${action} succeeded`)
+      fetchDetail()
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`${action} failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mb-3"><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mb-3"><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+          <div className="text-xs text-status-danger">Error: {error}</div>
+          <Button size="sm" variant="outline" onClick={fetchDetail} className="mt-2">Retry</Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const { agent, mesh, edges, metrics } = detail
+  const isActive = agent.lifecycleState === 'active'
+  const isSuspended = agent.lifecycleState === 'suspended'
+
+  return (
+    <Card className="mb-4">
+      <CardContent className="p-4 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold">{agent.name}</h3>
+                <Badge variant={isActive ? 'success' : isSuspended ? 'warning' : 'secondary'}>{agent.lifecycleState}</Badge>
+                {mesh?.tier && <Badge variant="outline" className="text-[9px]">{mesh.tier}</Badge>}
+              </div>
+              <code className="text-[10px] font-mono text-muted-foreground">{agent.uri}</code>
+            </div>
+          </div>
+          <div className="flex gap-1">
+            {isActive && (
+              <Button size="sm" variant="outline" onClick={() => runAction('suspend')} disabled={actionLoading !== null} className="h-7 text-xs">
+                {actionLoading === 'suspend' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Suspend
+              </Button>
+            )}
+            {isSuspended && (
+              <Button size="sm" variant="default" onClick={() => runAction('resume')} disabled={actionLoading !== null} className="h-7 text-xs">
+                {actionLoading === 'resume' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Resume
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => runAction('upgrade')} disabled={actionLoading !== null} className="h-7 text-xs">
+              {actionLoading === 'upgrade' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Upgrade
+            </Button>
+          </div>
+        </div>
+
+        {/* Description */}
+        {agent.description && (
+          <p className="text-xs text-muted-foreground">{agent.description}</p>
+        )}
+
+        {/* Metrics grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="border rounded p-2 text-center">
+            <div className="text-lg font-bold text-status-ok">{metrics.tasksDone}</div>
+            <div className="text-[10px] text-muted-foreground">Tasks Done</div>
+          </div>
+          <div className="border rounded p-2 text-center">
+            <div className={`text-lg font-bold ${metrics.successRate > 0.8 ? 'text-status-ok' : metrics.successRate > 0.5 ? 'text-status-warn' : 'text-status-danger'}`}>
+              {(metrics.successRate * 100).toFixed(0)}%
+            </div>
+            <div className="text-[10px] text-muted-foreground">Success Rate</div>
+          </div>
+          <div className="border rounded p-2 text-center">
+            <div className="text-lg font-bold">${metrics.totalCost.toFixed(4)}</div>
+            <div className="text-[10px] text-muted-foreground">Total Cost</div>
+          </div>
+          <div className="border rounded p-2 text-center">
+            <div className="text-lg font-bold">{metrics.totalLogs}</div>
+            <div className="text-[10px] text-muted-foreground">Log Events</div>
+          </div>
+        </div>
+
+        {/* Detailed info in two columns */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Left: mesh + capabilities */}
+          <div className="space-y-3">
+            {mesh && (
+              <div>
+                <div className="text-xs font-medium mb-1">Mesh Relationships</div>
+                <div className="space-y-0.5 text-[11px]">
+                  {mesh.parentAgentUri && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Reports to:</span>
+                      <code className="font-mono">{mesh.parentAgentUri.replace('agent://', '')}</code>
+                    </div>
+                  )}
+                  {mesh.childAgentUris?.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Manages:</span>
+                      <span>{mesh.childAgentUris.map((u: string) => u.replace('agent://', '')).join(', ')}</span>
+                    </div>
+                  )}
+                  {mesh.peerAgentUris?.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Peers:</span>
+                      <span>{mesh.peerAgentUris.map((u: string) => u.replace('agent://', '')).join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {agent.capabilities?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Capabilities</div>
+                <div className="flex flex-wrap gap-1">
+                  {agent.capabilities.map((c: string, i: number) => (
+                    <Badge key={i} variant="outline" className="text-[9px]">{c.replace('agent-capability://', '')}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {agent.skills?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Skills</div>
+                <div className="flex flex-wrap gap-1">
+                  {agent.skills.map((s: string, i: number) => (
+                    <Badge key={i} variant="secondary" className="text-[9px]">{s}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {agent.policies?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Policies</div>
+                <div className="flex flex-wrap gap-1">
+                  {agent.policies.map((p: string, i: number) => (
+                    <Badge key={i} variant="outline" className="text-[9px]">{p.replace('agent-policy://', '')}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: metrics detail + lifecycle history */}
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs font-medium mb-1">Token Usage</div>
+              <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1"><Zap className="w-2.5 h-2.5" /> Calls: {metrics.totalCalls}</div>
+                <div className="flex items-center gap-1"><TrendingUp className="w-2.5 h-2.5" /> Tokens in: {metrics.totalTokensIn.toLocaleString()}</div>
+                <div className="flex items-center gap-1"><TrendingUp className="w-2.5 h-2.5" /> Tokens out: {metrics.totalTokensOut.toLocaleString()}</div>
+                <div className="flex items-center gap-1"><DollarSign className="w-2.5 h-2.5" /> Cost: ${metrics.totalCost.toFixed(4)}</div>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium mb-1">Task Stats</div>
+              <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                <div>Total: {metrics.taskCount}</div>
+                <div className="text-status-ok">Done: {metrics.tasksDone}</div>
+                <div className="text-status-danger">Failed: {metrics.tasksFailed}</div>
+                <div>Errors: {metrics.errorLogs} · Warnings: {metrics.warnLogs}</div>
+              </div>
+            </div>
+
+            {metrics.lastActivity && (
+              <div>
+                <div className="text-xs font-medium mb-1">Last Activity</div>
+                <div className="text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1"><Clock className="w-2.5 h-2.5" /> {new Date(metrics.lastActivity.timestamp).toLocaleString()}</div>
+                  <div>Event: {metrics.lastActivity.event}</div>
+                  <div>Phase: {metrics.lastActivity.phase}</div>
+                </div>
+              </div>
+            )}
+
+            {agent.lifecycleHistory?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Lifecycle History</div>
+                <div className="space-y-0.5">
+                  {agent.lifecycleHistory.slice(-5).reverse().map((h: any, i: number) => (
+                    <div key={i} className="text-[10px] text-muted-foreground border-l-2 border-primary/30 pl-2">
+                      <span className="font-mono">{h.from} → {h.to}</span>
+                      <span className="ml-1">{new Date(h.timestamp).toLocaleDateString()}</span>
+                      {h.reason && <div className="italic">{h.reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
