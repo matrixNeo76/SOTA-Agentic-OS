@@ -1,14 +1,10 @@
 'use client'
 
 /**
- * Memory Knowledge View — C6.11 Fase 1
+ * Memory Knowledge View — C6.11 Fase 1 + C6.12 Fase 2
  *
- * Fixes:
- *   - Error handling with toast (distinguish empty DB from fetch error)
- *   - Working "Upload Document" button with file picker → /api/knowledge-extraction
- *   - Dark mode aware colors (status tokens instead of hardcoded)
- *   - Single fetch source (/api/admin/memory includes graph + memory stats)
- *   - Add Memory form (episode/entity/rule) → POST /api/memory
+ * Fase 1: error handling, upload, add memory, dark mode, auth fix
+ * Fase 2: graph node browser, memory entry browser, unified search
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -20,8 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Database, Search, Upload, Brain, Plus, FileText, Loader2, Network, GitFork } from 'lucide-react'
+import { Database, Search, Upload, Brain, Plus, FileText, Loader2, Network, GitFork, ChevronRight, ChevronDown, ArrowLeft, Layers, Eye, EyeOff, Filter, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // === Types ============================================================
 
@@ -272,6 +269,26 @@ export function MemoryKnowledgeView() {
             <ExtractionStats />
           </CardContent>
         </Card>
+      </div>
+
+      {/* C6.12 — Browsers + Unified Search */}
+      <div className="mt-6">
+        <Tabs defaultValue="graph" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsTrigger value="graph" className="text-xs"><Network className="w-3.5 h-3.5 mr-1" />Graph</TabsTrigger>
+            <TabsTrigger value="memory" className="text-xs"><Layers className="w-3.5 h-3.5 mr-1" />Memories</TabsTrigger>
+            <TabsTrigger value="search" className="text-xs"><Search className="w-3.5 h-3.5 mr-1" />Search</TabsTrigger>
+          </TabsList>
+          <TabsContent value="graph" className="mt-4">
+            <GraphBrowser graphStats={graphStats ?? null} />
+          </TabsContent>
+          <TabsContent value="memory" className="mt-4">
+            <MemoryBrowser />
+          </TabsContent>
+          <TabsContent value="search" className="mt-4">
+            <UnifiedSearch />
+          </TabsContent>
+        </Tabs>
       </div>
     </ModulePage>
   )
@@ -581,6 +598,420 @@ function ExtractDocumentCard({ onExtracted }: { onExtracted: () => void }) {
             {extracting ? 'Extracting…' : 'Extract'}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Extraction Stats (C6.11) =========================================
+
+// === Graph Browser (C6.12 Fase 2) ====================================
+
+function GraphBrowser({ graphStats }: { graphStats: GraphStats | null }) {
+  const [nodes, setNodes] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [entityType, setEntityType] = useState('all')
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [nodeDetail, setNodeDetail] = useState<any>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const entityTypes = graphStats?.nodesByType ? Object.keys(graphStats.nodesByType) : []
+
+  const fetchNodes = useCallback(async (append = false) => {
+    setLoading(true)
+    try {
+      const offset = append ? nodes.length : 0
+      const params = new URLSearchParams({ view: 'graph', limit: '25', offset: String(offset) })
+      if (entityType !== 'all') params.set('entityType', entityType)
+      const res = await fetch(`/api/memory/browse?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      if (append) setNodes(prev => [...prev, ...(d.nodes || [])])
+      else setNodes(d.nodes || [])
+      setTotal(d.total || 0)
+      setHasMore(d.hasMore || false)
+    } catch (err: any) {
+      toast.error(`Failed to load graph nodes: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [entityType, nodes.length])
+
+  useEffect(() => { fetchNodes(false) }, [entityType]) // eslint-disable-line
+
+  const openNode = async (nodeId: string) => {
+    setSelectedNode(nodeId)
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/memory/browse?view=node&id=${nodeId}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      setNodeDetail(d)
+    } catch (err: any) {
+      toast.error(`Failed to load node: ${err.message}`)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  if (selectedNode) {
+    return (
+      <NodeDetailView
+        detail={nodeDetail}
+        loading={detailLoading}
+        onBack={() => { setSelectedNode(null); setNodeDetail(null) }}
+      />
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Network className="w-4 h-4" /> Graph Node Browser
+        </CardTitle>
+        <CardDescription>{total} node{total === 1 ? '' : 's'} · click to view detail + edges</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Filter */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <select
+            value={entityType}
+            onChange={(e) => setEntityType(e.target.value)}
+            className="h-7 text-xs border rounded bg-background px-2"
+            aria-label="Filter by entity type"
+          >
+            <option value="all">all types</option>
+            {entityTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {entityType !== 'all' && (
+            <Button size="sm" variant="ghost" onClick={() => setEntityType('all')} className="h-7 text-xs">
+              <X className="w-3 mr-0.5" /> Clear
+            </Button>
+          )}
+        </div>
+
+        {/* Node list */}
+        {loading && nodes.length === 0 ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : nodes.length > 0 ? (
+          <>
+            <div className="space-y-1 max-h-96 overflow-y-auto">
+              {nodes.map(n => (
+                <div
+                  key={n.id}
+                  onClick={() => openNode(n.id)}
+                  className="border rounded p-2 text-xs cursor-pointer hover:bg-accent/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Badge variant="outline" className="text-[9px]">{n.entityType}</Badge>
+                    <Badge variant="secondary" className="text-[9px]">{n.lifecycleState}</Badge>
+                    <code className="font-mono text-[10px] truncate flex-1">{n.uri}</code>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                    <span>↗ {n.outgoingEdges} out</span>
+                    <span>↙ {n.incomingEdges} in</span>
+                    <span>conf: {n.confidence?.toFixed(2)}</span>
+                    <span className="ml-auto">{new Date(n.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {hasMore && (
+              <div className="flex justify-center mt-2">
+                <Button size="sm" variant="outline" onClick={() => fetchNodes(true)} disabled={loading}>
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Load more ({total - nodes.length} remaining)
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState icon="Network" title="No graph nodes" description="Run workflows or extract documents to populate the Context Graph" />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Node Detail View (C6.12) ========================================
+
+function NodeDetailView({ detail, loading, onBack }: { detail: any; loading: boolean; onBack: () => void }) {
+  if (loading || !detail) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mb-3"><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const { node, outgoing, incoming } = detail
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="w-4 h-4 mr-1" /> Back to Graph</Button>
+
+        {/* Node info */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline">{node.entityType}</Badge>
+            <Badge variant="secondary">{node.lifecycleState}</Badge>
+            <code className="font-mono text-xs">{node.uri}</code>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            Created: {new Date(node.createdAt).toLocaleString()} · by {node.createdByAgent} · confidence: {node.confidence?.toFixed(2)}
+          </div>
+          {node.attributes && Object.keys(node.attributes).length > 0 && (
+            <pre className="text-[10px] font-mono bg-muted/30 border rounded p-2 overflow-auto max-h-32">
+              {JSON.stringify(node.attributes, null, 2)}
+            </pre>
+          )}
+        </div>
+
+        {/* Outgoing edges */}
+        <div>
+          <div className="text-xs font-medium mb-1">Outgoing Edges ({outgoing.length})</div>
+          {outgoing.length > 0 ? (
+            <div className="space-y-0.5">
+              {outgoing.map((e: any) => (
+                <div key={e.id} className="text-[11px] border-l-2 border-primary/30 pl-2">
+                  <span className="font-mono">{e.relationType}</span> → <code className="text-[10px]">{e.target?.uri}</code>
+                  <span className="text-muted-foreground ml-1">[{e.target?.entityType}]</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-[10px] text-muted-foreground italic">None</p>}
+        </div>
+
+        {/* Incoming edges */}
+        <div>
+          <div className="text-xs font-medium mb-1">Incoming Edges ({incoming.length})</div>
+          {incoming.length > 0 ? (
+            <div className="space-y-0.5">
+              {incoming.map((e: any) => (
+                <div key={e.id} className="text-[11px] border-l-2 border-status-info/30 pl-2">
+                  <code className="text-[10px]">{e.source?.uri}</code> <span className="font-mono">{e.relationType}</span> →
+                  <span className="text-muted-foreground ml-1">[{e.source?.entityType}]</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-[10px] text-muted-foreground italic">None</p>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Memory Browser (C6.12 Fase 2) ===================================
+
+function MemoryBrowser() {
+  const [entries, setEntries] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [layer, setLayer] = useState('all')
+  const [agentFilter, setAgentFilter] = useState('all')
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [availableLayers, setAvailableLayers] = useState<string[]>([])
+  const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const fetchEntries = useCallback(async (append = false) => {
+    setLoading(true)
+    try {
+      const offset = append ? entries.length : 0
+      const params = new URLSearchParams({ view: 'memory', limit: '25', offset: String(offset) })
+      if (layer !== 'all') params.set('layer', layer)
+      if (agentFilter !== 'all') params.set('agentUri', agentFilter)
+      const res = await fetch(`/api/memory/browse?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      if (append) setEntries(prev => [...prev, ...(d.entries || [])])
+      else setEntries(d.entries || [])
+      setTotal(d.total || 0)
+      setHasMore(d.hasMore || false)
+      if (d.layers) setAvailableLayers(d.layers)
+      if (d.agents) setAvailableAgents(d.agents)
+    } catch (err: any) {
+      toast.error(`Failed to load memory entries: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [layer, agentFilter, entries.length])
+
+  useEffect(() => { fetchEntries(false) }, [layer, agentFilter]) // eslint-disable-line
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Layers className="w-4 h-4" /> Memory Entry Browser
+        </CardTitle>
+        <CardDescription>{total} entr{total === 1 ? 'y' : 'ies'} across all layers</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Filters */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <select value={layer} onChange={(e) => setLayer(e.target.value)}
+            className="h-7 text-xs border rounded bg-background px-2" aria-label="Filter by layer">
+            <option value="all">all layers</option>
+            {availableLayers.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}
+            className="h-7 text-xs border rounded bg-background px-2" aria-label="Filter by agent"
+            disabled={availableAgents.length === 0}>
+            <option value="all">all agents</option>
+            {availableAgents.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          {(layer !== 'all' || agentFilter !== 'all') && (
+            <Button size="sm" variant="ghost" onClick={() => { setLayer('all'); setAgentFilter('all') }} className="h-7 text-xs">
+              <X className="w-3 mr-0.5" /> Clear
+            </Button>
+          )}
+        </div>
+
+        {/* Entry list */}
+        {loading && entries.length === 0 ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : entries.length > 0 ? (
+          <>
+            <div className="space-y-1 max-h-96 overflow-y-auto">
+              {entries.map(e => (
+                <div key={e.id} className="border rounded text-xs">
+                  <button
+                    onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+                    className="w-full flex items-center gap-2 p-2 hover:bg-accent/30 transition-colors text-left"
+                    aria-expanded={expandedId === e.id}
+                  >
+                    {expandedId === e.id ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
+                    <Badge variant="outline" className="text-[9px] shrink-0">{e.layer}</Badge>
+                    <span className="truncate flex-1 text-[11px]">{e.content?.slice(0, 100)}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">w: {e.weight?.toFixed(2)}</span>
+                  </button>
+                  {expandedId === e.id && (
+                    <div className="border-t bg-muted/20 p-2 space-y-1.5">
+                      <div className="text-[11px] break-words">{e.content}</div>
+                      <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                        <span>agent: {e.agentUri}</span>
+                        {e.sourceUri && <span>source: {e.sourceUri}</span>}
+                        <span>access: {e.accessCount}x</span>
+                        <span>utility: {e.utilityScore?.toFixed(2)}</span>
+                        <span>recency: {e.recencyScore?.toFixed(2)}</span>
+                        <span>created: {new Date(e.createdAt).toLocaleString()}</span>
+                        {e.lastAccessedAt && <span>last access: {new Date(e.lastAccessedAt).toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {hasMore && (
+              <div className="flex justify-center mt-2">
+                <Button size="sm" variant="outline" onClick={() => fetchEntries(true)} disabled={loading}>
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Load more ({total - entries.length} remaining)
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState icon="Layers" title="No memory entries" description="Memory entries are created by agents during execution" />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Unified Search (C6.12 Fase 2) ===================================
+
+function UnifiedSearch() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [breakdown, setBreakdown] = useState<any>(null)
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
+
+  const search = async () => {
+    if (!query.trim()) return
+    setSearching(true)
+    setSearched(true)
+    try {
+      const res = await fetch(`/api/memory/browse?view=search&q=${encodeURIComponent(query)}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      setResults(d.results || [])
+      setBreakdown(d.breakdown || null)
+      if ((d.results || []).length === 0) toast.info('No results found')
+      else toast.success(`Found ${d.results.length} result(s)`)
+    } catch (err: any) {
+      toast.error(`Search failed: ${err.message}`)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const sourceBadge = (source: string) => {
+    const variant = source === 'graph' ? 'default' : source === 'entity' ? 'secondary' : source === 'episode' ? 'outline' : 'warning'
+    return <Badge variant={variant as any} className="text-[9px]">{source}</Badge>
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Search className="w-4 h-4" /> Unified Search
+        </CardTitle>
+        <CardDescription>Search across MemoryEntry, SemanticEntity, EpisodicMemory, and GraphNode</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex gap-2 mb-3">
+          <Input
+            placeholder="search across all memory sources..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && search()}
+            className="text-xs"
+          />
+          <Button size="sm" onClick={search} disabled={searching || !query.trim()}>
+            {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+          </Button>
+        </div>
+
+        {/* Breakdown */}
+        {breakdown && (
+          <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground">
+            <span>memory: {breakdown.memory}</span>
+            <span>· entity: {breakdown.entity}</span>
+            <span>· episode: {breakdown.episode}</span>
+            <span>· graph: {breakdown.graph}</span>
+          </div>
+        )}
+
+        {/* Results */}
+        {results.length > 0 ? (
+          <div className="space-y-1 max-h-96 overflow-y-auto">
+            {results.map((r, i) => (
+              <div key={i} className="border rounded p-2 text-xs">
+                <div className="flex items-center gap-2 mb-0.5">
+                  {sourceBadge(r.source)}
+                  <span className="font-medium truncate flex-1">{r.title}</span>
+                  {r.timestamp && <span className="text-[10px] text-muted-foreground shrink-0">{new Date(r.timestamp).toLocaleDateString()}</span>}
+                </div>
+                <p className="text-[11px] text-muted-foreground break-words">{r.description}</p>
+                <p className="text-[10px] text-muted-foreground/70 mt-0.5">{r.meta}</p>
+              </div>
+            ))}
+          </div>
+        ) : searched ? (
+          <EmptyState icon="Search" title="No results" description="Try a different search query" />
+        ) : (
+          <EmptyState icon="Search" title="Search all memory" description="Enter a query to search across all memory layers and the context graph" />
+        )}
       </CardContent>
     </Card>
   )
