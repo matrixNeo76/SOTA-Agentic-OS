@@ -274,10 +274,12 @@ export function MemoryKnowledgeView() {
       {/* C6.12 — Browsers + Unified Search */}
       <div className="mt-6">
         <Tabs defaultValue="graph" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-3">
+          <TabsList className="grid w-full max-w-2xl grid-cols-5">
             <TabsTrigger value="graph" className="text-xs"><Network className="w-3.5 h-3.5 mr-1" />Graph</TabsTrigger>
             <TabsTrigger value="memory" className="text-xs"><Layers className="w-3.5 h-3.5 mr-1" />Memories</TabsTrigger>
+            <TabsTrigger value="edges" className="text-xs"><GitFork className="w-3.5 h-3.5 mr-1" />Edges</TabsTrigger>
             <TabsTrigger value="search" className="text-xs"><Search className="w-3.5 h-3.5 mr-1" />Search</TabsTrigger>
+            <TabsTrigger value="gc" className="text-xs"><Brain className="w-3.5 h-3.5 mr-1" />GC</TabsTrigger>
           </TabsList>
           <TabsContent value="graph" className="mt-4">
             <GraphBrowser graphStats={graphStats ?? null} />
@@ -285,8 +287,14 @@ export function MemoryKnowledgeView() {
           <TabsContent value="memory" className="mt-4">
             <MemoryBrowser />
           </TabsContent>
+          <TabsContent value="edges" className="mt-4">
+            <EdgeBrowser />
+          </TabsContent>
           <TabsContent value="search" className="mt-4">
             <UnifiedSearch />
+          </TabsContent>
+          <TabsContent value="gc" className="mt-4">
+            <GCControls memStats={memStats ?? null} onRefresh={fetchData} />
           </TabsContent>
         </Tabs>
       </div>
@@ -667,10 +675,15 @@ function GraphBrowser({ graphStats }: { graphStats: GraphStats | null }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Network className="w-4 h-4" /> Graph Node Browser
+    <div className="space-y-3">
+      {/* C6.13 — Graph visualization */}
+      <GraphViz graphStats={graphStats} />
+
+      {/* Node browser */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Network className="w-4 h-4" /> Graph Node Browser
         </CardTitle>
         <CardDescription>{total} node{total === 1 ? '' : 's'} · click to view detail + edges</CardDescription>
       </CardHeader>
@@ -732,7 +745,8 @@ function GraphBrowser({ graphStats }: { graphStats: GraphStats | null }) {
           <EmptyState icon="Network" title="No graph nodes" description="Run workflows or extract documents to populate the Context Graph" />
         )}
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
@@ -1012,6 +1026,415 @@ function UnifiedSearch() {
         ) : (
           <EmptyState icon="Search" title="Search all memory" description="Enter a query to search across all memory layers and the context graph" />
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Extraction Stats (C6.11) =========================================
+
+// === Edge Browser (C6.13 Fase 3) =====================================
+
+function EdgeBrowser() {
+  const [edges, setEdges] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [relationType, setRelationType] = useState('all')
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [availableTypes, setAvailableTypes] = useState<string[]>([])
+
+  const fetchEdges = useCallback(async (append = false) => {
+    setLoading(true)
+    try {
+      const offset = append ? edges.length : 0
+      const params = new URLSearchParams({ limit: '25', offset: String(offset) })
+      if (relationType !== 'all') params.set('relationType', relationType)
+      const res = await fetch(`/api/memory/edges?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      if (append) setEdges(prev => [...prev, ...(d.edges || [])])
+      else setEdges(d.edges || [])
+      setTotal(d.total || 0)
+      setHasMore(d.hasMore || false)
+      if (d.relationTypes) setAvailableTypes(d.relationTypes)
+    } catch (err: any) {
+      toast.error(`Failed to load edges: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [relationType, edges.length])
+
+  useEffect(() => { fetchEdges(false) }, [relationType]) // eslint-disable-line
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <GitFork className="w-4 h-4" /> Edge Browser
+        </CardTitle>
+        <CardDescription>{total} edge{total === 1 ? '' : 's'} in the Context Graph</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Filter */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <select
+            value={relationType}
+            onChange={(e) => setRelationType(e.target.value)}
+            className="h-7 text-xs border rounded bg-background px-2"
+            aria-label="Filter by relation type"
+          >
+            <option value="all">all relation types</option>
+            {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {relationType !== 'all' && (
+            <Button size="sm" variant="ghost" onClick={() => setRelationType('all')} className="h-7 text-xs">
+              <X className="w-3 mr-0.5" /> Clear
+            </Button>
+          )}
+        </div>
+
+        {/* Edge list */}
+        {loading && edges.length === 0 ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : edges.length > 0 ? (
+          <>
+            <div className="space-y-1 max-h-96 overflow-y-auto">
+              {edges.map(e => (
+                <div key={e.id} className="border rounded p-2 text-xs space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[9px]">{e.relationType}</Badge>
+                    <span className="text-[10px] text-muted-foreground ml-auto">{new Date(e.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <code className="font-mono truncate" title={e.from?.uri}>{e.from?.uri?.slice(0, 30)}</code>
+                    <span className="text-muted-foreground shrink-0">[{e.from?.entityType}]</span>
+                    <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />
+                    <code className="font-mono truncate" title={e.to?.uri}>{e.to?.uri?.slice(0, 30)}</code>
+                    <span className="text-muted-foreground shrink-0">[{e.to?.entityType}]</span>
+                  </div>
+                  {e.properties && Object.keys(e.properties).length > 0 && (
+                    <pre className="text-[10px] font-mono bg-muted/30 border rounded p-1 overflow-auto max-h-16">
+                      {JSON.stringify(e.properties, null, 1)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+            {hasMore && (
+              <div className="flex justify-center mt-2">
+                <Button size="sm" variant="outline" onClick={() => fetchEdges(true)} disabled={loading}>
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Load more ({total - edges.length} remaining)
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState icon="GitFork" title="No edges" description="Edges are created when entities are linked in the Context Graph" />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === GC Controls (C6.13 Fase 3) ======================================
+
+function GCControls({ memStats, onRefresh }: { memStats: MemoryStats | null; onRefresh: () => void }) {
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const runAction = async (action: string) => {
+    setActionLoading(action)
+    try {
+      const res = await fetch('/api/cognitive-gc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`${action} failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      // Action-specific success messages
+      if (action === 'consolidate') {
+        toast.success(`Consolidation complete`, {
+          description: `Consolidated: ${body.consolidated ?? 0} · Archived: ${body.archived ?? 0}`,
+          duration: 6000,
+        })
+      } else if (action === 'update-decay') {
+        toast.success(`Decay scores updated`, {
+          description: `Updated: ${body.updated ?? 0} entries`,
+          duration: 5000,
+        })
+      } else if (action === 'archive-cold') {
+        toast.success(`Cold memories archived`, {
+          description: `Archived: ${body.archived ?? 0} entries`,
+          duration: 5000,
+        })
+      } else {
+        toast.success(`${action} completed`)
+      }
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`${action} failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const hot = memStats?.byTier?.hot ?? 0
+  const warm = memStats?.byTier?.warm ?? 0
+  const cold = memStats?.byTier?.cold ?? 0
+  const total = memStats?.totalMemories ?? 0
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Brain className="w-4 h-4" /> Cognitive GC Controls
+        </CardTitle>
+        <CardDescription>
+          Memory lifecycle: {total} total · Hot: {hot} · Warm: {warm} · Cold: {cold}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Tier visualization */}
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="border rounded p-2">
+            <div className="text-xl font-bold text-status-ok">{hot}</div>
+            <div className="text-[10px] text-muted-foreground">Hot (active)</div>
+          </div>
+          <div className="border rounded p-2">
+            <div className="text-xl font-bold text-status-warn">{warm}</div>
+            <div className="text-[10px] text-muted-foreground">Warm (aging)</div>
+          </div>
+          <div className="border rounded p-2">
+            <div className="text-xl font-bold text-status-info">{cold}</div>
+            <div className="text-[10px] text-muted-foreground">Cold (archive)</div>
+          </div>
+        </div>
+
+        {/* GC actions */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">Actions</div>
+          <div className="flex flex-col gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runAction('consolidate')}
+              disabled={actionLoading !== null}
+              className="justify-start"
+            >
+              {actionLoading === 'consolidate' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Brain className="w-3.5 h-3.5 mr-2" />}
+              <div className="text-left">
+                <div className="text-xs font-medium">Consolidate</div>
+                <div className="text-[10px] text-muted-foreground">Cluster similar episodic memories → procedural rules</div>
+              </div>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runAction('update-decay')}
+              disabled={actionLoading !== null}
+              className="justify-start"
+            >
+              {actionLoading === 'update-decay' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Database className="w-3.5 h-3.5 mr-2" />}
+              <div className="text-left">
+                <div className="text-xs font-medium">Update Decay</div>
+                <div className="text-[10px] text-muted-foreground">Recalculate recency scores based on age</div>
+              </div>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (cold === 0) {
+                  toast.info('No cold memories to archive')
+                  return
+                }
+                runAction('archive-cold')
+              }}
+              disabled={actionLoading !== null || cold === 0}
+              className="justify-start"
+            >
+              {actionLoading === 'archive-cold' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Database className="w-3.5 h-3.5 mr-2" />}
+              <div className="text-left">
+                <div className="text-xs font-medium">Archive Cold</div>
+                <div className="text-[10px] text-muted-foreground">Move cold tier memories to archive ({cold} eligible)</div>
+              </div>
+            </Button>
+          </div>
+        </div>
+
+        {/* By layer breakdown */}
+        {memStats?.byLayer && Object.keys(memStats.byLayer).length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground mb-1">By Layer</div>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(memStats.byLayer).map(([layer, count]) => (
+                <Badge key={layer} variant="secondary" className="text-[10px]">
+                  {layer}: {count as number}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-[10px] text-muted-foreground italic">
+          GC runs automatically on a daily schedule. Use these controls to trigger manually.
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Graph Visualization (C6.13 Fase 3) ==============================
+
+function GraphViz({ graphStats }: { graphStats: GraphStats | null }) {
+  const [nodes, setNodes] = useState<any[]>([])
+  const [edges, setEdges] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const fetchGraph = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [nodesRes, edgesRes] = await Promise.all([
+        fetch('/api/memory/browse?view=graph&limit=30').then(r => r.json()),
+        fetch('/api/memory/edges?limit=50').then(r => r.json()),
+      ])
+      setNodes(nodesRes.nodes || [])
+      setEdges(edgesRes.edges || [])
+    } catch (err: any) {
+      toast.error(`Failed to load graph: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchGraph() }, [fetchGraph])
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (nodes.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <EmptyState icon="Network" title="Graph is empty" description="Run workflows or extract documents to populate the Context Graph" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Simple circular layout for visualization
+  const radius = Math.min(150, Math.max(80, nodes.length * 8))
+  const centerX = 200
+  const centerY = 150
+  const nodePositions = new Map<string, { x: number; y: number }>()
+
+  nodes.forEach((node, i) => {
+    const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2
+    nodePositions.set(node.id, {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    })
+  })
+
+  // Color by entity type
+  const typeColors: Record<string, string> = {
+    Document: '#3b82f6',
+    Claim: '#10b981',
+    Skill: '#f59e0b',
+    Agent: '#ef4444',
+    Task: '#8b5cf6',
+    Tool: '#06b6d4',
+  }
+  const defaultColor = '#6b7280'
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Network className="w-4 h-4" /> Graph Visualization
+        </CardTitle>
+        <CardDescription>
+          {nodes.length} nodes · {edges.length} edges · circular layout
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="border rounded-lg overflow-hidden bg-muted/10">
+          <svg viewBox="0 0 400 300" className="w-full h-auto" style={{ maxHeight: '400px' }}>
+            {/* Edges */}
+            {edges.map((edge, i) => {
+              const fromPos = nodePositions.get(edge.from?.id)
+              const toPos = nodePositions.get(edge.to?.id)
+              if (!fromPos || !toPos) return null
+              return (
+                <line
+                  key={i}
+                  x1={fromPos.x}
+                  y1={fromPos.y}
+                  x2={toPos.x}
+                  y2={toPos.y}
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  className="text-border"
+                  opacity="0.5"
+                />
+              )
+            })}
+            {/* Nodes */}
+            {nodes.map((node) => {
+              const pos = nodePositions.get(node.id)
+              if (!pos) return null
+              const color = typeColors[node.entityType] || defaultColor
+              return (
+                <g key={node.id}>
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r="6"
+                    fill={color}
+                    stroke="white"
+                    strokeWidth="1.5"
+                    className="cursor-pointer"
+                  >
+                    <title>{node.uri} [{node.entityType}]</title>
+                  </circle>
+                  <text
+                    x={pos.x}
+                    y={pos.y - 10}
+                    textAnchor="middle"
+                    className="text-[7px] fill-muted-foreground pointer-events-none"
+                  >
+                    {node.entityType}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-2 mt-2">
+          {Object.entries(typeColors).map(([type, color]) => {
+            const count = nodes.filter(n => n.entityType === type).length
+            if (count === 0) return null
+            return (
+              <div key={type} className="flex items-center gap-1 text-[10px]">
+                <span className="size-2 rounded-full" style={{ background: color }} />
+                <span className="text-muted-foreground">{type}: {count}</span>
+              </div>
+            )
+          })}
+        </div>
       </CardContent>
     </Card>
   )
