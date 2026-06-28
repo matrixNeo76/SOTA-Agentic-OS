@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Database, Search, Upload, Brain, Plus, FileText, Loader2, Network, GitFork, ChevronRight, ChevronDown, ArrowLeft, Layers, Eye, EyeOff, Filter, X } from 'lucide-react'
+import { Database, Search, Upload, Brain, Plus, FileText, Loader2, Network, GitFork, ChevronRight, ChevronDown, ArrowLeft, Layers, Eye, EyeOff, Filter, X, Clock, Download, Trash2, Archive, ArchiveRestore, Code2, Power, Save } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -274,11 +274,13 @@ export function MemoryKnowledgeView() {
       {/* C6.12 — Browsers + Unified Search */}
       <div className="mt-6">
         <Tabs defaultValue="graph" className="w-full">
-          <TabsList className="grid w-full max-w-2xl grid-cols-5">
+          <TabsList className="grid w-full max-w-3xl grid-cols-7">
             <TabsTrigger value="graph" className="text-xs"><Network className="w-3.5 h-3.5 mr-1" />Graph</TabsTrigger>
             <TabsTrigger value="memory" className="text-xs"><Layers className="w-3.5 h-3.5 mr-1" />Memories</TabsTrigger>
             <TabsTrigger value="edges" className="text-xs"><GitFork className="w-3.5 h-3.5 mr-1" />Edges</TabsTrigger>
             <TabsTrigger value="search" className="text-xs"><Search className="w-3.5 h-3.5 mr-1" />Search</TabsTrigger>
+            <TabsTrigger value="timeline" className="text-xs"><Clock className="w-3.5 h-3.5 mr-1" />Timeline</TabsTrigger>
+            <TabsTrigger value="rules" className="text-xs"><FileText className="w-3.5 h-3.5 mr-1" />Rules</TabsTrigger>
             <TabsTrigger value="gc" className="text-xs"><Brain className="w-3.5 h-3.5 mr-1" />GC</TabsTrigger>
           </TabsList>
           <TabsContent value="graph" className="mt-4">
@@ -292,6 +294,12 @@ export function MemoryKnowledgeView() {
           </TabsContent>
           <TabsContent value="search" className="mt-4">
             <UnifiedSearch />
+          </TabsContent>
+          <TabsContent value="timeline" className="mt-4">
+            <MemoryTimeline />
+          </TabsContent>
+          <TabsContent value="rules" className="mt-4">
+            <RuleEditor />
           </TabsContent>
           <TabsContent value="gc" className="mt-4">
             <GCControls memStats={memStats ?? null} onRefresh={fetchData} />
@@ -1435,6 +1443,403 @@ function GraphViz({ graphStats }: { graphStats: GraphStats | null }) {
             )
           })}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Memory Timeline (C6.14 Fase 4) ==================================
+
+function MemoryTimeline() {
+  const [entries, setEntries] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+
+  const fetchTimeline = useCallback(async (append = false) => {
+    setLoading(true)
+    try {
+      const offset = append ? entries.length : 0
+      const params = new URLSearchParams({ view: 'memory', limit: '20', offset: String(offset) })
+      const res = await fetch(`/api/memory/browse?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      if (append) setEntries(prev => [...prev, ...(d.entries || [])])
+      else setEntries(d.entries || [])
+      setTotal(d.total || 0)
+      setHasMore(d.hasMore || false)
+    } catch (err: any) {
+      toast.error(`Failed to load timeline: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [entries.length])
+
+  useEffect(() => { fetchTimeline(false) }, []) // eslint-disable-line
+
+  // C6.14 — Export JSON
+  const exportJSON = () => {
+    if (entries.length === 0) { toast.warning('No entries to export'); return }
+    const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `memory-export-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${entries.length} entries as JSON`)
+  }
+
+  // C6.14 — Export CSV
+  const exportCSV = () => {
+    if (entries.length === 0) { toast.warning('No entries to export'); return }
+    const headers = ['id', 'layer', 'agentUri', 'content', 'weight', 'createdAt']
+    const rows = entries.map(e => [
+      e.id,
+      e.layer,
+      `"${e.agentUri}"`,
+      `"${(e.content || '').replace(/"/g, '""').slice(0, 200)}"`,
+      e.weight?.toFixed(2) || '0',
+      new Date(e.createdAt).toISOString(),
+    ].join(','))
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `memory-export-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${entries.length} entries as CSV`)
+  }
+
+  // C6.14 — Delete entry
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this memory entry permanently?')) return
+    try {
+      const res = await fetch('/api/memory/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Delete failed: ${body.error}`); return }
+      toast.success('Entry deleted')
+      setEntries(prev => prev.filter(e => e.id !== id))
+    } catch (err: any) {
+      toast.error(`Delete failed: ${err.message}`)
+    }
+  }
+
+  // C6.14 — Archive entry
+  const handleArchive = async (id: string) => {
+    try {
+      const res = await fetch('/api/memory/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Archive failed: ${body.error}`); return }
+      toast.success('Entry archived')
+      setEntries(prev => prev.map(e => e.id === id ? { ...e, weight: 0 } : e))
+    } catch (err: any) {
+      toast.error(`Archive failed: ${err.message}`)
+    }
+  }
+
+  // Group entries by date for timeline view
+  const grouped = entries.reduce((acc: Record<string, any[]>, e) => {
+    const date = new Date(e.createdAt).toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric' })
+    if (!acc[date]) acc[date] = []
+    acc[date].push(e)
+    return acc
+  }, {} as Record<string, any[]>)
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Memory Timeline
+            </CardTitle>
+            <CardDescription>{total} entr{total === 1 ? 'y' : 'ies'} in chronological order</CardDescription>
+          </div>
+          {/* C6.14 — Export buttons */}
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" onClick={exportJSON} disabled={entries.length === 0} className="h-7 px-2 text-xs">
+              <Download className="w-3 h-3 mr-0.5" /> JSON
+            </Button>
+            <Button size="sm" variant="ghost" onClick={exportCSV} disabled={entries.length === 0} className="h-7 px-2 text-xs">
+              <Download className="w-3 h-3 mr-0.5" /> CSV
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading && entries.length === 0 ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : entries.length > 0 ? (
+          <>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {Object.entries(grouped).map(([date, items]) => (
+                <div key={date}>
+                  {/* Date header */}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="h-px bg-border flex-1" />
+                    <span className="text-[10px] font-medium text-muted-foreground px-2">{date}</span>
+                    <div className="h-px bg-border flex-1" />
+                  </div>
+                  {/* Entries for this date */}
+                  <div className="space-y-1">
+                    {items.map(e => (
+                      <div key={e.id} className="flex items-start gap-2 border rounded p-2 text-xs group">
+                        {/* Time */}
+                        <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
+                          {new Date(e.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <Badge variant="outline" className="text-[9px]">{e.layer}</Badge>
+                            <span className="text-[10px] text-muted-foreground">{e.agentUri}</span>
+                            {e.weight === 0 && <Badge variant="secondary" className="text-[9px]">archived</Badge>}
+                          </div>
+                          <p className="text-[11px] break-words">{e.content?.slice(0, 150)}</p>
+                        </div>
+                        {/* Actions (visible on hover) */}
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          <button onClick={() => handleArchive(e.id)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-status-warn" title="Archive">
+                            <Archive className="w-3 h-3" />
+                          </button>
+                          <button onClick={() => handleDelete(e.id)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive" title="Delete">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {hasMore && (
+              <div className="flex justify-center mt-2">
+                <Button size="sm" variant="outline" onClick={() => fetchTimeline(true)} disabled={loading}>
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Load more ({total - entries.length} remaining)
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState icon="Clock" title="No memory entries" description="Memory entries are created by agents during execution" />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Rule Editor (C6.14 Fase 4) ======================================
+
+function RuleEditor() {
+  const [rules, setRules] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState<any | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [toggling, setToggling] = useState<string | null>(null)
+
+  // Form state
+  const [ruleId, setRuleId] = useState('')
+  const [expression, setExpression] = useState('')
+  const [dependencies, setDependencies] = useState('')
+  const [priority, setPriority] = useState('0')
+
+  const fetchRules = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/memory/rules')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      setRules(d.rules || [])
+    } catch (err: any) {
+      toast.error(`Failed to load rules: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchRules() }, [fetchRules])
+
+  const startNew = () => {
+    setEditing(null)
+    setRuleId(''); setExpression(''); setDependencies(''); setPriority('0')
+    setShowForm(true)
+  }
+
+  const startEdit = (rule: any) => {
+    setEditing(rule)
+    setRuleId(rule.ruleId)
+    setExpression(rule.expression)
+    setDependencies(rule.dependencies?.join(', ') || '')
+    setPriority(String(rule.priority || 0))
+    setShowForm(true)
+  }
+
+  const save = async () => {
+    if (!ruleId.trim() || !expression.trim()) {
+      toast.error('Rule ID and expression are required')
+      return
+    }
+    setSaving(true)
+    try {
+      const deps = dependencies ? dependencies.split(',').map(s => s.trim()).filter(Boolean) : []
+      const body: any = {
+        action: editing ? 'update' : 'create',
+        ruleId, expression, dependencies: deps,
+        priority: parseInt(priority) || 0,
+      }
+      if (editing) body.id = editing.id
+
+      const res = await fetch('/api/memory/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const resBody = await res.json()
+      if (!res.ok) {
+        toast.error(`Save failed: ${resBody.error}`)
+        return
+      }
+      toast.success(editing ? 'Rule updated' : 'Rule created')
+      setShowForm(false)
+      setEditing(null)
+      fetchRules()
+    } catch (err: any) {
+      toast.error(`Save failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggle = async (id: string) => {
+    setToggling(id)
+    try {
+      const res = await fetch('/api/memory/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Toggle failed: ${body.error}`); return }
+      toast.success(`Rule ${body.active ? 'activated' : 'deactivated'}`)
+      setRules(prev => prev.map(r => r.id === id ? { ...r, active: body.active } : r))
+    } catch (err: any) {
+      toast.error(`Toggle failed: ${err.message}`)
+    } finally {
+      setToggling(null)
+    }
+  }
+
+  const deleteRule = async (id: string) => {
+    if (!confirm('Delete this rule permanently?')) return
+    try {
+      const res = await fetch('/api/memory/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Delete failed: ${body.error}`); return }
+      toast.success('Rule deleted')
+      setRules(prev => prev.filter(r => r.id !== id))
+    } catch (err: any) {
+      toast.error(`Delete failed: ${err.message}`)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Code2 className="w-4 h-4" /> Logical Rule Editor
+            </CardTitle>
+            <CardDescription>{rules.length} rule{rules.length === 1 ? '' : 's'} · {rules.filter(r => r.active).length} active</CardDescription>
+          </div>
+          <Button size="sm" onClick={startNew}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> New Rule
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {/* Form */}
+        {showForm && (
+          <div className="border rounded p-3 mb-3 space-y-2 bg-muted/10">
+            <div className="text-xs font-medium">{editing ? 'Edit Rule' : 'New Rule'}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px]">Rule ID *</Label>
+                <Input value={ruleId} onChange={e => setRuleId(e.target.value)} placeholder="rule_auth_001" className="text-xs font-mono" disabled={!!editing} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Priority</Label>
+                <Input type="number" value={priority} onChange={e => setPriority(e.target.value)} className="text-xs" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Expression * <span className="text-muted-foreground">(IF…THEN… syntax)</span></Label>
+              <Textarea value={expression} onChange={e => setExpression(e.target.value)} placeholder="IF user.role == 'admin' THEN allow" className="text-xs font-mono min-h-[60px]" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Dependencies (comma-separated rule IDs)</Label>
+              <Input value={dependencies} onChange={e => setDependencies(e.target.value)} placeholder="rule_auth_000" className="text-xs font-mono" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => { setShowForm(false); setEditing(null) }}>Cancel</Button>
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+                {saving ? 'Saving…' : 'Save Rule'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Rule list */}
+        {loading ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : rules.length > 0 ? (
+          <div className="space-y-1 max-h-96 overflow-y-auto">
+            {rules.map(r => (
+              <div key={r.id} className="border rounded p-2 text-xs group">
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge variant={r.active ? 'success' : 'secondary'} className="text-[9px]">{r.active ? 'active' : 'inactive'}</Badge>
+                  <code className="font-mono text-[10px] font-medium">{r.ruleId}</code>
+                  <span className="text-[10px] text-muted-foreground">priority: {r.priority}</span>
+                  <div className="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => toggle(r.id)} disabled={toggling === r.id} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-status-warn" title={r.active ? 'Deactivate' : 'Activate'}>
+                      {toggling === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Power className="w-3 h-3" />}
+                    </button>
+                    <button onClick={() => startEdit(r)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary" title="Edit">
+                      <Code2 className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => deleteRule(r.id)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive" title="Delete">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <pre className="text-[10px] font-mono bg-muted/30 border rounded p-1.5 overflow-auto max-h-16 break-words whitespace-pre-wrap">{r.expression}</pre>
+                {r.dependencies && r.dependencies.length > 0 && (
+                  <div className="text-[10px] text-muted-foreground mt-0.5">deps: {r.dependencies.join(', ')}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="Code2" title="No logical rules" description="Create rules to define logical constraints and dependencies" />
+        )}
       </CardContent>
     </Card>
   )
