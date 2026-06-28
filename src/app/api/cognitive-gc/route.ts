@@ -1,20 +1,29 @@
 /**
  * GET /api/cognitive-gc — memory stats + tier breakdown
  * POST /api/cognitive-gc — run consolidation / decay / archival manually
+ *
+ * C6.11 — Added requireAuth (was missing — security vulnerability).
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth/require-auth'
 import {
   consolidateEpisodicToProcedural, updateDecayScores, archiveColdMemories,
   gcStats, gcProvenance,
 } from '@/lib/cognitive-gc/curator'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
+
   const stats = await gcStats()
   return NextResponse.json(stats)
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { action } = body
