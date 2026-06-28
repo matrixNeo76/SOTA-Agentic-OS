@@ -303,6 +303,9 @@ export function MemoryKnowledgeView() {
           </TabsContent>
           <TabsContent value="gc" className="mt-4">
             <GCControls memStats={memStats ?? null} onRefresh={fetchData} />
+            <div className="mt-4">
+              <EmbeddingSimilarityViewer />
+            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -843,6 +846,34 @@ function MemoryBrowser() {
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  // C6.15 — Delete/archive handlers for MemoryBrowser
+  const handleDeleteEntry = async (id: string) => {
+    if (!confirm('Delete this memory entry permanently?')) return
+    try {
+      const res = await fetch('/api/memory/manage', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Delete failed: ${body.error}`); return }
+      toast.success('Entry deleted')
+      setEntries(prev => prev.filter(e => e.id !== id))
+    } catch (err: any) { toast.error(`Delete failed: ${err.message}`) }
+  }
+
+  const handleArchiveEntry = async (id: string) => {
+    try {
+      const res = await fetch('/api/memory/manage', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive', id }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Archive failed: ${body.error}`); return }
+      toast.success('Entry archived')
+      setEntries(prev => prev.map(e => e.id === id ? { ...e, weight: 0 } : e))
+    } catch (err: any) { toast.error(`Archive failed: ${err.message}`) }
+  }
+
   const fetchEntries = useCallback(async (append = false) => {
     setLoading(true)
     try {
@@ -916,16 +947,63 @@ function MemoryBrowser() {
                     <span className="text-[10px] text-muted-foreground shrink-0">w: {e.weight?.toFixed(2)}</span>
                   </button>
                   {expandedId === e.id && (
-                    <div className="border-t bg-muted/20 p-2 space-y-1.5">
+                    <div className="border-t bg-muted/20 p-2 space-y-2">
                       <div className="text-[11px] break-words">{e.content}</div>
-                      <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                        <span>agent: {e.agentUri}</span>
-                        {e.sourceUri && <span>source: {e.sourceUri}</span>}
-                        <span>access: {e.accessCount}x</span>
-                        <span>utility: {e.utilityScore?.toFixed(2)}</span>
-                        <span>recency: {e.recencyScore?.toFixed(2)}</span>
-                        <span>created: {new Date(e.createdAt).toLocaleString()}</span>
-                        {e.lastAccessedAt && <span>last access: {new Date(e.lastAccessedAt).toLocaleString()}</span>}
+                      {/* C6.15 — Enhanced provenance display */}
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Agent:</span>
+                          <code className="font-mono">{e.agentUri}</code>
+                        </div>
+                        {e.sourceUri && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-muted-foreground/60">Source:</span>
+                            <code className="font-mono truncate" title={e.sourceUri}>{e.sourceUri}</code>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Access:</span>
+                          <span>{e.accessCount}x</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Weight:</span>
+                          <span className={cn('font-medium', e.weight === 0 ? 'text-status-warn' : e.weight > 0.7 ? 'text-status-ok' : '')}>{e.weight?.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Utility:</span>
+                          <span>{e.utilityScore?.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Recency:</span>
+                          <span>{e.recencyScore?.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground/60">Created:</span>
+                          <span>{new Date(e.createdAt).toLocaleString()}</span>
+                        </div>
+                        {e.lastAccessedAt && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-muted-foreground/60">Last access:</span>
+                            <span>{new Date(e.lastAccessedAt).toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* C6.15 — Provenance actions */}
+                      <div className="flex gap-1 pt-1 border-t">
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); handleArchiveEntry(e.id) }}
+                          className="text-[10px] px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-status-warn"
+                          aria-label="Archive entry"
+                        >
+                          <Archive className="w-2.5 h-2.5 inline mr-0.5" />Archive
+                        </button>
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); handleDeleteEntry(e.id) }}
+                          className="text-[10px] px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive"
+                          aria-label="Delete entry"
+                        >
+                          <Trash2 className="w-2.5 h-2.5 inline mr-0.5" />Delete
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1839,6 +1917,136 @@ function RuleEditor() {
           </div>
         ) : (
           <EmptyState icon="Code2" title="No logical rules" description="Create rules to define logical constraints and dependencies" />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Embedding Similarity Viewer (C6.15 Fase 5) ======================
+
+function EmbeddingSimilarityViewer() {
+  const [entities, setEntities] = useState<{ id: string; name: string; type: string }[]>([])
+  const [entityA, setEntityA] = useState('')
+  const [entityB, setEntityB] = useState('')
+  const [result, setResult] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/memory/similarity')
+      .then(r => r.json())
+      .then(d => { if (d.entities) setEntities(d.entities) })
+      .catch(() => {})
+  }, [])
+
+  const compare = async () => {
+    if (!entityA) return
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ entityA })
+      if (entityB) params.set('entityB', entityB)
+      const res = await fetch(`/api/memory/similarity?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      setResult(d)
+    } catch (err: any) {
+      toast.error(`Similarity check failed: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Database className="w-4 h-4" /> Embedding Similarity Viewer
+        </CardTitle>
+        <CardDescription>Debug tool: compare entity embeddings via cosine similarity</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {entities.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">No entities with embeddings available.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px]">Entity A *</Label>
+                <select value={entityA} onChange={e => setEntityA(e.target.value)}
+                  className="w-full h-7 text-xs border rounded bg-background px-2" aria-label="Select entity A">
+                  <option value="">— select —</option>
+                  {entities.map(e => <option key={e.id} value={e.id}>{e.name} ({e.type})</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px]">Entity B (optional — leave empty for top-5 similar)</Label>
+                <select value={entityB} onChange={e => setEntityB(e.target.value)}
+                  className="w-full h-7 text-xs border rounded bg-background px-2" aria-label="Select entity B">
+                  <option value="">— top 5 similar —</option>
+                  {entities.filter(e => e.id !== entityA).map(e => <option key={e.id} value={e.id}>{e.name} ({e.type})</option>)}
+                </select>
+              </div>
+            </div>
+            <Button size="sm" onClick={compare} disabled={!entityA || loading} className="text-xs">
+              {loading ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Search className="w-3.5 h-3.5 mr-1" />}
+              {loading ? 'Computing…' : 'Compare'}
+            </Button>
+
+            {/* Result */}
+            {result && (
+              <div className="border rounded p-2 space-y-1.5 text-xs">
+                {result.similarity !== undefined ? (
+                  // Pairwise comparison
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{result.entityA?.name}</span>
+                      <span className="text-muted-foreground">vs</span>
+                      <span className="font-medium">{result.entityB?.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Cosine similarity:</span>
+                      <span className={cn('text-lg font-bold', result.similarity > 0.8 ? 'text-status-ok' : result.similarity > 0.5 ? 'text-status-warn' : 'text-status-danger')}>
+                        {(result.similarity * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">Dimensions: {result.dimensions}</div>
+                    {/* Visual bar */}
+                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={cn('h-full rounded-full transition-all', result.similarity > 0.8 ? 'bg-status-ok' : result.similarity > 0.5 ? 'bg-status-warn' : 'bg-status-danger')}
+                        style={{ width: `${Math.max(2, result.similarity * 100)}%` }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  // Top-5 similar
+                  <>
+                    <div className="font-medium mb-1">Most similar to: {result.entityA?.name}</div>
+                    {result.topSimilar?.length > 0 ? (
+                      <div className="space-y-1">
+                        {result.topSimilar.map((s: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0">#{i + 1}</span>
+                            <span className="flex-1 truncate">{s.name} ({s.type})</span>
+                            <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
+                              <div
+                                className={cn('h-full rounded-full', s.similarity > 0.8 ? 'bg-status-ok' : s.similarity > 0.5 ? 'bg-status-warn' : 'bg-status-danger')}
+                                style={{ width: `${Math.max(2, s.similarity * 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] tabular-nums shrink-0 w-10 text-right">{(s.similarity * 100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground italic">No similar entities found</p>
+                    )}
+                    <div className="text-[10px] text-muted-foreground">Dimensions: {result.dimensions}</div>
+                  </>
+                )}
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   if (!entityAId) {
     // List all entities with embeddings for the dropdowns
     const entities = await db.semanticEntity.findMany({
-      where: { embedding: { not: null } },
+      where: { embedding: { not: '' } },
       select: { id: true, name: true, type: true },
       take: 100,
       orderBy: { name: 'asc' },
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
   const allEntities = await db.semanticEntity.findMany({
     where: {
       id: { not: entityAId },
-      embedding: { not: null },
+      embedding: { not: '' },
     },
     select: { id: true, name: true, type: true, description: true, embedding: true },
     take: 500, // limit for performance
