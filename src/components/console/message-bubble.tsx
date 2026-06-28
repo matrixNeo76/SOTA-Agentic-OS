@@ -1,12 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { useState, memo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { StreamingText } from '@/components/workbench/streaming-text'
 import { InlineActions } from '@/components/workbench/inline-actions'
 import { AttachmentPreview } from '@/components/workbench/attachment-preview'
 import { Badge } from '@/components/ui/badge'
 import { DynAMODagVisualizer } from '@/components/agentic/dag-visualizers'
-import { CheckCircle2, XCircle, AlertTriangle, Shield, Sparkles, ChevronDown, ChevronRight, Clock, Loader2, Brain, Zap, Compass } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle, Shield, Sparkles, ChevronDown, ChevronRight, Clock, Loader2, Brain, Zap, Compass, Copy, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import type { Message, ExecStep, ErrorDetail, StepStatus } from './types'
 
 const SI: Record<StepStatus, { icon: typeof Clock; color: string }> = {
@@ -17,6 +20,74 @@ const SI: Record<StepStatus, { icon: typeof Clock; color: string }> = {
 const STR: Record<string, typeof Brain> = { PLAN: Brain, EXECUTE: Zap, CHECK: Shield, REFLECT: Sparkles, HALT: AlertTriangle }
 const EI: Record<string, typeof Brain> = { plan_generation: Brain, steering: Compass, ltl_verification: Shield, task_execution: Zap, reflection: Sparkles, unknown: AlertTriangle }
 
+// C6.9 — Markdown renderer for assistant messages
+const MarkdownContent = memo(function MarkdownContent({ content, className }: { content: string; className?: string }) {
+ return (
+   <div className={cn('text-sm break-words', className)}>
+     <ReactMarkdown
+       remarkPlugins={[remarkGfm]}
+       components={{
+         // Custom renderers for better styling
+         p: ({ children }) => <p className="leading-relaxed mb-2 last:mb-0">{children}</p>,
+         ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+         ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+         li: ({ children }) => <li className="text-sm">{children}</li>,
+         code: ({ inline, className: cls, children, ...props }: any) =>
+           inline ? (
+             <code className="px-1 py-0.5 rounded bg-muted text-[0.85em] font-mono" {...props}>{children}</code>
+           ) : (
+             <pre className="my-2 p-3 rounded-lg bg-muted/50 border overflow-auto max-h-64"><code className="text-xs font-mono" {...props}>{children}</code></pre>
+           ),
+         pre: ({ children }) => <>{children}</>,
+         h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1.5">{children}</h1>,
+         h2: ({ children }) => <h2 className="text-sm font-bold mt-2.5 mb-1">{children}</h2>,
+         h3: ({ children }) => <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>,
+         a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:opacity-80">{children}</a>,
+         blockquote: ({ children }) => <blockquote className="border-l-2 border-primary/30 pl-3 italic text-muted-foreground my-2">{children}</blockquote>,
+         table: ({ children }) => <div className="overflow-x-auto my-2"><table className="text-xs border-collapse">{children}</table></div>,
+         th: ({ children }) => <th className="border px-2 py-1 bg-muted/50 font-medium text-left">{children}</th>,
+         td: ({ children }) => <td className="border px-2 py-1">{children}</td>,
+         hr: () => <hr className="my-3 border-border" />,
+       }}
+     >
+       {content}
+     </ReactMarkdown>
+   </div>
+ )
+})
+
+// C6.9 — Copy button (always visible for assistant, on hover for user)
+function CopyButton({ text }: { text: string }) {
+ const [copied, setCopied] = useState(false)
+ const handleCopy = async () => {
+   try {
+     await navigator.clipboard.writeText(text)
+     setCopied(true)
+     toast.success('Copied to clipboard')
+     setTimeout(() => setCopied(false), 1500)
+   } catch {
+     // fallback
+     const ta = document.createElement('textarea')
+     ta.value = text
+     document.body.appendChild(ta)
+     ta.select()
+     try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+     document.body.removeChild(ta)
+   }
+ }
+ return (
+   <button
+     type="button"
+     onClick={handleCopy}
+     className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+     aria-label="Copy message"
+     title="Copy to clipboard"
+   >
+     {copied ? <Check className="size-3 text-status-ok" /> : <Copy className="size-3" />}
+   </button>
+ )
+}
+
 export function MessageBubble({ msg, allMessages, onRetry, onEdit }: { msg: Message; allMessages: Message[]; onRetry?: () => void; onEdit?: () => void }) {
  if (msg.role === 'user') {
  return (
@@ -25,7 +96,10 @@ export function MessageBubble({ msg, allMessages, onRetry, onEdit }: { msg: Mess
  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
  <AttachmentPreview text={msg.content} />
  </div>
- <InlineActions content={msg.content} isUser messageId={msg.id} messages={allMessages} onRetry={onRetry} onEdit={onEdit} />
+ <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+   <CopyButton text={msg.content} />
+   <InlineActions content={msg.content} isUser messageId={msg.id} messages={allMessages} onRetry={onRetry} onEdit={onEdit} />
+ </div>
  </div>
  )
  }
@@ -33,8 +107,17 @@ export function MessageBubble({ msg, allMessages, onRetry, onEdit }: { msg: Mess
  <div className="group relative flex items-start gap-3">
  <div className="size-8 rounded-full bg-gradient-to-br from-primary to-primary-active flex items-center justify-center ring-2 ring-border shrink-0"><span className="text-xs font-bold text-primary-foreground">S</span></div>
  <div className="flex-1 min-w-0 space-y-3">
- <div className="flex items-center gap-2"><span className="text-sm font-semibold">SOTA</span><span className="text-[10px] text-muted-foreground">{new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span></div>
- {msg.error ? <p className={cn('text-sm break-words text-status-danger')}>{msg.content}</p> : <StreamingText text={msg.content} className="text-muted-foreground" speed={12} charsPerTick={3} />}
+ <div className="flex items-center gap-2">
+   <span className="text-sm font-semibold">SOTA</span>
+   <span className="text-[10px] text-muted-foreground">{new Date(msg.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+   {/* C6.9 — Copy button always visible for assistant messages */}
+   <CopyButton text={msg.content} />
+ </div>
+ {/* C6.9 — Markdown rendering for assistant messages */}
+ {msg.error
+   ? <p className={cn('text-sm break-words text-status-danger')}>{msg.content}</p>
+   : <MarkdownContent content={msg.content} className="text-muted-foreground" />
+ }
  <AttachmentPreview text={msg.content} />
  {msg.errors && msg.errors.length > 0 && <ErrorList errors={msg.errors} />}
  {msg.result && <ResultCard result={msg.result} planOnly={msg.isPlanOnly} />}
