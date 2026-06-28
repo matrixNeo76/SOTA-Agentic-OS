@@ -22,7 +22,7 @@ import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign, Pause, Square, Search, X, ChevronLeft, Users } from 'lucide-react'
+import { Play, ArrowLeft, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, History, DollarSign, Pause, Square, Search, X, ChevronLeft, Users, Download, Copy, Archive, Trash2, Tag, ArchiveRestore } from 'lucide-react'
 import { useSensoriumLive } from '@/components/agentic/use-sensorium-live'
 import { cn } from '@/lib/utils'
 
@@ -55,9 +55,11 @@ interface Run {
   tasksRunning: number
   totalDurationMs: number
   agentCount: number
-  agents: string[] // C6.7 — unique agent IDs for this run
+  agents: string[]
   batches: string[][]
   tasks: RunTask[]
+  tags: string[]       // C6.8
+  archived: boolean    // C6.8
 }
 
 interface RunDetail {
@@ -70,6 +72,8 @@ interface RunDetail {
     agentCount: number
     createdAt: string
     updatedAt: string
+    tags: string[]    // C6.8
+    archived: boolean // C6.8
   }
   tasks: Array<RunTask & { dependencies: string[]; id: string }>
   checkpoints: Array<{
@@ -109,8 +113,10 @@ export function RunsView() {
   // C6.7 — Filter + pagination state
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [agentFilter, setAgentFilter] = useState<string>('all')
+  const [tagFilter, setTagFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [availableTags, setAvailableTags] = useState<string[]>([])
   const [totalRuns, setTotalRuns] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const pageSize = 50
@@ -129,9 +135,10 @@ export function RunsView() {
     params.set('offset', String(offset))
     if (statusFilter !== 'all') params.set('status', statusFilter)
     if (agentFilter !== 'all') params.set('agent', agentFilter)
+    if (tagFilter !== 'all') params.set('tag', tagFilter)
     if (searchQuery) params.set('search', searchQuery)
     return params.toString()
-  }, [statusFilter, agentFilter, searchQuery])
+  }, [statusFilter, agentFilter, tagFilter, searchQuery])
 
   // C6.7 — Fetch runs with filters + pagination
   const fetchRuns = useCallback(async (append = false) => {
@@ -147,6 +154,7 @@ export function RunsView() {
       setTotalRuns(res.total || 0)
       setHasMore(res.hasMore || false)
       if (res.agents) setAvailableAgents(res.agents)
+      if (res.tags) setAvailableTags(res.tags)
     } catch (err: any) {
       toast.error(`Failed to load runs: ${err.message}`)
     } finally {
@@ -161,7 +169,7 @@ export function RunsView() {
     }, searchQuery ? 300 : 0) // debounce search 300ms
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, agentFilter, searchQuery])
+  }, [statusFilter, agentFilter, tagFilter, searchQuery])
 
   // C6.6 — Auto-open detail if ?planId= is in the URL on first mount.
   useEffect(() => {
@@ -295,11 +303,24 @@ export function RunsView() {
             <option key={a} value={a}>{a}</option>
           ))}
         </select>
-        {(statusFilter !== 'all' || agentFilter !== 'all' || searchQuery) && (
+        {/* C6.8 — Tag filter */}
+        <select
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          aria-label="Filter by tag"
+          className="h-8 text-xs border rounded-md bg-background px-2"
+          disabled={availableTags.length === 0}
+        >
+          <option value="all">all tags</option>
+          {availableTags.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+        {(statusFilter !== 'all' || agentFilter !== 'all' || tagFilter !== 'all' || searchQuery) && (
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => { setStatusFilter('all'); setAgentFilter('all'); setSearchQuery('') }}
+            onClick={() => { setStatusFilter('all'); setAgentFilter('all'); setTagFilter('all'); setSearchQuery('') }}
             className="h-8 text-xs"
           >
             <X className="size-3 mr-0.5" /> Clear filters
@@ -321,14 +342,14 @@ export function RunsView() {
           ? 'No runs found'
           : `${runs.length} of ${totalRuns} run${totalRuns === 1 ? '' : 's'}`
         }
-        {(statusFilter !== 'all' || agentFilter !== 'all' || searchQuery) && ' (filtered)'}
+        {(statusFilter !== 'all' || agentFilter !== 'all' || tagFilter !== 'all' || searchQuery) && ' (filtered)'}
       </div>
 
       {runs.length > 0 ? (
         <>
           <div className="space-y-2">
             {runs.map((run) => (
-              <RunRow key={run.planId} run={run} onClick={() => openDetail(run.planId)} />
+              <RunRow key={run.planId} run={run} onClick={() => openDetail(run.planId)} onManaged={() => fetchRuns(false)} />
             ))}
           </div>
           {/* C6.7 — Load more pagination */}
@@ -351,9 +372,9 @@ export function RunsView() {
       ) : (
         <EmptyState
           icon="Play"
-          title={searchQuery || statusFilter !== 'all' || agentFilter !== 'all' ? 'No runs match your filters' : 'No runs yet'}
+          title={searchQuery || statusFilter !== 'all' || agentFilter !== 'all' || tagFilter !== 'all' ? 'No runs match your filters' : 'No runs yet'}
           description={
-            searchQuery || statusFilter !== 'all' || agentFilter !== 'all'
+            searchQuery || statusFilter !== 'all' || agentFilter !== 'all' || tagFilter !== 'all'
               ? 'Try adjusting your search or filters.'
               : 'Execute a workflow from the Console to see it appear here. Runs are persistent — they survive crashes and can be resumed.'
           }
@@ -365,10 +386,47 @@ export function RunsView() {
 
 // === Run Row (list item) ==============================================
 
-function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
+function RunRow({ run, onClick, onManaged }: { run: Run; onClick: () => void; onManaged: () => void }) {
   const statusBadge = (status: string) => {
-    const variant = status === 'completed' ? 'success' : status === 'failed' ? 'destructive' : status === 'running' ? 'warning' : 'secondary'
+    const variant = status === 'completed' ? 'success' : status === 'failed' ? 'destructive' : status === 'running' ? 'warning' : status === 'paused' ? 'secondary' : 'secondary'
     return <Badge variant={variant as any}>{status}</Badge>
+  }
+
+  // C6.8 — Manage actions (duplicate, archive, delete)
+  const [managing, setManaging] = useState<string | null>(null)
+
+  const handleManage = async (e: React.MouseEvent, action: string) => {
+    e.stopPropagation() // prevent row click (openDetail)
+    if (action === 'delete') {
+      if (!confirm(`Delete run "${run.goal}"?\n\nThis will permanently remove the plan and all its tasks. This cannot be undone.`)) return
+    }
+    setManaging(action)
+    try {
+      const res = await fetch('/api/runs/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, planId: run.planId }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`${action} failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      if (action === 'duplicate') {
+        toast.success(`Run duplicated as ${body.planId}`, { description: body.message, duration: 5000 })
+      } else if (action === 'archive') {
+        toast.success('Run archived')
+      } else if (action === 'unarchive') {
+        toast.success('Run restored')
+      } else if (action === 'delete') {
+        toast.success('Run deleted permanently')
+      }
+      onManaged()
+    } catch (err: any) {
+      toast.error(`${action} failed: ${err.message}`)
+    } finally {
+      setManaging(null)
+    }
   }
 
   return (
@@ -378,11 +436,16 @@ function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             {statusBadge(run.status)}
+            {run.archived && <Badge variant="outline" className="text-[10px]"><Archive className="w-2.5 h-2.5 mr-0.5" />archived</Badge>}
             <span className="text-sm font-medium truncate">{run.goal}</span>
+            {/* C6.8 — Tags */}
+            {run.tags?.map(tag => (
+              <Badge key={tag} variant="secondary" className="text-[9px]">{tag}</Badge>
+            ))}
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span className="font-mono">{run.planId}</span>
             <span>{run.tasksCompleted}/{run.taskCount} done</span>
             {run.tasksFailed > 0 && <span className="text-destructive">{run.tasksFailed} failed</span>}
@@ -391,7 +454,49 @@ function RunRow({ run, onClick }: { run: Run; onClick: () => void }) {
             <span>{new Date(run.createdAt).toLocaleString()}</span>
           </div>
         </div>
-        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-1 shrink-0">
+          {/* C6.8 — Quick actions */}
+          <Button
+            size="sm" variant="ghost" className="h-7 w-7 p-0"
+            onClick={(e) => handleManage(e, 'duplicate')}
+            disabled={managing !== null}
+            title="Duplicate run"
+            aria-label="Duplicate run"
+          >
+            {managing === 'duplicate' ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}
+          </Button>
+          {run.archived ? (
+            <Button
+              size="sm" variant="ghost" className="h-7 w-7 p-0"
+              onClick={(e) => handleManage(e, 'unarchive')}
+              disabled={managing !== null}
+              title="Restore from archive"
+              aria-label="Restore from archive"
+            >
+              {managing === 'unarchive' ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <ArchiveRestore className="w-3.5 h-3.5" />}
+            </Button>
+          ) : (
+            <Button
+              size="sm" variant="ghost" className="h-7 w-7 p-0"
+              onClick={(e) => handleManage(e, 'archive')}
+              disabled={managing !== null}
+              title="Archive run"
+              aria-label="Archive run"
+            >
+              {managing === 'archive' ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+            </Button>
+          )}
+          <Button
+            size="sm" variant="ghost" className="h-7 w-7 p-0 hover:text-destructive"
+            onClick={(e) => handleManage(e, 'delete')}
+            disabled={managing !== null || ['running', 'scheduled', 'paused'].includes(run.status)}
+            title="Delete run permanently"
+            aria-label="Delete run permanently"
+          >
+            {managing === 'delete' ? <RotateCcw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </Button>
+          <ChevronRight className="w-4 h-4 text-muted-foreground ml-1" />
+        </div>
       </div>
 
       {/* Mini progress bar */}
@@ -589,6 +694,26 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
               {controlLoading === 'abort' ? 'Aborting…' : 'Abort'}
             </Button>
           )}
+          {/* C6.8 — Export JSON */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `run-${planId}-${new Date().toISOString().slice(0, 10)}.json`
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+              URL.revokeObjectURL(url)
+              toast.success('Run detail exported as JSON')
+            }}
+            title="Export run detail as JSON"
+          >
+            <Download className="w-4 h-4 mr-1" /> Export
+          </Button>
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
             <RotateCcw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
@@ -603,6 +728,9 @@ function RunDetailView({ planId, detail, loading, wsConnected, onBack, onRefresh
           <span className="text-muted-foreground">In-flight tasks have completed. Click Resume to continue with the next batch.</span>
         </div>
       )}
+
+      {/* C6.8 — Tags management */}
+      <TagsManager planId={planId} tags={plan.tags || []} onTagsChanged={onRefresh} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -889,6 +1017,105 @@ function CheckpointRow({
           )}
           {rolling ? 'Rolling back…' : 'Rollback'}
         </Button>
+      </div>
+    </div>
+  )
+}
+
+// === Tags Manager (C6.8) =============================================
+
+function TagsManager({ planId, tags, onTagsChanged }: {
+  planId: string
+  tags: string[]
+  onTagsChanged: () => void
+}) {
+  const [newTag, setNewTag] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  const addTag = async () => {
+    if (!newTag.trim()) return
+    setAdding(true)
+    try {
+      const res = await fetch('/api/runs/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add-tag', planId, tag: newTag }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Add tag failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Tag "${newTag}" added`)
+      setNewTag('')
+      onTagsChanged()
+    } catch (err: any) {
+      toast.error(`Add tag failed: ${err.message}`)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const removeTag = async (tag: string) => {
+    setRemoving(tag)
+    try {
+      const res = await fetch('/api/runs/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove-tag', planId, tag }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        toast.error(`Remove tag failed: ${body.error || `HTTP ${res.status}`}`)
+        return
+      }
+      toast.success(`Tag "${tag}" removed`)
+      onTagsChanged()
+    } catch (err: any) {
+      toast.error(`Remove tag failed: ${err.message}`)
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+      {tags.length > 0 ? (
+        tags.map(tag => (
+          <Badge key={tag} variant="secondary" className="text-xs gap-0.5">
+            {tag}
+            <button
+              type="button"
+              onClick={() => removeTag(tag)}
+              disabled={removing !== null}
+              className="ml-0.5 hover:text-destructive"
+              aria-label={`Remove tag ${tag}`}
+            >
+              {removing === tag ? <RotateCcw className="w-2.5 h-2.5 animate-spin" /> : <X className="w-2.5 h-2.5" />}
+            </button>
+          </Badge>
+        ))
+      ) : (
+        <span className="text-xs text-muted-foreground">No tags</span>
+      )}
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addTag()}
+          placeholder="add tag…"
+          className="h-6 w-20 text-xs border rounded px-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+          disabled={adding}
+          aria-label="Add new tag"
+        />
+        {newTag.trim() && (
+          <Button size="sm" variant="ghost" onClick={addTag} disabled={adding} className="h-6 px-1.5 text-xs">
+            {adding ? <RotateCcw className="w-3 h-3 animate-spin" /> : '+'}
+          </Button>
+        )}
       </div>
     </div>
   )

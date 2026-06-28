@@ -25,11 +25,17 @@ export async function GET(req: NextRequest) {
   const status = url.searchParams.get('status')
   const agent = url.searchParams.get('agent')
   const search = url.searchParams.get('search')
+  const tag = url.searchParams.get('tag')
+  const includeArchived = url.searchParams.get('archived') === 'true'
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200)
   const offset = parseInt(url.searchParams.get('offset') || '0', 10)
 
   // === Build where clause ===
   const where: any = {}
+  // C6.8 — Hide archived by default (only show if ?archived=true)
+  if (!includeArchived) {
+    where.archived = false
+  }
   if (status && status !== 'all') {
     where.status = status
   }
@@ -39,6 +45,10 @@ export async function GET(req: NextRequest) {
   // Agent filter: plan must have at least one task with this agentId
   if (agent && agent !== 'all') {
     where.tasks = { some: { agentId: agent } }
+  }
+  // C6.8 — Tag filter: tags JSON array contains the tag string
+  if (tag && tag !== 'all') {
+    where.tags = { contains: `"${tag}"` }
   }
 
   // === Fetch page + total count in parallel ===
@@ -95,6 +105,9 @@ export async function GET(req: NextRequest) {
       tasksRunning: running,
       totalDurationMs: totalDuration,
       agentCount: p.agentCount,
+      // C6.8 — Tags + archived status
+      tags: p.tags ? JSON.parse(p.tags) : [],
+      archived: p.archived,
       agents, // C6.7 — list of unique agent IDs for filter dropdown
       batches: p.dagJson ? JSON.parse(p.dagJson) : [],
       tasks: tasks.map((t) => ({
@@ -114,6 +127,8 @@ export async function GET(req: NextRequest) {
 
   // C6.7 — Collect all unique agents across loaded runs for the filter dropdown
   const allAgents = Array.from(new Set(runs.flatMap((r) => r.agents))).sort()
+  // C6.8 — Collect all unique tags across loaded runs for the filter dropdown
+  const allTags = Array.from(new Set(runs.flatMap((r) => r.tags || []))).sort()
 
   return NextResponse.json({
     runs,
@@ -123,5 +138,6 @@ export async function GET(req: NextRequest) {
     limit,
     hasMore: offset + runs.length < totalCount,
     agents: allAgents,        // unique agents for filter dropdown
+    tags: allTags,            // C6.8 — unique tags for filter dropdown
   })
 }

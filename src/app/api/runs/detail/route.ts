@@ -92,6 +92,9 @@ export async function GET(req: NextRequest) {
       agentCount: plan.agentCount,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
+      // C6.8 — Tags + archived status
+      tags: plan.tags ? JSON.parse(plan.tags) : [],
+      archived: plan.archived,
     },
     tasks: plan.tasks.map((t) => ({
       id: t.id,

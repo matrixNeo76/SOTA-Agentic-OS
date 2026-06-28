@@ -118,11 +118,14 @@ model AgentPlan {
   taskGoal   String
   planJson   String // piano JSON strutturato
   dagJson    String? // DAG compilato
-  status     String     @default("drafted") // drafted|scheduled|running|completed|failed
+  status     String     @default("drafted") // drafted|scheduled|running|completed|failed|paused|partial
   agentCount Int        @default(0)
   tasks      PlanTask[]
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+  // C6.8 — Tags + archival
+  tags       String?
+  archived   Boolean    @default(false)
 }
 
 model PlanTask {
