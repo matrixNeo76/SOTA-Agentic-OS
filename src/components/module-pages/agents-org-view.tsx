@@ -433,6 +433,7 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
   const [searchResults, setSearchResults] = useState<any[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  const [selectedSkillUri, setSelectedSkillUri] = useState<string | null>(null)
 
   const search = async () => {
     if (!searchQuery.trim()) { setSearchResults(null); return }
@@ -474,7 +475,50 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
     }
   }
 
+  // C6.18 — Export skill as JSON
+  const exportSkill = async (uri: string, format: 'json' | 'skillmd') => {
+    try {
+      const res = await fetch(`/api/skills/export?uri=${encodeURIComponent(uri)}&format=${format}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (format === 'json') {
+        const data = await res.json()
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${uri.replace(/[^a-zA-Z0-9]/g, '_')}.json`
+        document.body.appendChild(a); a.click(); document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } else {
+        const text = await res.text()
+        const blob = new Blob([text], { type: 'text/markdown' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `SKILL.md`
+        document.body.appendChild(a); a.click(); document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }
+      toast.success(`Skill exported as ${format.toUpperCase()}`)
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message}`)
+    }
+  }
+
   const skills = searchResults ?? skillData?.skills ?? []
+
+  // C6.18 — Show detail view if a skill is selected
+  if (selectedSkillUri) {
+    return (
+      <SkillDetailView
+        uri={selectedSkillUri}
+        skill={skills.find(s => s.uri === selectedSkillUri)}
+        onBack={() => setSelectedSkillUri(null)}
+        onExport={exportSkill}
+        onRefresh={onRefresh}
+      />
+    )
+  }
 
   return (
     <Card>
@@ -493,7 +537,7 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
         </div>
       </CardHeader>
       <CardContent>
-        {/* C6.16 — Skill search */}
+        {/* Skill search */}
         <div className="flex gap-2 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -516,17 +560,27 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
         </div>
 
         {skills.length > 0 ? (
-          <div className="space-y-1 max-h-64 overflow-auto">
-            {skills.slice(0, 20).map((s: any) => (
-              <div key={s.uri} className="border rounded p-2 text-xs">
+          <div className="space-y-1 max-h-96 overflow-y-auto">
+            {skills.slice(0, 30).map((s: any) => (
+              <div
+                key={s.uri}
+                className="border rounded p-2 text-xs cursor-pointer hover:bg-accent/30 transition-colors group"
+                onClick={() => setSelectedSkillUri(s.uri)}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{s.name}</span>
-                  <Badge variant={s.lifecycleState === 'active' ? 'success' : 'secondary'} className="text-[9px]">{s.lifecycleState}</Badge>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{s.name}</span>
+                    <Badge variant="outline" className="text-[9px]">v{s.version}</Badge>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Badge variant={s.lifecycleState === 'active' ? 'success' : s.lifecycleState === 'deprecated' ? 'destructive' : 'secondary'} className="text-[9px]">{s.lifecycleState}</Badge>
+                    <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                  </div>
                 </div>
                 <div className="text-muted-foreground truncate mt-0.5">{s.description}</div>
                 {s.tags?.length > 0 && (
                   <div className="flex flex-wrap gap-0.5 mt-1">
-                    {s.tags.slice(0, 3).map((t: string) => <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>)}
+                    {s.tags.slice(0, 4).map((t: string) => <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>)}
                   </div>
                 )}
                 {s.score && <div className="text-[10px] text-muted-foreground mt-0.5">score: {s.score.toFixed(3)}</div>}
@@ -540,6 +594,238 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
             description={searchResults ? "Try a different search query" : "Seed default skills or create new ones via the Admin panel"}
           />
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Skill Detail View (C6.18 Fase 3) ================================
+
+function SkillDetailView({ uri, skill, onBack, onExport, onRefresh }: {
+  uri: string
+  skill: any
+  onBack: () => void
+  onExport: (uri: string, format: 'json' | 'skillmd') => void
+  onRefresh: () => void
+}) {
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  const runLifecycle = async (newState: string) => {
+    setActionLoading(newState)
+    try {
+      const res = await fetch('/api/skill-registry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'lifecycle', uri, newState, actor: 'user://admin', reason: `${newState} via UI` }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`${newState} failed: ${body.error}`); return }
+      toast.success(`Skill ${newState}`)
+      onRefresh()
+      onBack()
+    } catch (err: any) {
+      toast.error(`${newState} failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const createVersion = async () => {
+    const newVersion = prompt('New version number (e.g. 1.1.0):')
+    if (!newVersion) return
+    setActionLoading('version')
+    try {
+      const res = await fetch('/api/skill-registry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'version', sourceUri: uri, newVersion, updates: {} }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Version failed: ${body.error}`); return }
+      toast.success(`Version ${newVersion} created`)
+      onRefresh()
+      onBack()
+    } catch (err: any) {
+      toast.error(`Version failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  if (!skill) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="mb-3"><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+          <p className="text-xs text-muted-foreground">Skill not found in local cache. Try refreshing.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold">{skill.name}</h3>
+                <Badge variant="outline" className="text-[9px]">v{skill.version}</Badge>
+                <Badge variant={skill.lifecycleState === 'active' ? 'success' : skill.lifecycleState === 'deprecated' ? 'destructive' : 'secondary'} className="text-[9px]">{skill.lifecycleState}</Badge>
+              </div>
+              <code className="text-[10px] font-mono text-muted-foreground">{skill.uri}</code>
+            </div>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {skill.lifecycleState === 'active' && (
+              <Button size="sm" variant="outline" onClick={() => runLifecycle('deprecated')} disabled={actionLoading !== null} className="h-7 text-xs">
+                {actionLoading === 'deprecated' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Deprecate
+              </Button>
+            )}
+            {skill.lifecycleState === 'deprecated' && (
+              <Button size="sm" variant="default" onClick={() => runLifecycle('active')} disabled={actionLoading !== null} className="h-7 text-xs">
+                {actionLoading === 'active' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Activate
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={createVersion} disabled={actionLoading !== null} className="h-7 text-xs">
+              {actionLoading === 'version' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} New Version
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onExport(uri, 'json')} className="h-7 text-xs">
+              Export JSON
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onExport(uri, 'skillmd')} className="h-7 text-xs">
+              Export SKILL.md
+            </Button>
+          </div>
+        </div>
+
+        {/* Description */}
+        {skill.description && (
+          <p className="text-xs text-muted-foreground">{skill.description}</p>
+        )}
+
+        {/* Tags */}
+        {skill.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {skill.tags.map((t: string) => <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>)}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Left: prompt template + tests */}
+          <div className="space-y-3">
+            {/* Prompt Template */}
+            {skill.promptTemplate && (
+              <div>
+                <div className="text-xs font-medium mb-1">Prompt Template</div>
+                <pre className="text-[10px] font-mono bg-muted/30 border rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap">{skill.promptTemplate}</pre>
+              </div>
+            )}
+
+            {/* Tests */}
+            {skill.tests?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Tests ({skill.tests.length})</div>
+                <div className="space-y-1">
+                  {skill.tests.map((t: any, i: number) => (
+                    <div key={i} className="border rounded p-1.5 text-[10px]">
+                      <div className="font-medium">{t.name}</div>
+                      <div className="text-muted-foreground">input: {t.input?.slice(0, 80)}</div>
+                      {t.expectedContains?.length > 0 && (
+                        <div className="text-muted-foreground">expects: {t.expectedContains.join(', ')}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Examples */}
+            {skill.examples?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-1">Examples ({skill.examples.length})</div>
+                <div className="space-y-1">
+                  {skill.examples.map((ex: any, i: number) => (
+                    <div key={i} className="border rounded p-1.5 text-[10px]">
+                      <div className="text-muted-foreground">{ex.input?.slice(0, 80)}</div>
+                      <div className="mt-0.5">{ex.output?.slice(0, 80)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: tools + memory + constraints */}
+          <div className="space-y-3">
+            {/* Tools */}
+            <div>
+              <div className="text-xs font-medium mb-1">Tools</div>
+              {skill.tools?.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {skill.tools.map((t: string) => <Badge key={t} variant="outline" className="text-[9px]">{t}</Badge>)}
+                </div>
+              ) : (
+                <p className="text-[10px] text-muted-foreground italic">No tools required</p>
+              )}
+            </div>
+
+            {/* Memory requirements */}
+            {skill.memory && (
+              <div>
+                <div className="text-xs font-medium mb-1">Memory Requirements</div>
+                <div className="space-y-0.5 text-[10px] text-muted-foreground">
+                  {skill.memory.requiredLayers?.length > 0 && (
+                    <div>Required layers: {skill.memory.requiredLayers.join(', ')}</div>
+                  )}
+                  {skill.memory.contextBudget && (
+                    <div>Context budget: {skill.memory.contextBudget.toLocaleString()} tokens</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Constraints */}
+            {skill.constraints && (
+              <div>
+                <div className="text-xs font-medium mb-1">Constraints</div>
+                <div className="space-y-0.5 text-[10px] text-muted-foreground">
+                  {skill.constraints.tokenBudget && (
+                    <div>Token budget: {skill.constraints.tokenBudget.toLocaleString()}</div>
+                  )}
+                  {skill.constraints.timeout && (
+                    <div>Timeout: {(skill.constraints.timeout / 1000).toFixed(1)}s</div>
+                  )}
+                  {skill.constraints.ltlRules?.length > 0 && (
+                    <div>LTL rules: {skill.constraints.ltlRules.join(', ')}</div>
+                  )}
+                  {skill.constraints.redLines?.length > 0 && (
+                    <div className="text-status-danger">
+                      Red lines:
+                      <ul className="ml-3 list-disc">
+                        {skill.constraints.redLines.map((rl: string, i: number) => <li key={i}>{rl}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Metadata */}
+            <div>
+              <div className="text-xs font-medium mb-1">Metadata</div>
+              <div className="space-y-0.5 text-[10px] text-muted-foreground">
+                <div>URI: <code className="font-mono">{skill.uri}</code></div>
+                <div>Version: {skill.version}</div>
+                <div>State: {skill.lifecycleState}</div>
+                {skill.usageCount !== undefined && <div>Usage count: {skill.usageCount}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
