@@ -86,6 +86,23 @@ export function AgentsOrgView() {
     }
   }
 
+  // C6.20 — Loading skeleton (matches final layout)
+  if (loading && !meshData) {
+    return (
+      <div className="p-4 sm:p-6 space-y-4" aria-busy="true">
+        <div className="h-6 w-40 bg-muted animate-pulse rounded" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map(i => <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />)}
+        </div>
+        <div className="h-8 w-full max-w-3xl bg-muted animate-pulse rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-48 bg-muted animate-pulse rounded-lg" />
+          <div className="h-48 bg-muted animate-pulse rounded-lg" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <ModulePage
       title="Agents & Organization"
@@ -125,7 +142,7 @@ export function AgentsOrgView() {
       )}
 
       <Tabs defaultValue="mesh" className="w-full">
-        <TabsList className="grid w-full max-w-3xl grid-cols-5">
+        <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5">
           <TabsTrigger value="mesh" className="text-xs"><Network className="w-3.5 h-3.5 mr-1" />Mesh</TabsTrigger>
           <TabsTrigger value="lifecycle" className="text-xs"><Users className="w-3.5 h-3.5 mr-1" />Lifecycle</TabsTrigger>
           <TabsTrigger value="skills" className="text-xs"><Wrench className="w-3.5 h-3.5 mr-1" />Skills</TabsTrigger>
@@ -256,7 +273,7 @@ function MeshTab({ meshData, onBootstrap, bootstrapping, onAgentClick }: { meshD
                   const color = tierColors[pos.tier] || '#6b7280'
                   const shortName = n.agentUri.replace('agent://', '')
                   return (
-                    <g key={n.agentUri} className="cursor-pointer" onClick={() => onAgentClick?.(n.agentUri)}>
+                    <g key={n.agentUri} className="cursor-pointer" onClick={() => onAgentClick?.(n.agentUri)} role="button" aria-label={`Agent ${n.agentUri.replace('agent://', '')}`}>
                       <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={color} stroke="white" strokeWidth="2" opacity="0.9">
                         <title>{n.agentUri} [{pos.tier}]</title>
                       </circle>
@@ -389,7 +406,7 @@ function LifecycleTab({ lifecycleData, onRefresh, onAgentClick }: { lifecycleDat
       <CardContent>
         <div className="space-y-1 max-h-96 overflow-y-auto">
           {agents.map((a: any) => (
-            <div key={a.uri || a.agentUri} className="border rounded p-2 text-xs group cursor-pointer hover:bg-accent/30 transition-colors" onClick={() => onAgentClick?.(a.uri || a.agentUri)}>
+            <div key={a.uri || a.agentUri} className="border rounded p-2 text-xs group cursor-pointer hover:bg-accent/30 transition-colors" onClick={() => onAgentClick?.(a.uri || a.agentUri)} role="button" tabIndex={0} aria-label={`Agent ${(a.uri || a.agentUri || '').replace('agent://', '')} — ${a.lifecycleState || 'unknown'}`}>
               <div className="flex items-center gap-2 mb-1">
                 <Badge variant={a.lifecycleState === 'active' ? 'success' : a.lifecycleState === 'suspended' ? 'warning' : 'secondary'} className="text-[9px]">
                   {a.lifecycleState || 'unknown'}
@@ -572,6 +589,9 @@ function SkillsTab({ skillData, onRefresh }: { skillData: any; onRefresh: () => 
                 key={s.uri}
                 className="border rounded p-2 text-xs cursor-pointer hover:bg-accent/30 transition-colors group"
                 onClick={() => setSelectedSkillUri(s.uri)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Skill ${s.name} — ${s.lifecycleState}`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -1244,7 +1264,7 @@ function CreateProposalCard({ onCreated }: { onCreated: () => void }) {
           <span className="text-[10px] text-muted-foreground">Rationale *</span>
           <Textarea value={rationale} onChange={e => setRationale(e.target.value)} placeholder="Why is this needed?" className="text-xs min-h-[50px]" />
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div className="space-y-1">
             <span className="text-[10px] text-muted-foreground">Cost Delta</span>
             <Input value={costDelta} onChange={e => setCostDelta(e.target.value)} placeholder="0.00" className="text-xs h-7" />
@@ -1541,7 +1561,7 @@ function AgentDetailView({ uri, onBack, onRefresh }: { uri: string; onBack: () =
         )}
 
         {/* Metrics grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="border rounded p-2 text-center">
             <div className="text-lg font-bold text-status-ok">{metrics.tasksDone}</div>
             <div className="text-[10px] text-muted-foreground">Tasks Done</div>
