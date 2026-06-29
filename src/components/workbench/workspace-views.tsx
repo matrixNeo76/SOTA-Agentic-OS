@@ -43,6 +43,7 @@ const AdminPage = dynamic(() => import('@/app/admin/page'), { loading: () => <di
 // UX-2: Module page views
 const MemoryKnowledgeView = dynamic(() => import('@/components/module-pages/memory-knowledge-view').then(m => ({ default: m.MemoryKnowledgeView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 const AgentsOrgView = dynamic(() => import('@/components/module-pages/agents-org-view').then(m => ({ default: m.AgentsOrgView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
+const GovernanceView = dynamic(() => import('@/components/module-pages/governance-view').then(m => ({ default: m.GovernanceView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 // UX-3: Runs view
 const RunsView = dynamic(() => import('@/components/module-pages/runs-view').then(m => ({ default: m.RunsView })), { loading: () => <div className="p-6"><div className="h-6 w-48 bg-muted/40 rounded animate-pulse" /></div> })
 
@@ -73,12 +74,7 @@ function PhaseView() {
  case 'runs': case 'console': return <RunsView />
  case 'memory': case 'domain-memory': return <MemoryKnowledgeView />
  case 'agents': return <AgentsOrgView />
- case 'governance': return (
-   <div className="space-y-6 p-6">
-     <ConflictQueuePanel />
-     <SovereignView />
-   </div>
- )
+ case 'governance': return <GovernanceView />
  case 'insights': return (
    <div className="space-y-6 p-6">
      <AutonomousDashboard />

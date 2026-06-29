@@ -76,8 +76,13 @@ export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> 
     const ax = axioms.find((a) => a.axiom === v.axiom)
     if (!ax) continue
     auditLines.push(`Violazione rilevata: "${ax.axiom}" (priorità ${ax.priority})`)
-    if (ax.priority <= intent.claimedPriority) {
-      // La regola violata ha priorità >= dell'intenzione → BLOCK
+    // C7 fix: blocca solo se la regola violata ha priorità STRETTAMENTE SUPERIORE
+    // (valore numerico MINORE) dell'intenzione dichiarata.
+    // Prima era `<=` che bloccava anche a parità di priorità, impedendo
+    // qualsiasi operazione di efficienza (priority 3) che violasse un assioma
+    // di priority 3 (es. "ottimizza token usage" vs "ottimizza token quando possibile").
+    if (ax.priority < intent.claimedPriority) {
+      // La regola violata ha priorità superiore all'intenzione → BLOCK
       return {
         allowed: false,
         blockingAxiom: ax.axiom,
@@ -95,17 +100,112 @@ export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> 
 }
 
 /**
- * Aggiunge un nuovo assioma normativo.
+ * B10 fix: valida priorità (deve essere 1, 2 o 3) e controlla duplicati
+ * (testo assioma già esistente).
  */
 export async function addAxiom(axiom: string, priority: number): Promise<void> {
-  await db.normativeRule.create({ data: { axiom, priority } })
+  if (!axiom || !axiom.trim()) {
+    throw new Error('Axiom text is required')
+  }
+  if (![1, 2, 3].includes(priority)) {
+    throw new Error(`Invalid priority ${priority}: must be 1 (legal), 2 (operational), or 3 (efficiency)`)
+  }
+  // Check duplicates (case-insensitive via toLowerCase — SQLite non supporta mode: insensitive)
+  const axioms = await db.normativeRule.findMany({
+    where: { axiom: { contains: axiom.trim() } },
+    select: { axiom: true },
+  })
+  const exists = axioms.some((a) => a.axiom.toLowerCase() === axiom.trim().toLowerCase())
+  if (exists) {
+    throw new AxiomConflictError(axiom.trim())
+  }
+  await db.normativeRule.create({ data: { axiom: axiom.trim(), priority } })
 }
 
+export class AxiomConflictError extends Error {
+  constructor(public axiom: string) {
+    super(`Axiom already exists: "${axiom.slice(0, 50)}${axiom.length > 50 ? '...' : ''}"`)
+    this.name = 'AxiomConflictError'
+  }
+}
+
+/**
+ * G2b: toggle active su un assioma (soft delete / restore).
+ */
+export async function toggleAxiom(id: string, active: boolean): Promise<void> {
+  const existing = await db.normativeRule.findUnique({ where: { id } })
+  if (!existing) {
+    throw new AxiomNotFoundError(id)
+  }
+  await db.normativeRule.update({
+    where: { id },
+    data: { active },
+  })
+}
+
+/**
+ * G2b: aggiorna testo e/o priorità di un assioma.
+ */
+export async function updateAxiom(
+  id: string,
+  updates: { axiom?: string; priority?: number }
+): Promise<void> {
+  const existing = await db.normativeRule.findUnique({ where: { id } })
+  if (!existing) {
+    throw new AxiomNotFoundError(id)
+  }
+
+  const data: { axiom?: string; priority?: number } = {}
+  if (updates.axiom !== undefined && updates.axiom !== existing.axiom) {
+    const trimmed = updates.axiom.trim()
+    if (!trimmed) {
+      throw new Error('Axiom text cannot be empty')
+    }
+    // Check duplicates case-insensitive (excludes self)
+    const candidates = await db.normativeRule.findMany({
+      where: { axiom: { contains: trimmed }, id: { not: id } },
+      select: { axiom: true },
+    })
+    const dup = candidates.some((c) => c.axiom.toLowerCase() === trimmed.toLowerCase())
+    if (dup) {
+      throw new AxiomConflictError(trimmed)
+    }
+    data.axiom = trimmed
+  }
+  if (updates.priority !== undefined && updates.priority !== existing.priority) {
+    if (![1, 2, 3].includes(updates.priority)) {
+      throw new Error(`Invalid priority ${updates.priority}: must be 1 (legal), 2 (operational), or 3 (efficiency)`)
+    }
+    data.priority = updates.priority
+  }
+
+  if (Object.keys(data).length === 0) {
+    return // no-op
+  }
+
+  await db.normativeRule.update({ where: { id }, data })
+}
+
+/**
+ * B5 fix: usa update (non updateMany) + lancia errore se non trovata.
+ * Prima updateMany con where: { id } nascondeva il caso "id non esistente".
+ */
 export async function deleteAxiom(id: string): Promise<void> {
-  await db.normativeRule.updateMany({
+  const existing = await db.normativeRule.findUnique({ where: { id } })
+  if (!existing) {
+    throw new AxiomNotFoundError(id)
+  }
+  await db.normativeRule.update({
     where: { id },
     data: { active: false },
   })
+}
+
+export class AxiomNotFoundError extends Error {
+  constructor(public id: string) {
+    super(`Axiom with id "${id}" not found`)
+    this.name = 'AxiomNotFoundError'
+  }
 }
 
 export async function listAxioms() {

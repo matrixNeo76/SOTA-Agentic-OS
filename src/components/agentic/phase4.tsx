@@ -31,10 +31,10 @@ const SEVERITY_STYLE: Record<string, string> = {
  log: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700',
 }
 
-const PRIORITY_LABEL: Record<number, { label: string; color: string }> = {
- 1: { label: 'Legale', color: 'bg-status-danger' },
- 2: { label: 'Operativo', color: 'bg-status-warn' },
- 3: { label: 'Efficienza', color: 'bg-status-info' },
+const PRIORITY_LABEL: Record<number, { label: string; color: string; border: string }> = {
+ 1: { label: 'Legale', color: 'bg-status-danger', border: 'border-status-danger' },
+ 2: { label: 'Operativo', color: 'bg-status-warn', border: 'border-status-warn' },
+ 3: { label: 'Efficienza', color: 'bg-status-info', border: 'border-status-info' },
 }
 
 export function Phase4() {
@@ -301,7 +301,17 @@ export function Phase4() {
  ) : (
  <ul className="space-y-1.5">
  {taints.map((t) => {
- const flow = t.flowTrace ? JSON.parse(t.flowTrace) : []
+ // B8 fix: wrap JSON.parse in try/catch con fallback [].
+ // Prima, se t.flowTrace era malformato, il componente crashava.
+ let flow: string[] = []
+ if (t.flowTrace) {
+   try {
+     flow = JSON.parse(t.flowTrace)
+     if (!Array.isArray(flow)) flow = []
+   } catch {
+     flow = []
+   }
+ }
  return (
  <li key={t.id} className="text-xs border rounded-md p-2">
  <div className="flex items-center gap-2 mb-1">
@@ -387,7 +397,7 @@ export function Phase4() {
  ) : (
  <div className="space-y-2">
  {[1, 2, 3].map((p) => (
- <div key={p} className="border-l-4 pl-3 py-1" style={{ borderColor: PRIORITY_LABEL[p]?.color.replace('bg-', '') }}>
+ <div key={p} className={cn('border-l-4 pl-3 py-1', PRIORITY_LABEL[p]?.border)}>
  <div className="flex items-center gap-2 mb-1">
  <span className={cn('size-2 rounded-full', PRIORITY_LABEL[p].color)} />
  <span className="text-xs font-medium">Priorità {p} · {PRIORITY_LABEL[p].label}</span>

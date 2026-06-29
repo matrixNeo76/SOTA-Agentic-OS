@@ -482,7 +482,14 @@ export function Phase9() {
  ) : (
  <ul className="space-y-2">
  {audit.map((a) => {
- const decision = JSON.parse(a.decision)
+ // B8 fix: wrap JSON.parse in try/catch con fallback.
+ // Prima, se a.decision era malformato o null, il componente crashava.
+ let decision: Record<string, any> = {}
+ try {
+   decision = a.decision ? JSON.parse(a.decision) : {}
+ } catch {
+   decision = { _parseError: true, raw: String(a.decision).slice(0, 100) }
+ }
  return (
  <li key={a.id} className="text-xs border rounded-md p-2.5">
  <div className="flex items-center gap-2 mb-1">

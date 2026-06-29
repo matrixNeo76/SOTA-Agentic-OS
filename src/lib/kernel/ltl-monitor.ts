@@ -680,23 +680,58 @@ export async function addLTLRule(spec: LTLRuleSpec): Promise<void> {
   } catch (e: any) {
     throw new Error(`Formula LTL non valida: ${e.message}`)
   }
-  await db.lTLRule.create({
-    data: {
-      ruleId: spec.ruleId,
-      ltlFormula: spec.formula,
-      description: spec.description,
-      severity: spec.severity,
-    },
+  try {
+    await db.lTLRule.create({
+      data: {
+        ruleId: spec.ruleId,
+        ltlFormula: spec.formula,
+        description: spec.description,
+        severity: spec.severity,
+      },
+    })
+  } catch (e: any) {
+    // B3 fix: gestisci P2002 (unique constraint su ruleId) con errore strutturato
+    if (e?.code === 'P2002') {
+      throw new LTLRuleConflictError(spec.ruleId)
+    }
+    throw e
+  }
+  await reloadMonitor()
+}
+
+/**
+ * B3: errore strutturato per ruleId duplicato.
+ * Il caller (API route) può controllare instanceof per restituire 409 Conflict.
+ */
+export class LTLRuleConflictError extends Error {
+  constructor(public ruleId: string) {
+    super(`LTL rule with ruleId "${ruleId}" already exists`)
+    this.name = 'LTLRuleConflictError'
+  }
+}
+
+/**
+ * B5 fix: usa update (non updateMany) + lancia errore se non trovata.
+ * Prima updateMany nascondeva il caso "ruleId non esistente" ritornando
+ * count=0 silenziosamente.
+ */
+export async function deleteLTLRule(ruleId: string): Promise<void> {
+  const existing = await db.lTLRule.findFirst({ where: { ruleId } })
+  if (!existing) {
+    throw new LTLRuleNotFoundError(ruleId)
+  }
+  await db.lTLRule.update({
+    where: { id: existing.id },
+    data: { active: false },
   })
   await reloadMonitor()
 }
 
-export async function deleteLTLRule(ruleId: string): Promise<void> {
-  await db.lTLRule.updateMany({
-    where: { ruleId },
-    data: { active: false },
-  })
-  await reloadMonitor()
+export class LTLRuleNotFoundError extends Error {
+  constructor(public ruleId: string) {
+    super(`LTL rule with ruleId "${ruleId}" not found`)
+    this.name = 'LTLRuleNotFoundError'
+  }
 }
 
 export async function listLTLRules() {
@@ -780,4 +815,75 @@ function describePattern(pattern: string): string {
     'G(a -> F b)': 'Liveness condizionata: ogni a deve essere eventualmente seguito da b.',
   }
   return desc[pattern] || 'Pattern non riconosciuto'
+}
+
+/**
+ * G3: Simula una formula LTL su una sequenza di eventi (senza persistere).
+ *
+ * Crea un monitor temporaneo, vi carica solo la formula specificata, e
+ * valuta ogni evento della sequenza uno alla volta. Ritorna il trace
+ * step-by-step + il verdict finale.
+ *
+ * Utile per validare semanticamente una regola prima del salvataggio.
+ *
+ * @param formula Formula LTL (es. "G(plan -> F execute)")
+ * @param events  Sequenza di state labels (es. ["plan", "execute", "halt"])
+ * @returns Per-step verdict + final verdict + violations
+ */
+export function simulateLTL(
+  formula: string,
+  events: string[]
+): {
+  valid: boolean
+  error?: string
+  pattern?: string
+  steps: { event: string; stepIndex: number; verdict: 'accept' | 'warn' | 'reject'; violations: { ruleId: string; reason: string }[] }[]
+  finalVerdict: 'accept' | 'warn' | 'reject'
+  totalViolations: number
+} {
+  try {
+    const ast = new LTLParser(formula).parse()
+    const fsm = compileAST(ast, { ruleId: 'SIM', formula, description: 'simulation', severity: 'warn' })
+    if (!fsm) {
+      return { valid: false, error: 'Pattern non supportato', steps: [], finalVerdict: 'reject', totalViolations: 0 }
+    }
+    const pattern = detectPatternExternal(ast)
+
+    // Crea un monitor temporaneo con solo questa regola
+    const tempMonitor = new LTLMonitor()
+    tempMonitor.loadRules([{ ruleId: 'SIM', formula, description: 'simulation', severity: 'warn' }])
+
+    const steps: { event: string; stepIndex: number; verdict: 'accept' | 'warn' | 'reject'; violations: { ruleId: string; reason: string }[] }[] = []
+    let totalViolations = 0
+    let finalVerdict: 'accept' | 'warn' | 'reject' = 'accept'
+
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i]
+      const result = tempMonitor.evalEvent(event, null)
+      const stepVerdict = result.verdict
+      const stepViolations = result.violations.map((v) => ({ ruleId: v.ruleId, reason: v.reason }))
+      steps.push({
+        event,
+        stepIndex: i,
+        verdict: stepVerdict,
+        violations: stepViolations,
+      })
+      if (stepVerdict === 'reject') {
+        totalViolations += stepViolations.length
+        finalVerdict = 'reject'
+      } else if (stepVerdict === 'warn' && finalVerdict !== 'reject') {
+        finalVerdict = 'warn'
+      }
+    }
+
+    return {
+      valid: true,
+      pattern,
+      steps,
+      finalVerdict,
+      totalViolations,
+    }
+  } catch (e: any) {
+    return { valid: false, error: e.message, steps: [], finalVerdict: 'reject', totalViolations: 0 }
+  }
 }

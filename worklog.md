@@ -215,3 +215,125 @@ Stage Summary:
 - SovereignView finalmente funziona (prima era sempre vuota per via di C2/C3)
 - Tutte le operazioni admin governance ora sono auditate (prima erano invisibili)
 - Prossimo: Fase 3 (C6-C10 + B3-B8) bug logici & UI
+
+---
+Task ID: GOV-FASE3
+Agent: main
+Task: Fase 3 — Bug logici & UI (C6-C10 + B3-B8)
+
+Work Log:
+- C6: Fix borderColor: 'status-danger' (invalid CSS) in phase4.tsx e ltl-normative-editor.tsx
+  → aggiunto campo border: 'border-status-*' alla lookup table PRIORITY_LABEL
+  → sostituito style={{borderColor: ...}} con className cn('border-l-4', PRIORITY_LABEL[p].border)
+- C7: Fix evaluateIntent `<=` → `<` in normative.ts
+  → prima bloccava anche a parità di priorità (priority 3 vs priority 3 = BLOCK)
+  → ora blocca solo se regola violata ha priorità STRETTAMENTE superiore (valore numerico minore)
+- C8: Fix tie-break in resolveNormativeConflict (artificial-retainer.ts)
+  → prima bloccava sempre a parità di livello (anche AESTHETIC vs AESTHETIC)
+  → ora blocca solo se systemLevel === SAFETY; altrimenti MODIFY
+- C9: Fix checkAuthority pattern matching (artificial-retainer.ts)
+  → prima scope.startsWith(d.scope) permetteva bypass: tool:exec autorizzava tool:executor
+  → ora: match esatto, wildcard esplicita (`pattern*`), prefisso con separatore (`pattern/*`, `pattern:*`)
+  → aggiunta funzione helper matchesScope() con 13 test case
+- C10: Implementato auto-expire gates (artificial-retainer.ts)
+  → nuova funzione expirePendingGates(force?) marca expired i gates con expiresAt < now
+  → listPendingGates chiama expirePendingGates() lazy prima di restituire la lista
+  → throttle 60s per non gravare su ogni GET
+  → aggiunto endpoint admin governance action='expire-gates' per forzare expire manuale
+  → audit log per ogni batch di gates scaduti
+- B3: addLTLRule gestisce P2002 (ruleId duplicato) → LTLRuleConflictError → API ritorna 409
+- B4: add-redline gestisce P2002 (description duplicato) → API ritorna 409 + validazione severity
+- B5: deleteAxiom/deleteLTLRule usano update (non updateMany) + 404 su id non esistente
+  → AxiomNotFoundError, LTLRuleNotFoundError con code strutturato
+- B6: taint.ts spostato activeFlows da Map in-memory a DB
+  → propagateTaint ora async, legge/scrive flowTrace nel DB
+  → checkSink legge records da DB, ignora scaduti
+  → aggiunta getTaintTTL() per introspection
+- B7: clearExpiredFlows implementato (era vuoto)
+  → marca record con createdAt + TTL < now come taintLabel='EXPIRED'
+  → non tocca record blocked=true (audit trail da preservare)
+  → TTL default 24h
+- B8: Wrap JSON.parse in try/catch in phase9.tsx (a.decision) e phase4.tsx (t.flowTrace)
+  → fallback a {} o [] invece di crashare il componente
+- B10 (bonus): addAxiom valida priorità (1, 2, 3) + dedup case-insensitive → AxiomConflictError
+- Test: creato tests/integration/governance-bugfix.test.ts con 46 test:
+  * C7: 4 test evaluateIntent boundary cases
+  * C8: 5 test tie-break SAFETY/OPERATIONAL/AESTHETIC
+  * C9: 13 test checkAuthority pattern matching (inclusi bypass attempts)
+  * C10: 4 test auto-expire (lazy, throttle, audit, force)
+  * B3: 3 test LTLRuleConflictError
+  * B5: 4 test LTLRuleNotFoundError + AxiomNotFoundError
+  * B10: 4 test addAxiom validation
+  * B6: 6 test taint DB persistence
+  * B7: 3 test clearExpiredFlows TTL
+
+Stage Summary:
+- 9 file modificati: 4 lib/kernel + 2 componenti UI + 2 API routes + admin UI
+- 1 nuovo file test con 46 test (tutti passing)
+- 0 regressioni (177/177 test governance-related passano: 44 LTL + 19 Taint + 19 Normative + 36 auth-audit + 46 bugfix + 13 admin-settings)
+- 0 TypeScript errors nei file modificati
+- Sicurezza rafforzata: checkAuthority non più bypassabile, taint persistente, auto-expire gates
+- Prossimo: Fase 4 (G1-G5, B9-B12) UX & CRUD
+
+---
+Task ID: GOV-FASE4
+Agent: main
+Task: Fase 4 — UX & CRUD (G1-G5, B9-B12)
+
+Work Log:
+- G2: Aggiunta CRUD completa per Red Lines in /api/admin/governance:
+  * toggle-redline (activate/deactivate senza eliminare)
+  * update-redline (description/rationale/severity con 409 su descrizione duplicata)
+  * delete-redline (hard delete con audit entry reversible=false)
+  * Tutte con AuditLedgerEntry + AgentLog + publishAgentEvent
+  * GET ora ritorna 50 entries (era 20) e include inactive Red Lines + LTL Rules
+- G2b: Aggiunte toggle_axiom + update_axiom in /api/verify:
+  * toggleAxiom() in normative.ts (soft delete/restore)
+  * updateAxiom() con validazione priority (1,2,3) + dedup case-insensitive
+  * 404 su id non esistente, 409 su duplicato, 400 su priorità non valida
+- G3: Aggiunta simulate_ltl action a /api/verify:
+  * Nuova funzione simulateLTL(formula, events) in ltl-monitor.ts
+  * Crea monitor temporaneo, valuta ogni evento, ritorna steps + finalVerdict + totalViolations
+  * Read-only (requireAuth), non persiste nulla
+  * Utile per validare semanticamente una regola prima del salvataggio
+- G5: Nuovo endpoint /api/admin/audit/ledger con filtri avanzati:
+  * Filtri: agentId, gate, outcome, reversible, sinceHours, q (search)
+  * Pagination: limit + offset + hasMore
+  * requireAdmin (audit contiene dati sensibili)
+  * Gate/outcome richiedono filter in-memory (SQLite non supporta JSON query)
+- G1: Creato governance-view.tsx con 5 tab:
+  * Overview: 8 KPI cards (blocked, gates, delegations, audit, LTL, redlines, axioms, blocked-resolutions)
+  * Sovereign: riusa SovereignView esistente (batch resolve, filters, axiom trail)
+  * LTL & Taint: rules list + LTL Simulator (G3) + LTLNormativeEditor + taint records
+  * Red Lines: CRUD completa (add/toggle/edit/delete) + axioms normative gerarchia
+  * Audit: filtri + pagination + export JSON/CSV
+- B9: Creato useGovernanceData hook (adaptive polling):
+  * 5s quando tab visibile, 30s quando in background
+  * Page Visibility API: fetch immediato su ritorno visibilità
+  * Pattern simile a useDashboard ma kept locale
+- B11: Sostituito text-green-600/yellow-600/red-600 con text-status-* in admin StatBox
+- B12: Error handling in ConflictQueuePanel:
+  * toast su fetch/resolve/auto-resolve failure
+  * stato error con banner retry se fetch fallisce
+  * warning banner se data presente ma ultima fetch fallita (stale data)
+- G4: Export JSON/CSV per Audit Ledger (integrato in governance-view Audit tab):
+  * JSON: pretty-printed con tutti i campi
+  * CSV: headers [timestamp,agentId,action,gate,outcome,reversible,readableNarrative]
+  * Download client-side via Blob + URL.createObjectURL
+- Workspace views: GovernanceView ora usata al posto di ConflictQueue+Sovereign inline
+- Test: creato tests/integration/governance-ux-crud.test.ts con 36 test:
+  * G2 Red Lines CRUD: 9 test (toggle, update, delete, audit, 404, 409, no-change)
+  * G2b Axioms: 7 test (toggle, update text/priority, 404, 409, 400, viewer 403)
+  * G3 simulate_ltl: 9 test (400, accept/reject cases, viewer access, 401)
+  * G5 audit/ledger: 11 test (401, 403, filters, pagination, search, reversible)
+
+Stage Summary:
+- 9 file modificati + 3 nuovi file (governance-view, use-governance-data, audit/ledger route, governance-ux-crud test)
+- 36 nuovi test integration (tutti passing)
+- 0 regressioni (213/213 test governance-related passano)
+- 0 TypeScript errors nei file modificati
+- Vista governance ora al livello di Runs/Memory/Agents (5 tab completi vs 2 inline prima)
+- CRUD completa per Red Lines e Axioms (prima solo add)
+- Audit Ledger ora filtrabile, paginato, exportable
+- Adaptive polling su tutte le viste governance
+- Prossimo: Fase 5 (G6-G12) integrazione runtime & a11y

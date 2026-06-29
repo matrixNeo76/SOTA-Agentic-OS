@@ -100,6 +100,21 @@ export async function revokeDelegation(delegationId: string, revokeReason: strin
 
 /**
  * Verifica se un agente ha l'autorità per eseguire una data azione.
+ *
+ * C9 fix: prima il matching usava `scope.startsWith(d.scope)` che permetteva
+ * bypass pericolosi (es. delega `tool:exec` autorizzava `tool:executor`,
+ * `tool:exec_malicious`, `tool:exec_privileged`). Ora:
+ *  - Match esatto (scope === d.scope)
+ *  - Wildcard esplicita con `*` (es. `tool:exec*` → match `tool:exec`,
+ *    `tool:executor`, ma NON `tool:execute_privileged` se scritto come
+ *    `tool:exec/*` — vedi regola sotto)
+ *  - Prefisso con separatore (es. `filesystem:read:/tmp/*` → match
+ *    `filesystem:read:/tmp/file1`, `filesystem:read:/tmp/sub/file2`)
+ *  - Star globale (`*`) autorizza tutto (kept for backward compat)
+ *
+ * Non viene più fatto startsWith grezzo: il suffisso deve essere separato
+ * da un carattere non alfanumerico (`.`, `:`, `/`, `-`, `_` dopo il
+ * prefisso non viene considerato separatore se alfanumerico).
  */
 export async function checkAuthority(
   agentId: string,
@@ -110,8 +125,7 @@ export async function checkAuthority(
   })
 
   for (const d of delegations) {
-    // Match scope via prefix or exact
-    if (d.scope === scope || d.scope === '*' || scope.startsWith(d.scope)) {
+    if (matchesScope(d.scope, scope)) {
       // Check expiration
       if (d.expiresAt && d.expiresAt < new Date()) {
         continue
@@ -129,6 +143,58 @@ export async function checkAuthority(
     authorized: false,
     reason: `Nessuna delega attiva per scope "${scope}" sull'agente ${agentId}`,
   }
+}
+
+/**
+ * Pattern matching robusto per scope di delega.
+ *
+ * Regole:
+ *  1. `*` (solo star) → match qualsiasi scope
+ *  2. `pattern*` (star finale) → match se scope inizia con `pattern`
+ *     E il carattere successivo nel scope (se presente) non è alfanumerico
+ *     o underscore (prevenzione `tool:exec` → `tool:executor`)
+ *  3. `pattern/*` o `pattern:*` → match se scope inizia con `pattern` + separatore
+ *  4. Altrimenti → match esatto
+ *
+ * Esempi:
+ *  - matchesScope('tool:exec', 'tool:exec') → true
+ *  - matchesScope('tool:exec', 'tool:executor') → false (C9 fix)
+ *  - matchesScope('tool:exec', 'tool:exec_malicious') → false (C9 fix)
+ *  - matchesScope('tool:exec*', 'tool:exec') → true
+ *  - matchesScope('tool:exec*', 'tool:executor') → false (alnum after)
+ *  - matchesScope('tool:exec*', 'tool:exec:privileged') → true (separator :)
+ *  - matchesScope('tool:exec/*', 'tool:exec/privileged') → true
+ *  - matchesScope('tool:exec/*', 'tool:executor') → false
+ *  - matchesScope('fs:read:/tmp/*', 'fs:read:/tmp/file1') → true
+ *  - matchesScope('fs:read:/tmp/*', 'fs:read:/var/file1') → false
+ *  - matchesScope('*', 'anything') → true
+ */
+function matchesScope(delegationScope: string, requestedScope: string): boolean {
+  if (delegationScope === '*') return true
+  if (delegationScope === requestedScope) return true
+
+  // Star finale: `pattern*`
+  if (delegationScope.endsWith('*') && !delegationScope.endsWith('/*')) {
+    const prefix = delegationScope.slice(0, -1) // rimuove la star
+    if (!requestedScope.startsWith(prefix)) return false
+    // Il carattere successivo al prefix nel requestedScope deve essere
+    // un separatore (non alfanumerico, non underscore) o la fine della stringa.
+    // Questo previene `tool:exec*` dal matchare `tool:executor`.
+    if (requestedScope.length === prefix.length) return true // match esatto dopo strip
+    const nextChar = requestedScope[prefix.length]
+    return !/[a-zA-Z0-9_]/.test(nextChar)
+  }
+
+  // `pattern/*` o `pattern:*` → prefix + separatore + qualsiasi cosa
+  if (delegationScope.endsWith('/*') || delegationScope.endsWith(':*')) {
+    const separator = delegationScope.endsWith('/*') ? '/' : ':'
+    const prefix = delegationScope.slice(0, -2) // rimuove separator + star
+    if (!requestedScope.startsWith(prefix)) return false
+    if (requestedScope.length === prefix.length) return false // manca il separatore
+    return requestedScope[prefix.length] === separator
+  }
+
+  return false
 }
 
 export async function listDelegations(agentId?: string) {
@@ -210,8 +276,67 @@ export async function resolveApproval(
 
 /**
  * Lista gates pending per la UI.
+ *
+ * C10 fix: prima di restituire i gates pending, marca come 'expired'
+ * tutti quelli con expiresAt < now(). Questo risolve il bug per cui i gates
+ * pending rimanevano per sempre anche dopo la scadenza (l'admin doveva
+ * risolverli manualmente uno per uno).
+ *
+ * Il check è lazy (su lettura) per evitare di richiedere un cron job.
+ * Throttled a max 1 esecuzione ogni 60s per non gravare su ogni GET.
  */
+let lastExpireRun = 0
+const EXPIRE_THROTTLE_MS = 60 * 1000 // 1 minuto
+
+export async function expirePendingGates(force = false): Promise<number> {
+  const now = Date.now()
+  if (!force && now - lastExpireRun < EXPIRE_THROTTLE_MS) {
+    return 0 // throttled
+  }
+  lastExpireRun = now
+
+  const result = await db.approvalGate.updateMany({
+    where: {
+      status: 'pending',
+      expiresAt: { lt: new Date() },
+    },
+    data: {
+      status: 'expired',
+      decidedAt: new Date(),
+      decidedBy: 'system-auto-expire',
+    },
+  })
+
+  if (result.count > 0) {
+    await logAuditEntry({
+      agentId: 'system',
+      action: `Auto-expire ${result.count} gates`,
+      decision: {
+        source: 'auto-expire-job',
+        intent: 'expire over-due pending gates',
+        gate: 'hitl',
+        outcome: 'expired',
+        count: result.count,
+      },
+      readableNarrative: `Sistema: ${result.count} gate(s) di approvazione scaduti automaticamente (expiresAt < now) e marcati come 'expired'.`,
+      reversible: false,
+    })
+  }
+
+  return result.count
+}
+
+/**
+ * Reset del throttle (solo per test).
+ */
+export function __resetExpireThrottleForTests(): void {
+  lastExpireRun = 0
+}
+
 export async function listPendingGates(agentId?: string) {
+  // C10: expire lazy i gates scaduti prima di restituire la lista
+  await expirePendingGates()
+
   return db.approvalGate.findMany({
     where: {
       status: 'pending',
@@ -289,13 +414,27 @@ export async function resolveNormativeConflict(
       result: 'BLOCK: l\'azione viola una policy di livello superiore',
     })
   } else if (NORMATIVE_HIERARCHY[systemLevel] === NORMATIVE_HIERARCHY[userLevel]) {
-    // Stesso livello → tie va a safety
-    verdict = 'block'
-    axiomTrail.push({
-      step: '2_compare',
-      rule: `Stesso livello gerarchico: tie-break a favore della safety`,
-      result: 'BLOCK: conflitto allo stesso livello, precauzione',
-    })
+    // C8 fix: tie-break a favore della safety SOLO se uno dei due è SAFETY.
+    // Prima il codice bloccava sempre a parità di livello, anche per
+    // AESTHETIC vs AESTHETIC (es. "usa colore blu" vs "usa colore rosso" → BLOCK).
+    // Ora: se system è SAFETY → BLOCK (conservativo); altrimenti MODIFY
+    // (l'utente può sovrascrivere policy di livello AESTHETIC o OPERATIONAL).
+    if (systemLevel === 'SAFETY') {
+      verdict = 'block'
+      axiomTrail.push({
+        step: '2_compare',
+        rule: `Stesso livello gerarchico SAFETY: tie-break a favore della safety`,
+        result: 'BLOCK: conflitto su policy di sicurezza, precauzione',
+      })
+    } else {
+      verdict = 'modify'
+      modifiedAction = `${userInstruction} [modificato per allinearsi a policy di pari livello: ${systemPolicy}]`
+      axiomTrail.push({
+        step: '2_compare',
+        rule: `Stesso livello gerarchico ${systemLevel}: tie-break non bloccante (non SAFETY)`,
+        result: `MODIFY: azione modificata per rispettare ${systemPolicy}`,
+      })
+    }
   } else {
     // System ha priorità più bassa → l'utente può modificare
     verdict = 'modify'

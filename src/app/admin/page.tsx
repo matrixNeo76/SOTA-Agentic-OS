@@ -114,7 +114,9 @@ function RefreshButton({ onClick }: { onClick: () => void }) {
 }
 
 function StatBox({ label, value, tone }: { label: string; value: string | number; tone?: 'ok' | 'warn' | 'danger' }) {
-  const colorClass = tone === 'ok' ? 'text-green-600' : tone === 'warn' ? 'text-yellow-600' : tone === 'danger' ? 'text-red-600' : ''
+  // B11 fix: usa status tokens invece di colori hardcoded (text-green-600 ecc.)
+  // che sono illeggibili in dark mode.
+  const colorClass = tone === 'ok' ? 'text-status-ok' : tone === 'warn' ? 'text-status-warn' : tone === 'danger' ? 'text-status-danger' : ''
   return (
     <div className="border rounded p-3 text-center">
       <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>

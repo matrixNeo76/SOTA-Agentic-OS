@@ -52,10 +52,10 @@ const STATE_LABEL: Record<string, string> = {
  pending: 'in attesa',
 }
 
-const PRIORITY_LABEL: Record<number, { label: string; color: string }> = {
- 1: { label: 'Legale', color: 'bg-status-danger' },
- 2: { label: 'Operativo', color: 'bg-status-warn' },
- 3: { label: 'Efficienza', color: 'bg-status-info' },
+const PRIORITY_LABEL: Record<number, { label: string; color: string; border: string }> = {
+ 1: { label: 'Legale', color: 'bg-status-danger', border: 'border-status-danger' },
+ 2: { label: 'Operativo', color: 'bg-status-warn', border: 'border-status-warn' },
+ 3: { label: 'Efficienza', color: 'bg-status-info', border: 'border-status-info' },
 }
 
 export function LTLNormativeEditor() {
@@ -406,7 +406,7 @@ export function LTLNormativeEditor() {
 
  <div className="space-y-2 mt-3">
  {[1, 2, 3].map((p) => (
- <div key={p} className="border-l-4 pl-3 py-1" style={{ borderColor: PRIORITY_LABEL[p]?.color.replace('bg-', '') }}>
+ <div key={p} className={cn('border-l-4 pl-3 py-1', PRIORITY_LABEL[p]?.border)}>
  <div className="flex items-center gap-2 mb-1">
  <span className={cn('size-2 rounded-full', PRIORITY_LABEL[p].color)} />
  <span className="text-xs font-medium">Priorità {p} · {PRIORITY_LABEL[p].label}</span>

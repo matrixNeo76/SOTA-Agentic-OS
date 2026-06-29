@@ -7,13 +7,17 @@
  *   - Conflitti pendenti con severity
  *   - Stats aggregate (total, pending, resolved)
  *   - Azione resolve con 5 strategie
+ *
+ * B12 fix: aggiunto error handling con toast + stato error.
+ * Prima i fallimenti API erano solo console.error → utente non vedeva nulla.
  */
 
 import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Check, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, RefreshCw, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ConflictData {
   pending?: Array<{
@@ -42,14 +46,27 @@ const STRATEGIES = [
 export function ConflictQueuePanel() {
   const [data, setData] = useState<ConflictData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [resolving, setResolving] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const res = await fetch('/api/conflict-resolution').then((r) => r.json())
-      setData(res)
-    } catch (err) {
-      console.error(err)
+      const res = await fetch('/api/conflict-resolution')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const msg = body.error || `HTTP ${res.status}`
+        setError(msg)
+        toast.error(`Conflict queue: ${msg}`)
+        return
+      }
+      const json = await res.json()
+      setData(json)
+    } catch (err: any) {
+      const msg = err.message || 'Network error'
+      setError(msg)
+      toast.error(`Conflict queue: ${msg}`)
     } finally {
       setLoading(false)
     }
@@ -62,7 +79,7 @@ export function ConflictQueuePanel() {
   const resolve = async (conflictUri: string, strategy: string) => {
     setResolving(`${conflictUri}:${strategy}`)
     try {
-      await fetch('/api/conflict-resolution', {
+      const res = await fetch('/api/conflict-resolution', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -72,9 +89,16 @@ export function ConflictQueuePanel() {
           resolvedBy: 'user://admin',
         }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const msg = body.error || `HTTP ${res.status}`
+        toast.error(`Resolve failed: ${msg}`)
+        return
+      }
+      toast.success(`Conflict resolved with strategy: ${strategy}`)
       fetchData()
-    } catch (err) {
-      console.error(err)
+    } catch (err: any) {
+      toast.error(`Resolve failed: ${err.message}`)
     } finally {
       setResolving(null)
     }
@@ -83,14 +107,23 @@ export function ConflictQueuePanel() {
   const autoResolve = async () => {
     setResolving('auto')
     try {
-      await fetch('/api/conflict-resolution', {
+      const res = await fetch('/api/conflict-resolution', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'auto-resolve', strategy: 'higher-confidence' }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const msg = body.error || `HTTP ${res.status}`
+        toast.error(`Auto-resolve failed: ${msg}`)
+        return
+      }
+      const result = await res.json()
+      const count = result.resolved || result.count || 0
+      toast.success(`Auto-resolved ${count} conflict(s)`)
       fetchData()
-    } catch (err) {
-      console.error(err)
+    } catch (err: any) {
+      toast.error(`Auto-resolve failed: ${err.message}`)
     } finally {
       setResolving(null)
     }
@@ -100,6 +133,35 @@ export function ConflictQueuePanel() {
     return (
       <div className="flex items-center justify-center h-48">
         <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // B12: mostra banner di errore se la fetch fallisce
+  if (error && !data) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-status-danger" />
+              Conflict Resolution Queue
+            </h3>
+            <p className="text-xs text-muted-foreground">Failed to load conflicts</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchData}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="p-4 text-sm text-status-danger flex items-start gap-2">
+            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium">Unable to load conflict queue</div>
+              <div className="text-xs opacity-80 mt-1">{error}</div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -131,6 +193,14 @@ export function ConflictQueuePanel() {
           </Button>
         </div>
       </div>
+
+      {/* B12: warning banner se c'è un errore non bloccante (data presente ma fetch fallita) */}
+      {error && data && (
+        <div className="text-xs text-status-warn bg-status-warn/10 border border-status-warn/30 rounded-md p-2 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <span>Last refresh failed: {error}. Showing stale data.</span>
+        </div>
+      )}
 
       {/* Pending conflicts */}
       <Card>

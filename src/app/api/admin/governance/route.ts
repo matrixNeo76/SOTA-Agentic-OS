@@ -12,18 +12,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/require-admin'
 import { db } from '@/lib/db'
 import { publishAgentEvent } from '@/lib/ws-publish'
-import { logAuditEntry } from '@/lib/kernel/artificial-retainer'
+import { logAuditEntry, expirePendingGates } from '@/lib/kernel/artificial-retainer'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
 
+  // G2: redLines include anche inactive (per UI toggle); ltlRules include
+  // tutte le regole (active e inactive) per consistenza con toggle-ltl
   const [redLines, normativeRules, approvalGates, blockedActions, ltlRules] = await Promise.all([
-    db.redLine.findMany({ take: 20, orderBy: { createdAt: 'desc' } }),
-    db.normativeRule.findMany({ take: 20, orderBy: { createdAt: 'desc' } }),
+    db.redLine.findMany({ take: 50, orderBy: { createdAt: 'desc' } }),
+    db.normativeRule.findMany({ take: 50, orderBy: { createdAt: 'desc' } }),
     db.approvalGate.findMany({ where: { status: 'pending' }, take: 20, orderBy: { createdAt: 'desc' } }),
     db.blockedAction.findMany({ where: { status: 'pending' }, take: 20, orderBy: { createdAt: 'desc' } }),
-    db.lTLRule.findMany({ where: { active: true }, take: 20 }),
+    db.lTLRule.findMany({ take: 50, orderBy: { ruleId: 'asc' } }),
   ])
 
   return NextResponse.json({
@@ -242,10 +244,30 @@ export async function POST(req: NextRequest) {
   if (action === 'add-redline') {
     const { description, rationale, severity } = body
     if (!description) return NextResponse.json({ error: 'Missing description' }, { status: 400 })
+    // B4 fix: valida severity
+    const VALID_SEVERITIES = ['absolute', 'strong', 'soft']
+    if (severity && !VALID_SEVERITIES.includes(severity)) {
+      return NextResponse.json(
+        { error: `Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}` },
+        { status: 400 },
+      )
+    }
 
-    const rl = await db.redLine.create({
-      data: { description, rationale: rationale || '', severity: severity || 'strong' },
-    })
+    let rl
+    try {
+      rl = await db.redLine.create({
+        data: { description, rationale: rationale || '', severity: severity || 'strong' },
+      })
+    } catch (e: any) {
+      // B4: RedLine.description è @unique → P2002 su descrizione duplicata
+      if (e?.code === 'P2002') {
+        return NextResponse.json(
+          { error: `Red Line with description "${description}" already exists`, code: 'REDLINE_CONFLICT' },
+          { status: 409 },
+        )
+      }
+      throw e
+    }
 
     // C5: audit + WS publish
     await logAuditEntry({
@@ -280,6 +302,168 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({ created: true, redLine: rl })
+  }
+
+  if (action === 'toggle-redline') {
+    // G2: attiva/disattiva una Red Line senza eliminarla
+    const { redLineId, active } = body
+    if (!redLineId) return NextResponse.json({ error: 'Missing redLineId' }, { status: 400 })
+    if (typeof active !== 'boolean') return NextResponse.json({ error: 'active must be boolean' }, { status: 400 })
+
+    const existing = await db.redLine.findUnique({ where: { id: redLineId }, select: { id: true, active: true, description: true, severity: true } })
+    if (!existing) return NextResponse.json({ error: `Red Line not found: ${redLineId}` }, { status: 404 })
+
+    await db.redLine.update({ where: { id: redLineId }, data: { active } })
+
+    await logAuditEntry({
+      agentId: 'reflective',
+      action: `Red Line ${existing.description.slice(0, 50)} ${active ? 'activated' : 'deactivated'}`,
+      decision: {
+        source: 'admin_governance_api',
+        intent: 'toggle-redline',
+        gate: 'redline',
+        outcome: active ? 'activated' : 'deactivated',
+        toggledBy: auth.email,
+        redLineId,
+        severity: existing.severity,
+      },
+      readableNarrative: `L'admin ${auth.email} ha ${active ? 'attivato' : 'disattivato'} la Red Line "${existing.description}" (severity=${existing.severity}).`,
+      reversible: true,
+    })
+    await db.agentLog.create({
+      data: {
+        agentId: 'reflective',
+        phase: '5',
+        event: 'redline_toggled',
+        payload: JSON.stringify({ redLineId, active, toggledBy: auth.email }),
+        level: active ? 'info' : 'warn',
+      },
+    })
+    await publishAgentEvent({
+      agentId: 'reflective', phase: '5',
+      event: 'redline_toggled',
+      level: active ? 'info' : 'warn',
+      payload: { redLineId, active, toggledBy: auth.email },
+    })
+
+    return NextResponse.json({ toggled: true, redLineId, active, previousActive: existing.active })
+  }
+
+  if (action === 'update-redline') {
+    // G2: aggiorna description/rationale/severity di una Red Line
+    const { redLineId, description, rationale, severity } = body
+    if (!redLineId) return NextResponse.json({ error: 'Missing redLineId' }, { status: 400 })
+
+    const existing = await db.redLine.findUnique({ where: { id: redLineId }, select: { id: true, description: true, rationale: true, severity: true } })
+    if (!existing) return NextResponse.json({ error: `Red Line not found: ${redLineId}` }, { status: 404 })
+
+    const VALID_SEVERITIES = ['absolute', 'strong', 'soft']
+    if (severity && !VALID_SEVERITIES.includes(severity)) {
+      return NextResponse.json({ error: `Invalid severity. Must be one of: ${VALID_SEVERITIES.join(', ')}` }, { status: 400 })
+    }
+
+    const updates: Record<string, unknown> = {}
+    if (description !== undefined && description !== existing.description) {
+      // Verifica unicità della nuova description (RedLine.description è @unique)
+      const conflict = await db.redLine.findUnique({ where: { description } })
+      if (conflict && conflict.id !== redLineId) {
+        return NextResponse.json({ error: `Red Line with description "${description}" already exists`, code: 'REDLINE_CONFLICT' }, { status: 409 })
+      }
+      updates.description = description
+    }
+    if (rationale !== undefined && rationale !== existing.rationale) {
+      updates.rationale = rationale
+    }
+    if (severity !== undefined && severity !== existing.severity) {
+      updates.severity = severity
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ updated: false, reason: 'No changes' })
+    }
+
+    const updated = await db.redLine.update({ where: { id: redLineId }, data: updates })
+
+    await logAuditEntry({
+      agentId: 'reflective',
+      action: `Red Line updated: ${existing.description.slice(0, 50)}`,
+      decision: {
+        source: 'admin_governance_api',
+        intent: 'update-redline',
+        gate: 'redline',
+        outcome: 'updated',
+        updatedBy: auth.email,
+        redLineId,
+        changes: updates,
+      },
+      readableNarrative: `L'admin ${auth.email} ha aggiornato la Red Line "${existing.description}". Modifiche: ${JSON.stringify(updates)}.`,
+      reversible: true,
+    })
+    await publishAgentEvent({
+      agentId: 'reflective', phase: '5',
+      event: 'redline_updated',
+      level: 'info',
+      payload: { redLineId, changes: updates, updatedBy: auth.email },
+    })
+
+    return NextResponse.json({ updated: true, redLine: updated })
+  }
+
+  if (action === 'delete-redline') {
+    // G2: elimina fisicamente una Red Line (hard delete, non soft delete)
+    const { redLineId } = body
+    if (!redLineId) return NextResponse.json({ error: 'Missing redLineId' }, { status: 400 })
+
+    const existing = await db.redLine.findUnique({ where: { id: redLineId }, select: { id: true, description: true, severity: true } })
+    if (!existing) return NextResponse.json({ error: `Red Line not found: ${redLineId}` }, { status: 404 })
+
+    await db.redLine.delete({ where: { id: redLineId } })
+
+    await logAuditEntry({
+      agentId: 'reflective',
+      action: `Red Line deleted: ${existing.description.slice(0, 50)}`,
+      decision: {
+        source: 'admin_governance_api',
+        intent: 'delete-redline',
+        gate: 'redline',
+        outcome: 'deleted',
+        deletedBy: auth.email,
+        redLineId,
+        description: existing.description,
+      },
+      readableNarrative: `L'admin ${auth.email} ha eliminato definitivamente la Red Line "${existing.description}" (severity=${existing.severity}).`,
+      reversible: false,
+    })
+    await db.agentLog.create({
+      data: {
+        agentId: 'reflective',
+        phase: '5',
+        event: 'redline_deleted',
+        payload: JSON.stringify({ redLineId, description: existing.description, deletedBy: auth.email }),
+        level: 'warn',
+      },
+    })
+    await publishAgentEvent({
+      agentId: 'reflective', phase: '5',
+      event: 'redline_deleted',
+      level: 'warn',
+      payload: { redLineId, deletedBy: auth.email },
+    })
+
+    return NextResponse.json({ deleted: true, redLineId })
+  }
+
+  if (action === 'expire-gates') {
+    // C10: permette all'admin di forzare l'expire dei gates scaduti
+    // (normalmente avviene lazy su listPendingGates, ma questo dà controllo manuale)
+    const count = await expirePendingGates(true /* force */)
+    await publishAgentEvent({
+      agentId: 'system', phase: '9',
+      event: 'gates_expired',
+      level: count > 0 ? 'info' : 'info',
+      payload: { count, triggeredBy: auth.email },
+    })
+    return NextResponse.json({ expired: true, count, triggeredBy: auth.email })
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
