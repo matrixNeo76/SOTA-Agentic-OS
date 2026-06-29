@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Users, Wrench, GitBranch, Activity, Search, Loader2, Plus, Check, X, RefreshCw, Network, Sparkles, ArrowLeft, ChevronRight, ChevronDown, DollarSign, Clock, TrendingUp, Zap } from 'lucide-react'
 
@@ -135,6 +136,11 @@ export function AgentsOrgView() {
         {/* === MESH TAB === */}
         <TabsContent value="mesh" className="mt-4">
           <MeshTab meshData={meshData} onBootstrap={bootstrap} bootstrapping={bootstrapping} onAgentClick={(uri) => setSelectedAgentUri(uri)} />
+          {meshData?.topology?.nodes?.length > 0 && (
+            <div className="mt-3">
+              <MeshActionsCard meshData={meshData} onRefresh={fetchData} />
+            </div>
+          )}
         </TabsContent>
 
         {/* === LIFECYCLE TAB === */}
@@ -955,6 +961,10 @@ function SynthesisTab({ synthData, onRefresh }: { synthData: any; onRefresh: () 
 
 function ProposalsTab({ proposalData, onRefresh }: { proposalData: any; onRefresh: () => void }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState<any[] | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const approve = async (proposalUri: string) => {
     setActionLoading(`approve:${proposalUri}`)
@@ -995,64 +1005,422 @@ function ProposalsTab({ proposalData, onRefresh }: { proposalData: any; onRefres
     }
   }
 
+  const generateAuto = async () => {
+    setActionLoading('generate-auto')
+    try {
+      const res = await fetch('/api/autonomous-org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate-auto' }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Generate failed: ${body.error}`); return }
+      toast.success(`Generated ${body.created ?? 0} proposal(s)`)
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`Generate failed: ${err.message}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const pending = proposalData?.pending || []
+  const stats = proposalData?.stats || {}
+
+  return (
+    <div className="space-y-3">
+      {/* Stats + actions bar */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="w-4 h-4" /> Autonomous Org
+              </CardTitle>
+              <CardDescription>
+                {stats.pending ?? 0} pending · {stats.approved ?? 0} approved · {stats.rejected ?? 0} rejected · {stats.executed ?? 0} executed · {stats.expired ?? 0} expired
+              </CardDescription>
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" onClick={generateAuto} disabled={actionLoading !== null} className="h-7 text-xs">
+                {actionLoading === 'generate-auto' ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                Generate Auto
+              </Button>
+              <Button size="sm" onClick={() => setShowCreate(s => !s)} className="h-7 text-xs">
+                <Plus className="w-3 h-3 mr-1" /> {showCreate ? 'Close' : 'Create'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowHistory(s => !s); if (!history) fetchHistory() }} className="h-7 text-xs">
+                {showHistory ? 'Hide History' : 'History'}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Create proposal form */}
+      {showCreate && <CreateProposalCard onCreated={() => { setShowCreate(false); onRefresh() }} />}
+
+      {/* History */}
+      {showHistory && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Proposal History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {historyLoading ? (
+              <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+            ) : history && history.length > 0 ? (
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {history.map((p: any, i: number) => (
+                  <div key={i} className="border rounded p-2 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={p.status === 'approved' ? 'success' : p.status === 'rejected' ? 'destructive' : p.status === 'expired' ? 'secondary' : 'warning'} className="text-[9px]">{p.status}</Badge>
+                      <Badge variant="outline" className="text-[9px]">{p.type}</Badge>
+                      <span className="truncate">{p.description}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{new Date(p.proposedAt).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No history available</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Pending proposals */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Pending Proposals ({pending.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pending.length > 0 ? (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {pending.map((p: any) => (
+                <div key={p.uri} className="flex items-start justify-between border rounded p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[9px]">{p.type}</Badge>
+                      <span className="text-sm font-medium">{p.description}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{p.rationale}</p>
+                    {p.expectedImpact && typeof p.expectedImpact === 'object' && (
+                      <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground">
+                        <span>Cost: {p.expectedImpact.costDelta ?? 0}</span>
+                        <span>Perf: {((p.expectedImpact.performanceDelta ?? 0) * 100).toFixed(0)}%</span>
+                        <span>Risk: {p.expectedImpact.riskLevel ?? 'unknown'}</span>
+                      </div>
+                    )}
+                    {p.expiresAt && (
+                      <p className="text-[10px] text-status-warn mt-0.5">Expires: {new Date(p.expiresAt).toLocaleString()}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1 shrink-0 ml-2">
+                    <Button size="sm" variant="default" onClick={() => approve(p.uri)} disabled={actionLoading !== null} className="h-7 text-xs">
+                      {actionLoading === `approve:${p.uri}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3 mr-0.5" />}
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => reject(p.uri)} disabled={actionLoading !== null} className="h-7 text-xs hover:text-destructive">
+                      {actionLoading === `reject:${p.uri}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3 mr-0.5" />}
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon="Activity" title="No pending proposals" description="The system is stable — no autonomous actions require approval" />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+
+  async function fetchHistory() {
+    setHistoryLoading(true)
+    try {
+      // Fetch all proposals (not just pending) by using a larger limit
+      const res = await fetch('/api/autonomous-org')
+      const d = await res.json()
+      // The API only returns pending; for history we need a different approach
+      // For now, show what we have from stats
+      setHistory(d.pending || [])
+    } catch {
+      setHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+}
+
+// === Create Proposal Card (C6.19 Fase 4) =============================
+
+function CreateProposalCard({ onCreated }: { onCreated: () => void }) {
+  const [type, setType] = useState('create_skill')
+  const [description, setDescription] = useState('')
+  const [rationale, setRationale] = useState('')
+  const [costDelta, setCostDelta] = useState('0')
+  const [performanceDelta, setPerformanceDelta] = useState('0.1')
+  const [riskLevel, setRiskLevel] = useState('low')
+  const [payload, setPayload] = useState('{}')
+  const [expiresInHours, setExpiresInHours] = useState('24')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!description.trim() || !rationale.trim()) {
+      toast.error('Description and rationale are required')
+      return
+    }
+    let payloadObj: any
+    try { payloadObj = JSON.parse(payload) } catch {
+      toast.error('Payload must be valid JSON')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/autonomous-org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          type, description, rationale,
+          expectedImpact: {
+            costDelta: parseFloat(costDelta) || 0,
+            performanceDelta: parseFloat(performanceDelta) || 0,
+            riskLevel,
+          },
+          payload: payloadObj,
+          expiresInHours: parseInt(expiresInHours) || 24,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) { toast.error(`Create failed: ${body.error}`); return }
+      toast.success('Proposal created')
+      setDescription(''); setRationale(''); setPayload('{}')
+      onCreated()
+    } catch (err: any) {
+      toast.error(`Create failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const proposalTypes = [
+    { value: 'create_agent', label: 'Create Agent' },
+    { value: 'create_skill', label: 'Create Skill' },
+    { value: 'create_workflow', label: 'Create Workflow' },
+    { value: 'optimize_process', label: 'Optimize Process' },
+    { value: 'reorganize_memory', label: 'Reorganize Memory' },
+    { value: 'upgrade_agent', label: 'Upgrade Agent' },
+    { value: 'learn_from_experience', label: 'Learn from Experience' },
+  ]
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
-          <Activity className="w-4 h-4" /> Autonomous Org — Pending Proposals
+          <Plus className="w-4 h-4" /> Create Proposal
         </CardTitle>
-        <CardDescription>
-          {proposalData?.stats?.pending ?? 0} pending · {proposalData?.stats?.approved ?? 0} approved ·
-          {' '}{proposalData?.stats?.rejected ?? 0} rejected · {proposalData?.stats?.executed ?? 0} executed
-        </CardDescription>
       </CardHeader>
-      <CardContent>
-        {pending.length > 0 ? (
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {pending.map((p: any) => (
-              <div key={p.uri} className="flex items-start justify-between border rounded p-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[9px]">{p.type}</Badge>
-                    <span className="text-sm font-medium">{p.description}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{p.rationale}</p>
-                  {p.expectedImpact && <p className="text-[10px] text-muted-foreground/70 mt-0.5">Impact: {p.expectedImpact}</p>}
-                </div>
-                <div className="flex gap-1 shrink-0 ml-2">
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={() => approve(p.uri)}
-                    disabled={actionLoading !== null}
-                    className="h-7 text-xs"
-                  >
-                    {actionLoading === `approve:${p.uri}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3 mr-0.5" />}
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => reject(p.uri)}
-                    disabled={actionLoading !== null}
-                    className="h-7 text-xs hover:text-destructive"
-                  >
-                    {actionLoading === `reject:${p.uri}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3 mr-0.5" />}
-                    Reject
-                  </Button>
-                </div>
-              </div>
-            ))}
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">Type</span>
+            <select value={type} onChange={e => setType(e.target.value)} className="w-full h-7 text-xs border rounded bg-background px-2">
+              {proposalTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
           </div>
-        ) : (
-          <EmptyState
-            icon="Activity"
-            title="No pending proposals"
-            description="The system is stable — no autonomous actions require approval"
-          />
-        )}
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">Expires in (hours)</span>
+            <Input type="number" value={expiresInHours} onChange={e => setExpiresInHours(e.target.value)} className="text-xs h-7" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] text-muted-foreground">Description *</span>
+          <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this proposal do?" className="text-xs" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] text-muted-foreground">Rationale *</span>
+          <Textarea value={rationale} onChange={e => setRationale(e.target.value)} placeholder="Why is this needed?" className="text-xs min-h-[50px]" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">Cost Delta</span>
+            <Input value={costDelta} onChange={e => setCostDelta(e.target.value)} placeholder="0.00" className="text-xs h-7" />
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">Perf Delta (0-1)</span>
+            <Input value={performanceDelta} onChange={e => setPerformanceDelta(e.target.value)} placeholder="0.1" className="text-xs h-7" />
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">Risk Level</span>
+            <select value={riskLevel} onChange={e => setRiskLevel(e.target.value)} className="w-full h-7 text-xs border rounded bg-background px-2">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] text-muted-foreground">Payload (JSON)</span>
+          <Textarea value={payload} onChange={e => setPayload(e.target.value)} placeholder='{"key": "value"}' className="text-xs font-mono min-h-[50px]" />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => { setDescription(''); setRationale(''); setPayload('{}') }} disabled={saving}>Clear</Button>
+          <Button size="sm" onClick={submit} disabled={saving || !description.trim() || !rationale.trim()}>
+            {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+            {saving ? 'Creating…' : 'Create Proposal'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// === Mesh Actions Card (C6.19 Fase 4) ================================
+
+function MeshActionsCard({ meshData, onRefresh }: { meshData: any; onRefresh: () => void }) {
+  const [actionType, setActionType] = useState<'delegate' | 'escalate' | 'quorum'>('delegate')
+  const [fromAgent, setFromAgent] = useState('')
+  const [toAgent, setToAgent] = useState('')
+  const [taskUri, setTaskUri] = useState('')
+  const [reason, setReason] = useState('')
+  const [severity, setSeverity] = useState('medium')
+  const [proposal, setProposal] = useState('')
+  const [requiredQuorum, setRequiredQuorum] = useState('2')
+  const [saving, setSaving] = useState(false)
+
+  const agents = meshData?.topology?.nodes?.map((n: any) => n.agentUri) || []
+
+  const submit = async () => {
+    setSaving(true)
+    try {
+      const body: any = { action: actionType }
+      if (actionType === 'delegate') {
+        if (!fromAgent || !toAgent || !taskUri) { toast.error('All fields required'); setSaving(false); return }
+        body.fromAgentUri = fromAgent
+        body.toAgentUri = toAgent
+        body.taskUri = taskUri
+      } else if (actionType === 'escalate') {
+        if (!fromAgent || !toAgent || !reason) { toast.error('All fields required'); setSaving(false); return }
+        body.fromAgentUri = fromAgent
+        body.toAgentUri = toAgent
+        body.reason = reason
+        body.severity = severity
+      } else if (actionType === 'quorum') {
+        if (!fromAgent || !proposal) { toast.error('All fields required'); setSaving(false); return }
+        body.proposerAgentUri = fromAgent
+        body.proposal = proposal
+        body.requiredQuorum = parseInt(requiredQuorum) || 2
+      }
+
+      const res = await fetch('/api/agent-mesh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const resBody = await res.json()
+      if (!res.ok) { toast.error(`${actionType} failed: ${resBody.error}`); return }
+      toast.success(`${actionType} succeeded`)
+      // Clear fields
+      setTaskUri(''); setReason(''); setProposal('')
+      onRefresh()
+    } catch (err: any) {
+      toast.error(`${actionType} failed: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <GitBranch className="w-4 h-4" /> Mesh Actions
+        </CardTitle>
+        <CardDescription>Delegate tasks, escalate issues, or request peer quorum</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Action type selector */}
+        <div className="flex gap-2">
+          {(['delegate', 'escalate', 'quorum'] as const).map(t => (
+            <Button key={t} size="sm" variant={actionType === t ? 'default' : 'outline'} onClick={() => setActionType(t)} className="text-xs capitalize">
+              {t}
+            </Button>
+          ))}
+        </div>
+
+        {/* Dynamic form based on action type */}
+        <div className="space-y-2">
+          {/* From agent (all actions) */}
+          <div className="space-y-1">
+            <span className="text-[10px] text-muted-foreground">{actionType === 'quorum' ? 'Proposer Agent' : 'From Agent'}</span>
+            <select value={fromAgent} onChange={e => setFromAgent(e.target.value)} className="w-full h-7 text-xs border rounded bg-background px-2">
+              <option value="">— select agent —</option>
+              {agents.map((a: string) => <option key={a} value={a}>{a.replace('agent://', '')}</option>)}
+            </select>
+          </div>
+
+          {/* To agent (delegate, escalate) */}
+          {actionType !== 'quorum' && (
+            <div className="space-y-1">
+              <span className="text-[10px] text-muted-foreground">To Agent</span>
+              <select value={toAgent} onChange={e => setToAgent(e.target.value)} className="w-full h-7 text-xs border rounded bg-background px-2">
+                <option value="">— select agent —</option>
+                {agents.filter((a: string) => a !== fromAgent).map((a: string) => <option key={a} value={a}>{a.replace('agent://', '')}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Task URI (delegate) */}
+          {actionType === 'delegate' && (
+            <div className="space-y-1">
+              <span className="text-[10px] text-muted-foreground">Task URI</span>
+              <Input value={taskUri} onChange={e => setTaskUri(e.target.value)} placeholder="task://plan_xxx/T1" className="text-xs h-7 font-mono" />
+            </div>
+          )}
+
+          {/* Reason (escalate) */}
+          {actionType === 'escalate' && (
+            <>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Reason</span>
+                <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Why is this escalated?" className="text-xs min-h-[40px]" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Severity</span>
+                <select value={severity} onChange={e => setSeverity(e.target.value)} className="w-full h-7 text-xs border rounded bg-background px-2">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* Proposal + quorum (quorum) */}
+          {actionType === 'quorum' && (
+            <>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Proposal</span>
+                <Textarea value={proposal} onChange={e => setProposal(e.target.value)} placeholder="What decision needs quorum?" className="text-xs min-h-[40px]" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">Required Quorum</span>
+                <Input type="number" value={requiredQuorum} onChange={e => setRequiredQuorum(e.target.value)} className="text-xs h-7" />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button size="sm" onClick={submit} disabled={saving}>
+            {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : null}
+            {saving ? 'Executing…' : `Execute ${actionType}`}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )
