@@ -1,5 +1,11 @@
 /**
  * API: /api/blocked-actions (Fase 17 - Sovereign Validator)
+ *
+ * C4 fix: GET (pending/recent/stats) richiede requireAuth (lettura).
+ * POST (register/resolve) richiede requireAdmin perché:
+ *  - register può creare blocked action arbitrarie (potenziale DoS audit log)
+ *  - resolve sblocca azioni che i cancelli di sicurezza avevano bloccato
+ *    → operazione amministrativa che bypassa LTL/Taint/Normative gates.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import {
@@ -8,6 +14,7 @@ import {
   type BlockedActionInput, type ResolutionChoice,
 } from '@/lib/kernel/sovereign-translator'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -34,7 +41,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req)
+  const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
@@ -50,7 +57,7 @@ export async function POST(req: NextRequest) {
     const result = await resolveBlockedAction(
       blockedId,
       choice as ResolutionChoice,
-      resolvedBy || 'admin',
+      resolvedBy || auth.email,
       resolutionDetails
     )
     return NextResponse.json({ ok: true, ...result })

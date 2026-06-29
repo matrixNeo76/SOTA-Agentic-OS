@@ -1260,7 +1260,7 @@ function ApprovalGateRow({ gate, onResolved }: { gate: any; onResolved: () => vo
           <div className="font-medium">{gate.action || gate.id}</div>
           {gate.reason && <div className="text-muted-foreground">{gate.reason}</div>}
           <div className="text-muted-foreground mt-1">
-            Agent: {gate.agentId || '—'} · Requested: {gate.requestedAt ? new Date(gate.requestedAt).toLocaleString() : '—'}
+            Agent: {gate.agentId || '—'} · Requested: {gate.createdAt ? new Date(gate.createdAt).toLocaleString() : '—'}
           </div>
         </div>
         <Badge variant="warning">{gate.status || 'pending'}</Badge>

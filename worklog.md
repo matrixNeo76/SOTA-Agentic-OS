@@ -176,3 +176,42 @@ Stage Summary:
 - Vista governance workspace minimale: solo ConflictQueue + Sovereign, mancano LTL/Taint/Normative/Delegation/Audit
 - Confronto con Runs/Memory/Agents: governance è il CORE_AREA meno maturo
 - Prossimo: Fase 2 (C1-C5 + B1-B2) sicurezza & dati
+
+---
+Task ID: GOV-FASE2
+Agent: main
+Task: Fase 2 — Criticità sicurezza & dati (C1-C5 + B1-B2)
+
+Work Log:
+- C1: Aggiunto requireAuth (GET) + requireAdmin (POST) a /api/conflict-resolution — prima era completamente senza auth
+- C4: Cambiato requireAuth → requireAdmin per tutte le POST mutative:
+  * /api/blocked-actions (register/resolve)
+  * /api/verify (verify_event, taint_input, propagate, check_sink, evaluate_intent, add_ltl, delete_ltl, add_axiom, delete_axiom)
+    - Mantenuto requireAuth per validate_ltl e preview_fsm (read-only, usati dall'editor LTL)
+  * /api/reflect (reflect/feedback)
+  * /api/retainer (grant/revoke delegation, request/resolve approval, resolve_normative)
+- C2+C3: Fix data-store.ts:
+  * Letto .items invece di .actions (API restituisce { items: [...] })
+  * Cambiato ?action=all (invalid) → ?action=recent
+  → SovereignView ora mostra effettivamente le blocked actions
+- C5: Aggiunto AuditLedgerEntry + AgentLog + publishAgentEvent a tutte le POST di /api/admin/governance:
+  * resolve-blocked, resolve-approval, toggle-ltl, add-redline
+  * Aggiunto anche 409 Conflict su azioni già risolte (defense in depth)
+  * Esportata logAuditEntry come pubblica in artificial-retainer.ts (era privata)
+- B1: Allineato gate.requestedAt → gate.createdAt in admin UI (il campo requestedAt non esiste nello schema)
+- B2: Rimosso codice morto in validateLTLFormula (check su LTLMonitor.detectPattern inesistente)
+- Test: creato tests/integration/governance-auth-audit.test.ts con 36 test:
+  * Auth: 22 test su 5 API routes (401 senza session, 403 per viewer, 200 per admin/read-only)
+  * Audit: 7 test su AuditLedgerEntry + AgentLog writing (incluso no-audit-on-failure)
+  * Data-store: 3 test su field mapping (.items + ?action=recent + ?action=all invalid)
+  * validateLTLFormula: 3 test su pattern detection (non ritorna più 'unknown')
+  * Defense in depth: 2 test su admin governance API auth
+
+Stage Summary:
+- 7 file modificati: 5 API routes + data-store + admin UI + ltl-monitor + artificial-retainer
+- 36 nuovi test integration (tutti passing)
+- 0 regressioni (108/108 test governance-related passano, 1 preesistente failure in conflict-resolution.test.ts riguardante reason text — non toccato in questa fase)
+- 0 TypeScript errors nei file modificati
+- SovereignView finalmente funziona (prima era sempre vuota per via di C2/C3)
+- Tutte le operazioni admin governance ora sono auditate (prima erano invisibili)
+- Prossimo: Fase 3 (C6-C10 + B3-B8) bug logici & UI

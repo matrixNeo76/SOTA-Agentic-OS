@@ -360,9 +360,13 @@ export async function listNormativeResolutions(limit = 20) {
 // =====================================================
 
 /**
- * Registra una voce nel registro di delega comprensibile all'umano.
+ * Registra una voce nel registro di audit comprensibile all'umano.
+ *
+ * C5: esposta come pubblica per permettere all'admin governance API
+ * di loggare le operazioni di resolve-blocked, resolve-approval, toggle-ltl,
+ * add-redline. Prima era privata e l'admin API non loggava nulla.
  */
-async function logAuditEntry(params: {
+export async function logAuditEntry(params: {
   agentId: string
   action: string
   decision: Record<string, unknown>

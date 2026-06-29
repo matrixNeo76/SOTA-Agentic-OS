@@ -185,9 +185,11 @@ export const useDataStore = create<DataState>((set, get) => ({
     if (!force && s.blockedLastFetch > 0 && isFresh(s.blockedLastFetch, TTL.blocked)) return { pending: s.blockedPending, recent: s.blockedRecent }
     if (s.blockedLoading) { await new Promise(r => setTimeout(r, 100)); return { pending: get().blockedPending, recent: get().blockedRecent } }
     set({ blockedLoading: true })
+    // C2/C3 fix: API returns { items: [...] } (not .actions), and
+    // 'all' is not a valid action — use 'recent' which returns last 30.
     const [p, a] = await Promise.all([
       safeFetch('/api/blocked-actions?action=pending', '/api/blocked-actions', 'blocked actions'),
-      safeFetch('/api/blocked-actions?action=all', '/api/blocked-actions', 'blocked actions'),
+      safeFetch('/api/blocked-actions?action=recent', '/api/blocked-actions', 'blocked actions'),
     ])
     if ((p && !p.ok) || (a && !a.ok)) {
       if (p) await handleFetchError(p, '/api/blocked-actions', 'blocked actions')
@@ -196,8 +198,8 @@ export const useDataStore = create<DataState>((set, get) => ({
       return { pending: s.blockedPending, recent: s.blockedRecent }
     }
     try {
-      const pending = p ? ((await p.json()).actions || []) : []
-      const all = a ? ((await a.json()).actions || []) : []
+      const pending = p ? ((await p.json()).items || []) : []
+      const all = a ? ((await a.json()).items || []) : []
       set({ blockedPending: pending, blockedRecent: all, blockedLastFetch: Date.now(), blockedLoading: false })
       return { pending, recent: all }
     } catch (err) {

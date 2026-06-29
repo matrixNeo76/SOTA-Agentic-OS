@@ -1,16 +1,26 @@
 /**
- * GET /api/conflict-resolution — pending conflicts + stats
- * POST /api/conflict-resolution — create claim or resolve conflict
+ * GET /api/conflict-resolution — pending conflicts + stats (requireAuth)
+ * POST /api/conflict-resolution — create claim or resolve conflict (requireAdmin)
+ *
+ * C1 fix: prima questa route era completamente senza auth → chiunque poteva
+ * leggere conflitti, creare claim malevoli, risolvere conflitti bypassando
+ * la gerarchia normative. Ora GET richiede sessione valida, POST richiede
+ * ruolo admin/operator.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import {
   listPendingConflicts, resolveConflict, autoResolveConflicts,
   createClaimAndDetectConflicts, conflictResolutionStats,
 } from '@/lib/conflict-resolution/engine'
 import { createProvenance } from '@/lib/governance'
+import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
+
   const [pending, stats] = await Promise.all([
     listPendingConflicts(),
     conflictResolutionStats(),
@@ -18,13 +28,16 @@ export async function GET() {
   return NextResponse.json({ pending, stats })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { action } = body
     const provenance = body.provenance || createProvenance({
-      agent: 'agent://api',
-      source: 'system-event',
+      agent: `user://${auth.email}`,
+      source: 'human-approval',
       confidence: 1.0,
     })
 

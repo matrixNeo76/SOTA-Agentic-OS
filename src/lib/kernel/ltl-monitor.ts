@@ -713,9 +713,9 @@ export function validateLTLFormula(formula: string): { valid: boolean; error?: s
     if (!fsm) {
       return { valid: false, error: 'Pattern LTL non supportato' }
     }
-    const pattern = (LTLMonitor.getInstance() as any).detectPattern
-      ? 'unknown'
-      : detectPatternExternal(ast)
+    // B2 fix: rimosso check morto su LTLMonitor.detectPattern (metodo inesistente).
+    // Si usa direttamente detectPatternExternal(ast) che è l'implementazione reale.
+    const pattern = detectPatternExternal(ast)
     return { valid: true, pattern }
   } catch (e: any) {
     return { valid: false, error: e.message }
