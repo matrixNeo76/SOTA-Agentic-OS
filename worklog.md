@@ -154,3 +154,25 @@ Numeri finali progetto completo:
 - 49 endpoint API totali (36 preesistenti + 13 nuovi)
 - 0 TypeScript errors nei moduli nuovi
 - 0 dipendenze native aggiunte
+
+---
+Task ID: GOV-FASE1
+Agent: main
+Task: Fase 1 — Audit & Gap Analysis modulo Trust & Governance
+
+Work Log:
+- Mappato modulo governance: 8 componenti UI, 7 API routes, 7 lib/kernel files, 15 modelli Prisma
+- Verificato allineamento schema SQLite/Postgres (69/69 modelli OK, check-schema-sync passing)
+- Analizzati test esistenti: 4 file unit (ltl-monitor, taint, normative, conflict-resolution) — mancano test per artificial-retainer, sovereign-translator, admin governance API
+- Identificati 10 bug critici (C1-C10), 12 bug medi (B1-B12), 12 gap funzionali (G1-G12)
+- Compilato report completo in docs/TRUST-GOVERNANCE-FASE1-AUDIT.md con piano di intervento in 4 fasi
+
+Stage Summary:
+- C1 (CRITICO): /api/conflict-resolution senza auth → bypass totale governance
+- C2/C3 (CRITICO): data-store legge .actions ma API restituisce .items + chiama ?action=all inesistente → SovereignView sempre vuota
+- C4 (CRITICO): verify/reflect/retainer/blocked-actions usano requireAuth invece di requireAdmin per operazioni mutative (add_ltl, grant_delegation, resolve_blocked...)
+- C5 (CRITICO): admin governance API non scrive in AuditLedger né pubblica WS events
+- C6-C10: bug logici (borderColor invalido, evaluateIntent <= vs <, tie-break errato, checkAuthority pattern weak, no auto-expire gates)
+- Vista governance workspace minimale: solo ConflictQueue + Sovereign, mancano LTL/Taint/Normative/Delegation/Audit
+- Confronto con Runs/Memory/Agents: governance è il CORE_AREA meno maturo
+- Prossimo: Fase 2 (C1-C5 + B1-B2) sicurezza & dati
