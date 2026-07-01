@@ -411,11 +411,17 @@ export async function extractDocument(params: {
           createdByAgent: params.provenance.createdByAgent,
         })
         graphEdgesCreated++
-      } catch {}
+      } catch (e: any) {
+        // B6: log instead of silent swallow
+        console.debug(`[extractor] Edge MENTIONS create failed for ${claimUri}:`, e?.message)
+      }
 
       // Pubblica ClaimCreated event (Fase 2.8 conflict resolution input)
       await publishClaimCreated(claimUri, `${entity.type} ${entity.name}`, entity.confidence, params.provenance)
-    } catch {}
+    } catch (e: any) {
+      // B6: log instead of silent swallow
+      console.debug(`[extractor] Claim node create failed for ${entity.name}:`, e?.message)
+    }
   }
 
   // Edges per relazioni
@@ -431,7 +437,10 @@ export async function extractDocument(params: {
         properties: { confidence: rel.confidence, evidence: rel.evidence },
       })
       graphEdgesCreated++
-    } catch {}
+    } catch (e: any) {
+      // B6: log instead of silent swallow
+      console.debug(`[extractor] Edge ${rel.relationType} create failed for ${rel.fromEntity}->${rel.toEntity}:`, e?.message)
+    }
   }
 
   // 5. Embeddings per chunk (per GraphRAG di Fase 1.4)

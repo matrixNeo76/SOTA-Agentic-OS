@@ -68,7 +68,14 @@ export function Phase1() {
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refreshAll() }, [])
+ useEffect(() => {
+   void refreshAll()
+   // B7: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refreshAll()
+   }, 30_000) // 30s when visible
+   return () => clearInterval(interval)
+ }, [])
 
  const addEpisode = async () => {
  if (!newObs.trim()) return
@@ -371,7 +378,7 @@ export function Phase1() {
  <MiniStat label="Load" value={`${(sensoriumData.systemLoad * 100).toFixed(0)}%`} />
  </div>
  )}
- <pre className="text-[11px] font-mono bg-zinc-950 text-zinc-100 rounded-md p-3 overflow-auto max-h-96">
+ <pre className="text-[11px] font-mono bg-muted text-foreground rounded-md p-3 overflow-auto max-h-96 border">
 {sensoriumXml || '// clicca "Nuovo Ciclo" per generare'}
  </pre>
  </CardContent>

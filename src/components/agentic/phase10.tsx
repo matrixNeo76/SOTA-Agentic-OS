@@ -41,7 +41,14 @@ export function Phase10() {
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refresh() }, [])
+ useEffect(() => {
+   void refresh()
+   // B7: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000) // 30s when visible
+   return () => clearInterval(interval)
+ }, [])
 
  const runCall = async () => {
  let ctx: unknown

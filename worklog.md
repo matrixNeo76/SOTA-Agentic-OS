@@ -337,3 +337,35 @@ Stage Summary:
 - Audit Ledger ora filtrabile, paginato, exportable
 - Adaptive polling su tutte le viste governance
 - Prossimo: Fase 5 (G6-G12) integrazione runtime & a11y
+
+---
+Task ID: MEM-DOMAIN-FASE3
+Agent: main
+Task: Fase 3 — Bug fix & consistency (B3, B6, B7 + unit tests)
+
+Work Log:
+- B3: Sostituito bg-zinc-950 text-zinc-100 hardcoded con bg-muted text-foreground border in phase1.tsx (XML terminal viewer era illeggibile in light mode)
+- B6: Aggiunto debug logging (console.debug) ai 3 silent catch blocks in extractor.ts:
+  * Edge MENTIONS create failed → log claimUri
+  * Claim node create failed → log entity name
+  * Edge relation create failed → log from→to + relationType
+- B7: Integrato adaptive polling (30s + Page Visibility API) in phase1/6/10:
+  * setInterval 30s con check document.hidden
+  * Fetch solo quando tab visibile (risparmio risorse)
+  * Cleanup interval on unmount
+- B5: Documentato come known issue (richiede refactoring architetturale per consolidare 3 storage paths)
+- Test: 12 nuovi unit test in tests/unit/memory-domain-core.test.ts:
+  * ns-mem: 4 test (recordEpisode, recentEpisodes, memoryStats, semanticSearch)
+  * context-engineering: 4 test (recordToolCall, contextStats, assembleWorkingContext, searchContextHistory con cosine normalizzato)
+  * grounded-inference: 4 test (encapsulatedCall, groundingStats, listSessions, sandbox no-leak C1)
+
+Stage Summary:
+- 5 file modificati + 1 nuovo test file
+- 12 nuovi unit test (tutti passing)
+- 0 regressioni (129/129 test memory domain passano)
+- 0 TypeScript errors nei file modificati
+- Hardcoded color eliminato (dark mode leggibile)
+- Silent catch ora loggano a debug level
+- Phase 1/6/10 ora auto-refreshano ogni 30s quando visibili
+- 3 moduli core (ns-mem, context-engineering, grounded-inference) ora hanno test coverage
+- Modulo Memory Domain COMPLETATO (Fasi 1-3)
