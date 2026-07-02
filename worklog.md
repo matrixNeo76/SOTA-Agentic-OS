@@ -369,3 +369,27 @@ Stage Summary:
 - Phase 1/6/10 ora auto-refreshano ogni 30s quando visibili
 - 3 moduli core (ns-mem, context-engineering, grounded-inference) ora hanno test coverage
 - Modulo Memory Domain COMPLETATO (Fasi 1-3)
+
+---
+Task ID: PLAN-DOMAIN-FASE1
+Agent: main
+Task: Fase 1 — Audit & Gap Analysis modulo Plan Domain (Advanced/Internals)
+
+Work Log:
+- Mappato modulo Plan Domain: 4 componenti UI, 6 API routes, 6 lib files, 11 modelli Prisma
+- Identificati 3 bug critici (C1-C3), 7 bug medi (B1-B7), 7 gap funzionali (G1-G7)
+- Compilato report completo in docs/PLAN-DOMAIN-FASE1-AUDIT.md con piano di intervento in 3 fasi
+
+Stage Summary:
+- C1 (CRITICO): compiled-ai.ts usa new Function() per eseguire codice LLM → RCE (peggio del Memory Domain perché designed-in execution)
+- C2: /api/evaluation senza auth (già identificato in Insights, verificare se fixato)
+- C3: LLM JSON parsing fragile in /api/plan e executor.ts (stesso pattern del console bug)
+- B1: phase12 zero error handling (no try/catch, no toast.error)
+- B2: phase7 JSON.parse in render senza try/catch → crash su dati malformati
+- B3: semanticMatch dead code in dominator-tree.ts
+- B4: lean4-agent loose includes check (bypassable)
+- B5: hardcoded colors in phase2.tsx (bg-gray-400, bg-zinc-950)
+- G1: no adaptive polling in phase2/7/12
+- G2: zero a11y in tutti i 3 componenti
+- G3: zero unit test per 5 moduli core (scheduler, compiled-ai, dominator-tree, lean4-agent, agent-objective)
+- Prossimo: Fase 2 (C1-C3 + B1-B2) sicurezza & robustezza
