@@ -54,7 +54,14 @@ export function Phase2() {
  setArtifacts(compR.artifacts || [])
  }
 
- useEffect(() => { refreshAll() }, [])
+ useEffect(() => {
+   void refreshAll()
+   // G1: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refreshAll()
+   }, 30_000) // 30s when visible
+   return () => clearInterval(interval)
+ }, [])
 
  const generatePlan = async () => {
  setGenerating(true)
@@ -156,7 +163,7 @@ export function Phase2() {
  <div key={t.taskId} className="text-xs border rounded-md p-2.5">
  <div className="flex items-center gap-2 mb-1">
  <Badge variant="secondary" className="font-mono">{t.taskId}</Badge>
- <span className={cn('size-2 rounded-full', AGENT_COLORS[t.agentId] || 'bg-gray-400')} />
+ <span className={cn('size-2 rounded-full', AGENT_COLORS[t.agentId] || 'bg-muted-foreground/40')} />
  <span className="font-mono text-[10px] text-muted-foreground">{t.agentId}</span>
  </div>
  <p className="text-xs">{t.description}</p>
@@ -191,7 +198,7 @@ export function Phase2() {
  const task = plan.tasks.find((t) => t.taskId === tid)
  return (
  <Badge key={tid} variant="secondary" className="text-[10px]">
- <span className={cn('size-1.5 rounded-full mr-1', AGENT_COLORS[task?.agentId || ''] || 'bg-gray-400')} />
+ <span className={cn('size-1.5 rounded-full mr-1', AGENT_COLORS[task?.agentId || ''] || 'bg-muted-foreground/40')} />
  {tid}
  </Badge>
  )
@@ -292,7 +299,7 @@ export function Phase2() {
  <CardContent className="space-y-3">
  <div>
  <div className="text-xs font-mono mb-1 text-muted-foreground">Codice generato:</div>
- <pre className="text-[11px] font-mono bg-zinc-950 text-zinc-100 rounded-md p-3 overflow-auto">
+ <pre className="text-[11px] font-mono bg-muted text-foreground rounded-md p-3 overflow-auto border">
 {`(input) => {
 ${lastResult.code.split('\n').map((l: string) => ' ' + l).join('\n')}
 }`}

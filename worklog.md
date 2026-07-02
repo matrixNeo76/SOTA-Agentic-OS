@@ -441,3 +441,45 @@ Stage Summary:
 - phase12 ora ha error handling completo
 - phase7 non crasha più su JSON malformato
 - Prossimo: Fase 3 (B3-B7, G1) bug fix & consistency
+
+---
+Task ID: PLAN-DOMAIN-FASE3
+Agent: main
+Task: Fase 3 — Bug fix & consistency (B3-B7, G1 + unit tests)
+
+Work Log:
+- B3: Rimossa semanticMatch dead code da dominator-tree.ts (funzione esportata ma mai chiamata da validateTrace)
+- B4: Fix loose includes check in lean4-agent.ts → regex strict matching
+  * PRIMA: p.includes('completed') matchava anche 'not-completed' e 'incomplete'
+  * ORA: new RegExp(`task\\.T1\\.status\\s*=\\s*['"]completed['"]`) — strict equality
+- B5: Sostituiti 3 hardcoded colors in phase2.tsx:
+  * bg-gray-400 → bg-muted-foreground/40 (2 istanze)
+  * bg-zinc-950 text-zinc-100 → bg-muted text-foreground border (code preview)
+- B6: Aggiunto null guard a stats.avgCoverage in phase7.tsx
+  * PRIMA: stats.avgCoverage >= 0.7 poteva throware TypeError su null/undefined
+  * ORA: (stats.avgCoverage || 0) >= 0.7
+- B7: Batch persistPlan con nested create in scheduler.ts
+  * PRIMA: N+1 loop con db.planTask.create per ogni task
+  * ORA: tasks: { create: [...] } in una singola query
+- G1: Integrato adaptive polling (30s + Page Visibility API) in phase2/7/12
+  * setInterval 30s con check document.hidden
+  * Fetch solo quando tab visibile
+  * Cleanup interval on unmount
+- Test: 29 nuovi unit test in tests/unit/plan-domain-core.test.ts:
+  * scheduler: 8 test (validatePlan valid/invalid/cyclic/missing, topologicalBatches linear/parallel/single)
+  * compiled-ai: 13 test (checkSafety blocks, checkSyntax, checkExecution sandbox isolation, checkAccuracy, BUILTIN_TEMPLATES)
+  * dominator-tree: 4 test (captureTrace, dominatorStats, listTraces, B3 semanticMatch removed)
+  * B4 regex: 4 test (match completed, NOT match not-completed/incomplete, handles spaces)
+
+Stage Summary:
+- 7 file modificati + 1 nuovo test file
+- 29 nuovi unit test (tutti passing)
+- 0 TypeScript errors nei file modificati
+- Dead code rimosso (semanticMatch 30 LOC)
+- Postcondition matching ora strict (regex invece di loose includes)
+- Hardcoded colors eliminati (dark mode leggibile)
+- Null guard previene crash su dati mancanti
+- persistPlan ora usa nested create (1 query invece di N+1)
+- Phase 2/7/12 ora auto-refreshano ogni 30s quando visibili
+- 3 moduli core (scheduler, compiled-ai, dominator-tree) ora hanno test coverage
+- Modulo Plan Domain COMPLETATO (Fasi 1-3)

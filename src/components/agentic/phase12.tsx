@@ -57,7 +57,14 @@ export function Phase12() {
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refresh() }, [])
+ useEffect(() => {
+   void refresh()
+   // G1: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000) // 30s when visible
+   return () => clearInterval(interval)
+ }, [])
 
  const loadTree = async (treeId: string) => {
  try {

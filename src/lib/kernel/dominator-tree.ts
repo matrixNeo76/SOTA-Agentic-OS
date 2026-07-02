@@ -332,38 +332,6 @@ export async function validateTrace(
 }
 
 /**
- * Matching semantico sub-sequenziale via LLM.
- * Quando una traccia devia dal PTA ma potrebbe essere semanticamente equivalente
- * (es. API risponde con formato diverso ma contenuto uguale), chiedi all'LLM.
- */
-export async function semanticMatch(
-  observedState: DiscreteState,
-  expectedState: DiscreteState
-): Promise<{ equivalent: boolean; confidence: number; reason: string }> {
-  // Match esatto: skip LLM
-  if (observedState === expectedState) {
-    return { equivalent: true, confidence: 1.0, reason: 'Match esatto' }
-  }
-
-  // Try LLM semantic comparison
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'You are a semantic equivalence checker. Compare two states and determine if they are semantically equivalent. Respond with JSON: {"equivalent": true/false, "confidence": 0.0-1.0, "reason": "explanation"}' },
-        { role: 'user', content: `Observed state: "${observedState}"\nExpected state: "${expectedState}"\n\nAre these semantically equivalent?` },
-      ],
-    })
-    const output = completion.choices[0]?.message?.content || ''
-    const parsed = JSON.parse(output)
-    return { equivalent: !!parsed.equivalent, confidence: parsed.confidence || 0.5, reason: parsed.reason || 'LLM semantic match' }
-  } catch {
-    return { equivalent: false, confidence: 0.0, reason: 'LLM unavailable, exact match only' }
-  }
-}
-
-/**
  * Statistiche per dashboard.
  */
 export async function dominatorStats() {

@@ -137,6 +137,7 @@ export async function persistPlan(spec: AgentPlanSpec): Promise<string> {
   if (!validation.valid) {
     throw new Error(`Piano non valido: ${validation.errors.join(', ')}`)
   }
+  // B7 FIX: batch task creation con nested create invece di N+1 loop
   const plan = await db.agentPlan.create({
     data: {
       taskGoal: spec.goal,
@@ -144,20 +145,17 @@ export async function persistPlan(spec: AgentPlanSpec): Promise<string> {
       dagJson: JSON.stringify(topologicalBatches(spec.tasks)),
       status: 'scheduled',
       agentCount: new Set(spec.tasks.map((t) => t.agentId)).size,
+      tasks: {
+        create: spec.tasks.map((t) => ({
+          taskId: t.taskId,
+          agentId: t.agentId,
+          description: t.description,
+          dependencies: JSON.stringify(t.dependencies),
+          status: 'ready',
+        })),
+      },
     },
   })
-  for (const t of spec.tasks) {
-    await db.planTask.create({
-      data: {
-        planId: plan.id,
-        taskId: t.taskId,
-        agentId: t.agentId,
-        description: t.description,
-        dependencies: JSON.stringify(t.dependencies),
-        status: 'ready',
-      },
-    })
-  }
   return plan.id
 }
 

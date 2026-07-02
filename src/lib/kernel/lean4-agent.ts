@@ -194,7 +194,11 @@ export async function verifyWorkflow(planId: string): Promise<{
       }
       const depPost: string[] = JSON.parse(depContract.postconditions)
       const expectedPost = `task.${dep}.status = 'completed'`
-      if (!depPost.some((p) => p.includes(`task.${dep}.status`) && p.includes('completed'))) {
+      // B4 FIX: use regex instead of loose includes to avoid false positives
+      // PRIMA: p.includes('completed') matchava anche 'not-completed' o 'incomplete'
+      // ORA: regex che verifica status = 'completed' con eventuali spazi
+      const completedRegex = new RegExp(`task\\.${dep}\\.status\\s*=\\s*['"]completed['"]`)
+      if (!depPost.some((p) => completedRegex.test(p))) {
         errors.push(`Closure fallita: ${dep} non garantisce '${expectedPost}'`)
       }
     }

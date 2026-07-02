@@ -65,7 +65,14 @@ export function Phase7() {
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refresh() }, [workflowId])
+ useEffect(() => {
+   void refresh()
+   // G1: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000) // 30s when visible
+   return () => clearInterval(interval)
+ }, [workflowId])
 
  const capture = async () => {
  const states = statesInput.split(',').map((s) => s.trim()).filter(Boolean)
@@ -129,7 +136,7 @@ export function Phase7() {
  <StatCard label="Tracce catturate" value={stats.traces} />
  <StatCard label="PTA costruiti" value={stats.ptas} />
  <StatCard label="Validazioni" value={stats.validations} />
- <StatCard label="Avg coverage" value={(stats.avgCoverage || 0).toFixed(2)} highlight={stats.avgCoverage >= 0.7} />
+ <StatCard label="Avg coverage" value={(stats.avgCoverage || 0).toFixed(2)} highlight={(stats.avgCoverage || 0) >= 0.7} />
  </div>
  )}
 
