@@ -483,3 +483,25 @@ Stage Summary:
 - Phase 2/7/12 ora auto-refreshano ogni 30s quando visibili
 - 3 moduli core (scheduler, compiled-ai, dominator-tree) ora hanno test coverage
 - Modulo Plan Domain COMPLETATO (Fasi 1-3)
+
+---
+Task ID: VERIFY-DOMAIN-FASE1
+Agent: main
+Task: Fase 1 — Audit & Gap Analysis modulo Verify Domain (Advanced/Internals)
+
+Work Log:
+- Mappato modulo Verify Domain: 4 componenti UI, 5 API routes, 4 lib files chiave, 13 modelli Prisma
+- Verificati fix precedenti: Phase 4 (Governance C6/B8 ✅), Phase 7 (Plan Domain B2/B6/G1 ✅)
+- Identificati 6 bug critici (C1-C6), 12 bug medi (B1-B12), 6 gap funzionali (G1-G6)
+- Compilato report completo in docs/VERIFY-DOMAIN-FASE1-AUDIT.md con piano di intervento in 3 fasi
+
+Stage Summary:
+- C1: /api/esr POST senza requireAdmin → qualsiasi utente può forgiare quorum verdicts
+- C2: /api/lean POST mutative senza requireAdmin → auto_contracts fa deleteMany destructive
+- C3: voteQuorum permette voti duplicati (no unique constraint, no code check)
+- C4: voteQuorum race condition (read-then-write invece di atomic increment)
+- C5: leanEvolve non applica il rewrite al planJson (feature è no-op)
+- C6: zero audit trail per operazioni Phase 13 (record_belief, vote_quorum, etc.)
+- Phase 13 (esr-quorum.ts) ha 10 bug identificati — NEW territory mai auditato
+- Phase 8 (lean4-agent.ts) ha 6 JSON.parse senza try/catch
+- Prossimo: Fase 2 (C1-C6 + B3) sicurezza & data integrity
