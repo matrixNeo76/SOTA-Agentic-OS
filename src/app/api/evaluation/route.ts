@@ -1,16 +1,26 @@
 /**
- * GET /api/evaluation — stats + benchmarks list
- * POST /api/evaluation — register benchmark or run evaluation
+ * GET /api/evaluation — stats + benchmarks list (requireAuth)
+ * POST /api/evaluation — register benchmark or run evaluation (requireAdmin)
+ *
+ * C2 FIX: prima questa route era completamente senza auth → chiunque poteva
+ * registrare benchmark malevoli, run evaluation con taskResults arbitrari,
+ * seed defaults (sovrascrive benchmark di sistema).
+ * Ora GET richiede sessione valida, POST richiede ruolo admin/operator.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import {
   registerBenchmark, listBenchmarks, runEvaluation,
   getAgentEvaluations, evaluationStats, seedDefaultBenchmarks,
-  evaluationProvenance,
+  evaluationProvenance, type TaskResult,
 } from '@/lib/evaluation/runner'
+import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth.response
+
   const [stats, benchmarks] = await Promise.all([
     evaluationStats(),
     listBenchmarks(),
@@ -18,7 +28,10 @@ export async function GET() {
   return NextResponse.json({ stats, benchmarks })
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { action } = body
@@ -38,7 +51,35 @@ export async function POST(req: Request) {
       if (!agentUri || !benchmarkUri || !taskResults) {
         return NextResponse.json({ error: 'Missing agentUri, benchmarkUri, or taskResults' }, { status: 400 })
       }
-      const result = await runEvaluation({ agentUri, benchmarkUri, taskResults, notes, provenance })
+      // C5 fix: valida taskResults PRIMA di existence check (B6)
+      if (!Array.isArray(taskResults)) {
+        return NextResponse.json({ error: 'taskResults must be an array' }, { status: 400 })
+      }
+      if (taskResults.length === 0) {
+        return NextResponse.json({ error: 'taskResults cannot be empty' }, { status: 400 })
+      }
+      if (taskResults.length > 1000) {
+        return NextResponse.json({ error: 'taskResults too large: max 1000 entries' }, { status: 400 })
+      }
+      for (let i = 0; i < taskResults.length; i++) {
+        const tr = taskResults[i]
+        if (!tr || typeof tr !== 'object') {
+          return NextResponse.json({ error: `taskResults[${i}] must be an object` }, { status: 400 })
+        }
+        if (!tr.taskId || typeof tr.taskId !== 'string') {
+          return NextResponse.json({ error: `taskResults[${i}].taskId is required (string)` }, { status: 400 })
+        }
+        if (typeof tr.success !== 'boolean') {
+          return NextResponse.json({ error: `taskResults[${i}].success must be boolean` }, { status: 400 })
+        }
+        if (typeof tr.durationMs !== 'number' || tr.durationMs < 0 || tr.durationMs > 3_600_000) {
+          return NextResponse.json({ error: `taskResults[${i}].durationMs must be a number 0-3600000` }, { status: 400 })
+        }
+        if (typeof tr.cost !== 'number' || tr.cost < 0 || tr.cost > 1000) {
+          return NextResponse.json({ error: `taskResults[${i}].cost must be a number 0-1000` }, { status: 400 })
+        }
+      }
+      const result = await runEvaluation({ agentUri, benchmarkUri, taskResults: taskResults as TaskResult[], notes, provenance })
       return NextResponse.json(result)
     }
 

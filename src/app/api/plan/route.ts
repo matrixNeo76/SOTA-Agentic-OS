@@ -8,6 +8,7 @@ import { validatePlan, persistPlan, topologicalBatches } from '@/lib/kernel/sche
 import { db } from '@/lib/db'
 import ZAI from 'z-ai-web-dev-sdk'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { parseLlmJson } from '@/lib/llm-client/parse-json'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -56,12 +57,17 @@ Regole:
         ],
       })
       const raw = completion.choices[0].message.content || ''
-      // extract JSON
-      const jsonMatch = raw.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        return NextResponse.json({ ok: false, error: 'LLM non ha prodotto JSON', raw }, { status: 500 })
+      // C3 FIX: usa parseLlmJson helper (strip markdown + balanced extraction + recovery)
+      const fallbackPlan = {
+        goal,
+        tasks: [
+          { taskId: 'T1', agentId: 'orchestrator', description: `Analyze: ${goal.slice(0, 100)}`, dependencies: [] },
+          { taskId: 'T2', agentId: 'curator', description: 'Gather context', dependencies: ['T1'] },
+          { taskId: 'T3', agentId: 'controller', description: 'Process information', dependencies: ['T2'] },
+          { taskId: 'T4', agentId: 'reflective', description: 'Synthesize answer', dependencies: ['T3'] },
+        ],
       }
-      const plan = JSON.parse(jsonMatch[0])
+      const plan = parseLlmJson(raw, fallbackPlan)
       const validation = validatePlan(plan)
       if (!validation.valid) {
         return NextResponse.json({ ok: false, error: 'Piano non valido', errors: validation.errors, plan }, { status: 400 })

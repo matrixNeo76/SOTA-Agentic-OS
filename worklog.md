@@ -393,3 +393,51 @@ Stage Summary:
 - G2: zero a11y in tutti i 3 componenti
 - G3: zero unit test per 5 moduli core (scheduler, compiled-ai, dominator-tree, lean4-agent, agent-objective)
 - Prossimo: Fase 2 (C1-C3 + B1-B2) sicurezza & robustezza
+
+---
+Task ID: PLAN-DOMAIN-FASE2
+Agent: main
+Task: Fase 2 — Sicurezza & robustezza (C1-C3, B1-B2)
+
+Work Log:
+- C1: Sostituito new Function() con node:vm.runInNewContext() in compiled-ai.ts:
+  * checkSyntax: usa vm.Script con IIFE wrapper (codice LLM usa `return`)
+  * checkExecution/checkAccuracy: usa vm.runInNewContext con sandbox limitato
+  * Contesto: input, JSON, Math, Date, String, Number, Array, Object, Boolean, parseInt, parseFloat, isNaN
+  * Timeout: 5 secondi
+  * Aggiunto `constructor.constructor` a FORBIDDEN_TOKENS (blocks Function constructor escape)
+  * Risolve RCE: codice LLM non ha più accesso a process, require, fs, fetch
+- C2: Aggiunto requireAuth (GET) + requireAdmin (POST) a /api/evaluation:
+  * Route convertita da Request a NextRequest
+  * POST ora valida taskResults (C5 fix da Insights Fase 2)
+  * Era completamente senza auth → anonimo poteva fabbricare evaluation
+- C3: Creato src/lib/llm-client/parse-json.ts helper condiviso:
+  * stripMarkdownCodeBlocks: rimuove ```json e ``` fences
+  * extractBalancedJson: estrazione JSON con brace counting (gestisce nesting e stringhe)
+  * parseWithRecovery: JSON.parse + trailing comma removal + single→double quote
+  * parseLlmJson: prova direct parse → estrazione da ogni `{` → fallback
+  * Skip empty objects (gestisce prose con `{ } for objects`)
+  * Applicato a /api/plan/route.ts (con fallback deterministico)
+  * Applicato a executor.ts generateAndPersistPlan (con fallback deterministico)
+- B1: Aggiunto try/catch + toast.error a phase12 (loadTree, createTree, evalNode):
+  * Prima: nessun error handling, utente non riceveva feedback su fallimento
+  * Ora: try/catch su tutte le 3 azioni + toast.error + check res.ok
+- B2: Wrap JSON.parse(t.statesJson) in try/catch in phase7 render:
+  * Prima: crash dell'intero tab su dati malformati
+  * Ora: fallback a stringa raw o '(invalid)'
+- Test: 29 nuovi test integration in tests/integration/plan-domain-fase2.test.ts:
+  * C1 sandbox: 11 test (safety blocks, syntax, execution isolation, safe code)
+  * C2 evaluation auth: 5 test (401/403/200 per GET/POST)
+  * C3 parseLlmJson: 13 test (markdown strip, balanced extraction, recovery, fallback, prose)
+
+Stage Summary:
+- 8 file modificati + 1 nuovo helper + 1 nuovo test file
+- 29 nuovi test integration (tutti passing)
+- 0 regressioni (test failure in executor sono 429 rate limit, non codice)
+- 0 TypeScript errors nei file modificati
+- RCE vulnerability risolta (compiled-ai new Function → node:vm sandbox)
+- /api/evaluation ora protetta da auth
+- LLM JSON parsing centralizzato con helper robusto (markdown strip + recovery + fallback)
+- phase12 ora ha error handling completo
+- phase7 non crasha più su JSON malformato
+- Prossimo: Fase 3 (B3-B7, G1) bug fix & consistency

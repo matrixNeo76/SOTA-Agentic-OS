@@ -60,37 +60,52 @@ export function Phase12() {
  useEffect(() => { void refresh() }, [])
 
  const loadTree = async (treeId: string) => {
+ try {
  const r = await fetch(`/api/objective?action=tree&treeId=${treeId}`)
+ if (!r.ok) { toast.error(`Load tree failed: HTTP ${r.status}`); return }
  const d = await r.json()
  setSelectedTree(d)
+ } catch (e: any) {
+ toast.error(`Load tree failed: ${e.message}`)
+ }
  }
 
  const createTree = async () => {
  if (!rootGoal.trim()) return
+ try {
  const r = await fetch('/api/objective', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'create_tree', rootGoal }),
  })
  const d = await r.json()
+ if (!r.ok) { toast.error(`Create tree failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Albero creato: ${d.totalNodes} nodi, profondità ${d.maxDepth}`)
  refresh()
  loadTree(d.treeId)
  }
+ } catch (e: any) {
+ toast.error(`Create tree failed: ${e.message}`)
+ }
  }
 
  const evalNode = async (nodeId: string, status: 'pass' | 'fail' | 'skipped') => {
+ try {
  const r = await fetch('/api/objective', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'evaluate_node', nodeId, status }),
  })
  const d = await r.json()
+ if (!r.ok) { toast.error(`Evaluate failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Nodo: ${status}`)
  if (selectedTree) loadTree(selectedTree.tree.id)
  refresh()
+ }
+ } catch (e: any) {
+ toast.error(`Evaluate failed: ${e.message}`)
  }
  }
 

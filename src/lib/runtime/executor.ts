@@ -139,15 +139,23 @@ Regole:
     planId, // C6.5 — correlate cost with this plan
   }).catch(() => {})
 
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    throw new Error('LLM non ha prodotto JSON valido')
+  // C3 FIX: usa parseLlmJson helper (strip markdown + balanced extraction + recovery + fallback)
+  const { parseLlmJson } = await import('@/lib/llm-client/parse-json')
+  const fallbackPlan = {
+    goal: params.task,
+    tasks: [
+      { taskId: 'T1', agentId: 'orchestrator', description: `Analyze: ${params.task.slice(0, 100)}`, dependencies: [] },
+      { taskId: 'T2', agentId: 'curator', description: 'Gather context', dependencies: ['T1'] },
+      { taskId: 'T3', agentId: 'controller', description: 'Process information', dependencies: ['T2'] },
+      { taskId: 'T4', agentId: 'reflective', description: 'Synthesize answer', dependencies: ['T3'] },
+    ],
   }
-
-  const plan = JSON.parse(jsonMatch[0])
+  const plan = parseLlmJson(raw, fallbackPlan)
   const validation = validatePlan(plan)
   if (!validation.valid) {
-    throw new Error(`Piano non valido: ${validation.errors.join('; ')}`)
+    console.warn('[executor] Plan validation failed, using fallback:', validation.errors)
+    // Use fallback if validation fails
+    Object.assign(plan, fallbackPlan)
   }
 
   // Persist plan

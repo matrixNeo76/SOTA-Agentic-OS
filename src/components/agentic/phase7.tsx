@@ -353,7 +353,7 @@ export function Phase7() {
  </span>
  </div>
  <div className="text-[11px] font-mono text-muted-foreground">
- states: {JSON.parse(t.statesJson).join(' → ')}
+ states: {(() => { try { return JSON.parse(t.statesJson).join(' → ') } catch { return t.statesJson || '(invalid)' } })()}
  </div>
  </li>
  ))}

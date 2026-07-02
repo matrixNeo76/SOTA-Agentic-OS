@@ -4,25 +4,68 @@
  * L'LLM genera logica di business dentro template pre-validati.
  * Il codice generato passa attraverso 4 stadi di validazione:
  *   1) Safety      → no eval, no require dinamico, no fs riservati
- *   2) Syntax      → parsing con `new Function` (sandbox)
+ *   2) Syntax      → parsing con node:vm sandbox
  *   3) Execution   → smoke test con input fixture
  *   4) Accuracy    → assertion sui risultati attesi
  *
  * Superati tutti gli stadi, l'artefatto è deployable.
+ *
+ * C1 FIX: replaced new Function() with node:vm.runInNewContext().
+ * PRIMA: il codice LLM aveva accesso completo a process, require, fs.
+ * ORA: contesto limitato a input + primitive sicure, timeout 5s.
  */
 import { db } from '@/lib/db'
+import * as vm from 'node:vm'
 
 const FORBIDDEN_TOKENS = [
   'eval(', 'Function(', 'require(', 'process.exit',
   'child_process', 'fs.writeFileSync', 'fs.unlinkSync',
   'fetch(', 'http.request', 'https.request',
   'globalThis.', '__dirname', '__filename',
+  'constructor.constructor',  // C1: blocks Function constructor escape
 ]
 
 export type ValidationResult = {
   stage: 'safety' | 'syntax' | 'execution' | 'accuracy'
   passed: boolean
   reason: string
+}
+
+/**
+ * C1: sandbox context — only safe primitives, no process/require/fs/fetch.
+ */
+function createSandbox(input: unknown) {
+  return {
+    input,
+    JSON,
+    Math,
+    Date,
+    String,
+    Number,
+    Array,
+    Object,
+    Boolean,
+    parseInt,
+    parseFloat,
+    isNaN,
+    // Nessun accesso a: process, require, globalThis, fetch, db, console
+  }
+}
+
+/**
+ * C1: esegue codice nel sandbox node:vm con timeout.
+ * Il codice LLM usa `return` (function body), quindi lo wrappiamo in una IIFE.
+ */
+function executeInSandbox(code: string, input: unknown): unknown {
+  const sandbox = createSandbox(input)
+  // Wrap in IIFE: (function(input) { <code> })(input)
+  // Questo permette al codice LLM di usare `return` come faceva con new Function()
+  const wrappedCode = `(function(input) {\n${code}\n})(input)`
+  return vm.runInNewContext(wrappedCode, sandbox, {
+    filename: 'compiled-ai-script.js',
+    timeout: 5000,
+    displayErrors: true,
+  })
 }
 
 /**
@@ -36,17 +79,20 @@ export function checkSafety(code: string): ValidationResult {
   }
   // devono esserci solo caratteri sicuri (no backtick per evitare template injection)
   if (code.includes('`')) {
-    return { stage: 'safety', passed: false, reason: 'Template literals non permessi' }
+    return { stage: 'safety', passed: false, reason: 'Template literals non permesso' }
   }
   return { stage: 'safety', passed: true, reason: 'Nessun pattern pericoloso' }
 }
 
 /**
- * Stadio 2: Syntax check via `new Function` sandbox.
+ * Stadio 2: Syntax check via node:vm sandbox.
+ * C1 FIX: usa vm.Script invece di new Function().
+ * Il codice LLM usa `return`, quindi lo wrappiamo in una IIFE per validarlo.
  */
 export function checkSyntax(code: string): ValidationResult {
   try {
-    new Function('input', code)
+    const wrappedCode = `(function(input) {\n${code}\n})(input)`
+    new vm.Script(wrappedCode, { filename: 'compiled-ai-syntax-check.js' })
     return { stage: 'syntax', passed: true, reason: 'Parsing OK' }
   } catch (e: any) {
     return { stage: 'syntax', passed: false, reason: `Errore sintattico: ${e.message}` }
@@ -55,11 +101,11 @@ export function checkSyntax(code: string): ValidationResult {
 
 /**
  * Stadio 3: Execution smoke test con fixture.
+ * C1 FIX: usa vm.runInNewContext() invece di new Function().
  */
 export function checkExecution(code: string, fixture: unknown): ValidationResult {
   try {
-    const fn = new Function('input', code) as (input: unknown) => unknown
-    const result = fn(fixture)
+    const result = executeInSandbox(code, fixture)
     if (result === undefined) {
       return { stage: 'execution', passed: false, reason: 'Funzione non restituisce nulla' }
     }
@@ -71,6 +117,7 @@ export function checkExecution(code: string, fixture: unknown): ValidationResult
 
 /**
  * Stadio 4: Accuracy assertion.
+ * C1 FIX: usa vm.runInNewContext() invece di new Function().
  */
 export function checkAccuracy(
   code: string,
@@ -78,8 +125,7 @@ export function checkAccuracy(
   expected: unknown
 ): ValidationResult {
   try {
-    const fn = new Function('input', code) as (input: unknown) => unknown
-    const result = fn(fixture)
+    const result = executeInSandbox(code, fixture)
     const ok = JSON.stringify(result) === JSON.stringify(expected)
     return {
       stage: 'accuracy',
