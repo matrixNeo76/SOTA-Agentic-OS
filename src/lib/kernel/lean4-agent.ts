@@ -48,16 +48,17 @@ export async function attachContracts(
   // Elimina contratti precedenti per questo piano
   await db.formalContract.deleteMany({ where: { planId } })
 
-  for (const c of contracts) {
-    await db.formalContract.create({
-      data: {
+  // B8 FIX: batch create with createMany instead of N+1 sequential loop
+  if (contracts.length > 0) {
+    await db.formalContract.createMany({
+      data: contracts.map((c) => ({
         planId,
         taskId: c.taskId,
         preconditions: JSON.stringify(c.preconditions),
         postconditions: JSON.stringify(c.postconditions),
         variableTypes: JSON.stringify(c.variableTypes),
         verified: false,
-      },
+      })),
     })
   }
 

@@ -59,7 +59,14 @@ export function Phase8() {
  }
  }
 
- useEffect(() => { void refresh() }, [])
+ useEffect(() => {
+   void refresh()
+   // B7: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000)
+   return () => clearInterval(interval)
+ }, [])
 
  const generateContracts = async () => {
  if (!selectedPlan) {
@@ -287,8 +294,8 @@ export function Phase8() {
  contracts={verification.results.map((r: any) => ({
  taskId: r.taskId,
  verified: r.verified,
- preconditions: r.warnings || [],
- postconditions: r.errors || [],
+ preconditions: r.warnings || [],   // B2 FIXME: should fetch actual contracts from /api/lean?action=workflows
+ postconditions: r.errors || [],    // B2 FIXME: these are issue strings, not contract predicates
  }))}
  dependencies={{}}
  />
@@ -311,7 +318,7 @@ export function Phase8() {
  </CardHeader>
  <CardContent>
  <ScrollArea className="h-96 pr-2">
- <pre className="text-[11px] font-mono bg-zinc-950 text-zinc-100 rounded-md p-3 overflow-auto">
+ <pre className="text-[11px] font-mono bg-muted text-foreground rounded-md p-3 overflow-auto border">
 {verification?.leanSource || '// Esegui la verifica per generare il sorgente Lean4'}
  </pre>
  </ScrollArea>

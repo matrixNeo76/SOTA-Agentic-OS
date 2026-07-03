@@ -76,17 +76,21 @@ export async function recordBelief(input: BeliefInput): Promise<{ beliefId: stri
 
 /**
  * Recupera il lignaggio di una convinzione (catena di versioni).
+ * B4 FIX: depth limit (max 20) per prevenire loop infiniti su cyclic lineage.
  */
 export async function getBeliefLineage(beliefId: string) {
   const lineage: any[] = []
   let current = await db.belief.findUnique({ where: { id: beliefId } })
-  while (current) {
+  const MAX_DEPTH = 20 // B4: safety limit
+  let depth = 0
+  while (current && depth < MAX_DEPTH) {
     lineage.push(current)
     if (current.lineageId) {
       current = await db.belief.findUnique({ where: { id: current.lineageId } })
     } else {
       break
     }
+    depth++
   }
   return lineage
 }
@@ -145,6 +149,7 @@ export async function syncBelief(
 
   // Se non conflitto, replica la convinzione nel target
   if (!conflict) {
+    // B5 FIX: use source version + 1 instead of always 1 (preserves version history)
     await db.belief.create({
       data: {
         agentId: targetAgentId,
@@ -154,7 +159,7 @@ export async function syncBelief(
         lineageId: sourceBelief.id,
         confidence: sourceBelief.confidence,
         superseded: false,
-        version: 1,
+        version: (sourceBelief.version || 0) + 1, // B5: preserve version history
       },
     })
   }

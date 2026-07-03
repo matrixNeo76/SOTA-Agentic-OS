@@ -28,7 +28,7 @@ type VerifEvent = { id: string; eventType: string; stateLabel: string; verdict: 
 const SEVERITY_STYLE: Record<string, string> = {
  block: 'bg-status-danger text-status-danger dark:text-status-danger border-status-danger/50 dark:border-status-danger/50',
  warn: 'bg-status-warn text-status-warn dark:text-status-warn border-status-warn/50 dark:border-status-warn/50',
- log: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700',
+ log: 'bg-muted text-muted-foreground border-border',
 }
 
 const PRIORITY_LABEL: Record<number, { label: string; color: string; border: string }> = {

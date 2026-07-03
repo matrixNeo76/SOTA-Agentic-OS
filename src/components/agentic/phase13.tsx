@@ -55,6 +55,7 @@ export function Phase13() {
  const [qRequired, setQRequired] = useState(2)
 
  const refresh = async () => {
+ try {
  const [bR, sR, qR, statsR] = await Promise.all([
  fetch('/api/esr?action=beliefs').then((r) => r.json()),
  fetch('/api/esr?action=sync_events').then((r) => r.json()),
@@ -65,69 +66,93 @@ export function Phase13() {
  setSyncEvents(sR.events || [])
  setDecisions(qR.decisions || [])
  setStats(statsR)
+ } catch (e: any) {
+ console.error('[phase13] refresh failed:', e?.message)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refresh() }, [])
+ useEffect(() => {
+   void refresh()
+   // B7: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000)
+   return () => clearInterval(interval)
+ }, [])
 
  const recordBelief = async () => {
  if (!bContent.trim()) return
+ try {
  const r = await fetch('/api/esr', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'record_belief', agentId: bAgent, content: bContent, beliefType: bType }),
  })
  const d = await r.json()
+ if (!r.ok) { toast.error(`Record belief failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  if (d.supersededId) toast.info('Convinzione precedente marcata come superseded')
  else toast.success('Belief registrato')
  refresh()
  }
+ } catch (e: any) { toast.error(`Record belief failed: ${e.message}`) }
  }
 
  const syncBelief = async () => {
- if (!syncBeliefId) {
- // Take first belief ID as default
- if (beliefs.length > 0) setSyncBeliefId(beliefs[0].id)
- return
- }
+ // B9 FIX: auto-fill belief ID and sync immediately (was: return on first click)
+ const beliefId = syncBeliefId || (beliefs.length > 0 ? beliefs[0].id : '')
+ if (!beliefId) { toast.error('Nessun belief da sincronizzare'); return }
+ try {
  const r = await fetch('/api/esr', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ action: 'sync_belief', sourceAgentId: syncSource, targetAgentId: syncTarget, beliefId: syncBeliefId }),
+ body: JSON.stringify({ action: 'sync_belief', sourceAgentId: syncSource, targetAgentId: syncTarget, beliefId }),
  })
  const d = await r.json()
+ if (!r.ok) { toast.error(`Sync failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  if (d.syncStatus === 'conflict') toast.warning(`Conflitto ESR: ${d.reason}`)
  else toast.success('Belief sincronizzato (coerenza eventuale)')
  refresh()
  }
+ } catch (e: any) { toast.error(`Sync failed: ${e.message}`) }
  }
 
  const proposeQuorum = async () => {
+ try {
  const r = await fetch('/api/esr', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'propose_quorum', workflowJoinId: qJoin, quorumAction: qAction, requiredQuorum: qRequired }),
  })
  const d = await r.json()
+ if (!r.ok) { toast.error(`Propose failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Quorum proposto (req=${qRequired})`)
  refresh()
  }
+ } catch (e: any) { toast.error(`Propose failed: ${e.message}`) }
  }
 
  const voteQuorum = async (decisionId: string, voter: string, vote: 'accept' | 'reject') => {
+ try {
  const r = await fetch('/api/esr', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'vote_quorum', decisionId, voterAgentId: voter, vote }),
  })
  const d = await r.json()
+ if (!r.ok) {
+ if (d.code === 'DUPLICATE_VOTE') toast.warning(`Voto duplicato: ${d.error}`)
+ else toast.error(`Vote failed: ${d.error || `HTTP ${r.status}`}`)
+ return
+ }
  if (d.ok) {
  toast.success(`Voto ${vote} → verdict: ${d.verdict}`)
  refresh()
  }
+ } catch (e: any) { toast.error(`Vote failed: ${e.message}`) }
  }
 
  return (
