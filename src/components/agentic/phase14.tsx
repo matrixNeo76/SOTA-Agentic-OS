@@ -165,7 +165,8 @@ Dimostra con un proof formale che la funzione è errata.`)
  <ul className="space-y-2">
  {decisions.map((d) => {
  const style = ROUTED_STYLE[d.routedTo] || ROUTED_STYLE.primary
- const ensembleModels = d.ensembleModels ? JSON.parse(d.ensembleModels) : []
+ // N8 FIX: wrap JSON.parse in try/catch (same B8 pattern as phase9)
+ const ensembleModels = d.ensembleModels ? (() => { try { return JSON.parse(d.ensembleModels) } catch { return [] } })() : []
  return (
  <li key={d.id} className={cn('text-xs border rounded-md p-2.5', style.bg)}>
  <div className="flex items-center gap-2 mb-1">

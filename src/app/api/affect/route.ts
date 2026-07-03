@@ -1,10 +1,17 @@
 /**
  * API: /api/affect (Fase 11 - Affect Subsystem)
+ *
+ * N2 FIX: POST update_threshold ora richiede requireAdmin (era requireAuth).
+ * update_threshold muta AffectThreshold per qualsiasi agentId — qualsiasi
+ * utente poteva abbassare le soglie critiche e disabilitare Meta-Observer.
+ * compute rimane requireAuth (telemetry ingestion).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { computeAffect, updateThreshold, affectHistory, affectStats } from '@/lib/kernel/affect-subsystem'
 import { publishAgentEvent } from '@/lib/ws-publish'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
+import { db } from '@/lib/db'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -27,12 +34,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req)
-  if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
 
   if (action === 'compute') {
+    // compute è telemetry ingestion — requireAuth sufficiente
+    const auth = await requireAuth(req)
+    if (!auth.ok) return auth.response
+
     const { agentId, toolFailures, toolCalls, gateRejects, gateAttempts, repeatedToolCalls } = body
     const result = await computeAffect({
       agentId,
@@ -54,8 +63,31 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'update_threshold') {
-    const { agentId, ...updates } = body
-    const threshold = await updateThreshold(agentId, updates)
+    // N2 FIX: requireAdmin — muta AffectThreshold (soglie di intervento critiche)
+    const auth = await requireAdmin(req)
+    if (!auth.ok) return auth.response
+
+    const { agentId, action: _action, ...updates } = body
+    // Filter to only valid threshold fields
+    const validUpdates: any = {}
+    if (typeof updates.desperationCritical === 'number') validUpdates.desperationCritical = updates.desperationCritical
+    if (typeof updates.frustrationCritical === 'number') validUpdates.frustrationCritical = updates.frustrationCritical
+    if (typeof updates.cooldownMs === 'number') validUpdates.cooldownMs = updates.cooldownMs
+    if (typeof updates.tighteningPct === 'number') validUpdates.tighteningPct = updates.tighteningPct
+    const threshold = await updateThreshold(agentId, validUpdates)
+    await publishAgentEvent({
+      agentId, phase: '11',
+      event: 'threshold_updated',
+      level: 'info',
+      payload: { agentId, updates, updatedBy: auth.email },
+    })
+    await db.agentLog.create({
+      data: {
+        agentId, phase: '11', event: 'threshold_updated',
+        payload: JSON.stringify({ agentId, updates, updatedBy: auth.email }),
+        level: 'info',
+      },
+    }).catch(() => {})
     return NextResponse.json({ ok: true, threshold })
   }
 

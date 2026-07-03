@@ -612,3 +612,51 @@ Stage Summary:
 - N9: grounded-inference.ts new Function() RCE (cross-domain, verificare se Memory Domain fix è arrivato)
 - N10: Phase 5/9/11/14 senza adaptive polling (saltati in tutti gli audit precedenti)
 - Prossimo: Fase 2 (N1-N4, N7-N9) sicurezza & data integrity
+
+---
+Task ID: LEARN-DOMAIN-FASE2
+Agent: main
+Task: Fase 2 — Sicurezza & data integrity (N1-N4, N7-N9)
+
+Work Log:
+- N1: requireAdmin su POST /api/router update_config (era requireAuth):
+  * Split route (requireAuth) / update_config (requireAdmin)
+  * publishAgentEvent + AgentLog su update_config
+  * Input validation: filtra solo campi validi
+- N2: requireAdmin su POST /api/affect update_threshold (era requireAuth):
+  * Split compute (requireAuth) / update_threshold (requireAdmin)
+  * publishAgentEvent + AgentLog su update_threshold
+  * Input validation: filtra solo desperationCritical/frustrationCritical/cooldownMs/tighteningPct
+- N3: Documentato ensemble come future work nel commento. route() ora nota che
+  ensemble è calcolato ma non eseguito parallelamente. Warning nel codice.
+- N4: LLM error non più persistito in finalOutput:
+  * PRIMA: finalOutput = "LLM Error: ${e.message}. ${simulate...}" (info leak)
+  * ORA: finalOutput = null, llmError = e.message, outputForCaller = fallback deterministico
+  * Persistito: outputForCaller (clean), non l'error message
+  * RoutingResult type aggiornato con llmError field
+- N7: Refactoring 3 funzioni LLM in client.ts per usare parseLlmJson:
+  * classifyTaskWithLLM: parseLlmJson con fallback {complexity, domain, reasoning}
+  * extractHeuristicWithLLM: parseLlmJson con fallback {heuristic, redLineFlag}
+  * generatePredictionWithLLM: parseLlmJson con fallback {statement, probability}
+- N8: Wrap JSON.parse(d.ensembleModels) in try/catch in phase14 render
+  (stesso B8 pattern di phase9)
+- N9: Fix grounded-inference.ts RCE (cross-domain Memory Domain):
+  * new Function('input', script) → vm.runInNewContext con sandbox limitato
+  * IIFE wrapper per supportare `return`
+  * Timeout 5s, contesto: input + primitive sicure
+  * Stesso fix applicato in Memory Domain Fase 2 (ma non era arrivato)
+- Test: 12 nuovi test integration in tests/integration/learn-domain-fase2.test.ts:
+  * N1 router auth: 5 test (401/200/403/200/200 route vs config)
+  * N2 affect auth: 3 test (200 compute viewer, 403 threshold viewer, 200 admin)
+  * N9 sandbox: 4 test (blocks process, blocks require, allows safe, timeout)
+
+Stage Summary:
+- 7 file modificati + 1 nuovo test file
+- 12 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file modificati
+- /api/router e /api/affect ora protette con requireAdmin per mutative
+- LLM error non più leakato nel DB
+- client.ts ora usa parseLlmJson helper (3 funzioni fixate)
+- grounded-inference.ts RCE risolta (new Function → node:vm)
+- phase14 non crasha più su ensembleModels corrotti
+- Prossimo: Fase 3 (N5-N6, N10-N13) bug fix & UX

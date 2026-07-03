@@ -13,6 +13,7 @@
  */
 import { db } from '@/lib/db'
 import { runPipeline } from './compiled-ai' // riusa la sandbox 4-stadi
+import * as vm from 'node:vm' // N9 FIX: sandbox isolato per script LLM-generated
 
 export type EncapsulatedCall = {
   agentId: string
@@ -129,15 +130,25 @@ ${truncatedContext}`
 }
 
 /**
- * Esegue uno script di parsing in sandbox isolata.
- * Riusa la pipeline 4-stadi di Compiled AI (Fase 2).
+ * N9 FIX: Esegue uno script di parsing in sandbox isolata via node:vm.
+ * PRIMA: usava `new Function('input', script)` che NON è un sandbox —
+ * lo script aveva accesso completo a process, require, db, fetch (RCE).
+ * ORA: usa vm.runInNewContext() con contesto limitato e timeout 5s.
  */
 async function executeSandbox(script: string, input: unknown): Promise<{ ok: boolean; result: unknown }> {
   try {
-    // Valida sintassi + esegui con fixture=input (reuse di checkExecution)
-    const fixture = input
-    const fn = new Function('input', script) as (input: unknown) => unknown
-    const result = fn(fixture)
+    const sandbox = {
+      input,
+      JSON, Math, Date, String, Number, Array, Object, Boolean,
+      parseInt, parseFloat, isNaN,
+    }
+    // Wrap in IIFE per supportare `return` (come new Function faceva)
+    const wrappedCode = `(function(input) {\n${script}\n})(input)`
+    const result = vm.runInNewContext(wrappedCode, sandbox, {
+      filename: 'grounded-inference-script.js',
+      timeout: 5000,
+      displayErrors: true,
+    })
     return { ok: true, result }
   } catch (e: any) {
     return { ok: false, result: { error: e.message } }

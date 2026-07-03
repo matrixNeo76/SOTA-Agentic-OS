@@ -253,17 +253,15 @@ Output as JSON: {"complexity": "...", "domain": "...", "reasoning": "..."}`
     return { ...JSON.parse(result.output), source: 'fallback' }
   }
 
+  // N7 FIX: usa parseLlmJson helper invece di fragile regex + JSON.parse
   try {
-    // Estrai JSON dalla risposta (può essere wrappato in markdown)
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        complexity: parsed.complexity || 'Medium',
-        domain: parsed.domain || 'general',
-        reasoning: parsed.reasoning || '',
-        source: 'llm',
-      }
+    const { parseLlmJson } = await import('./parse-json')
+    const parsed = parseLlmJson<{ complexity?: string; domain?: string; reasoning?: string }>(result.output, { complexity: 'Medium', domain: 'general', reasoning: '' })
+    return {
+      complexity: (parsed.complexity as 'Simple' | 'Medium' | 'Complex' | 'Critical') || 'Medium',
+      domain: parsed.domain || 'general',
+      reasoning: parsed.reasoning || '',
+      source: 'llm',
     }
   } catch {}
 
@@ -315,15 +313,14 @@ Extract the heuristic:`
     fallback,
   })
 
+  // N7 FIX: usa parseLlmJson helper
   try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        heuristic: parsed.heuristic || '',
-        redLineFlag: Boolean(parsed.redLineFlag),
-        source: result.source,
-      }
+    const { parseLlmJson } = await import('./parse-json')
+    const parsed = parseLlmJson(result.output, { heuristic: '', redLineFlag: false })
+    return {
+      heuristic: parsed.heuristic || '',
+      redLineFlag: Boolean(parsed.redLineFlag),
+      source: result.source,
     }
   } catch {}
 
@@ -378,15 +375,14 @@ Generate a prediction:`
     fallback,
   })
 
+  // N7 FIX: usa parseLlmJson helper
   try {
-    const jsonMatch = result.output.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        statement: parsed.statement || '',
-        probability: Math.min(1, Math.max(0, Number(parsed.probability) || 0.5)),
-        source: result.source,
-      }
+    const { parseLlmJson } = await import('./parse-json')
+    const parsed = parseLlmJson(result.output, { statement: '', probability: 0.5 })
+    return {
+      statement: parsed.statement || '',
+      probability: Math.min(1, Math.max(0, Number(parsed.probability) || 0.5)),
+      source: result.source,
     }
   } catch {}
 

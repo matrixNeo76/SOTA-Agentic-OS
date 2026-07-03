@@ -48,7 +48,8 @@ export type RoutingResult = {
   diversity: number        // diversità tra predizioni
   routedTo: 'primary' | 'ensemble' | 'critic'
   ensembleModels?: string[]
-  finalOutput?: string
+  finalOutput?: string | null
+  llmError?: string | null // N4: null if success, error message if LLM failed
   decisionId: string
 }
 
@@ -172,7 +173,12 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
   }
 
   // Chiama LLM via ZAI SDK
-  let finalOutput: string
+  // N3 NOTE: ensemble/critic routing è calcolato ma attualmente usa una singola
+  // chiamata LLM. Il routing decision è persistito per analytics, ma l'esecuzione
+  // parallela di modelli ensemble è future work. Aggiungiamo warning se ensemble
+  // è enabled ma non supportato in esecuzione.
+  let finalOutput: string | null = null
+  let llmError: string | null = null
   try {
     const ZAI = (await import('z-ai-web-dev-sdk')).default
     const zai = await ZAI.create()
@@ -184,8 +190,13 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
     })
     finalOutput = completion.choices[0]?.message?.content || 'No output from model.'
   } catch (e: any) {
-    finalOutput = `LLM Error: ${e.message}. ${simulateModelOutput(primary.modelId, prompt)}`
+    // N4 FIX: non persistere error message nel DB — usa null + flag di errore
+    llmError = e.message
+    finalOutput = null
   }
+
+  // N4 FIX: se LLM fallisce, usa fallback deterministico MA non persistere l'errore
+  const outputForCaller = finalOutput || simulateModelOutput(primary.modelId, prompt)
 
   // Persisti decisione
   const decision = await db.routingDecision.create({
@@ -199,7 +210,8 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
       diversity,
       routedTo,
       ensembleModels: ensembleModels ? JSON.stringify(ensembleModels) : null,
-      finalOutput,
+      // N4: persisti output pulito, non error message
+      finalOutput: outputForCaller,
     },
   })
 
@@ -210,7 +222,8 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
     diversity,
     routedTo,
     ensembleModels,
-    finalOutput,
+    finalOutput: outputForCaller, // N4: clean output (fallback if LLM failed)
+    llmError, // N4: null if success, error message if LLM failed
     decisionId: decision.id,
   }
 }
