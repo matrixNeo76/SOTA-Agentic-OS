@@ -696,3 +696,25 @@ Stage Summary:
 - 3 moduli core (time-router, affect-subsystem, agent-objective) ora hanno test coverage
 - Modulo Learn Domain COMPLETATO (Fasi 1-3)
 - TUTTI I 4 ADVANCED DOMAINS COMPLETATI
+
+---
+Task ID: PHASE3-TOOLMANAGER-FASE1
+Agent: main
+Task: Fase 1 — Audit Phase 3 (ACTS) + Tool Manager
+
+Work Log:
+- Analizzati 2 moduli rimanenti: Phase 3 (ACTS Controller) + Tool Manager (Phase 18)
+- 10 file analizzati, ~1.685 LOC totali
+- Identificati 4 bug critici (C1-C4), 8 bug medi (B1-B8), 4 gap (G1-G4)
+- Compilato report in docs/PHASE3-TOOLMANAGER-FASE1-AUDIT.md
+
+Stage Summary:
+- C1: ToolPermission.toolId key confusion — 3 path diversi usano 3 valori diversi (cuid vs user-facing string) → registered tools non eseguibili
+- C2: executeRegistered scope check existence-based invece di scope-based → qualsiasi permesso sblocca tutto
+- C3: /api/tools POST usa requireAuth invece di requireAdmin → viewer può installare tool e grants
+- C4: http.fetch SSRF — no localhost/private IP filtering
+- B1: isPathAllowed prefix match string-based (non path-aware)
+- B2: Tool.apiKey stored plaintext
+- G1: zero test per acts.ts e tool-registry.ts (solo 23 LOC trivial)
+- CON QUESTO AUDIT, TUTTI I 12 MODULI DEL PROGETTO SONO STATI ANALIZZATI
+- Prossimo: Fase 2 (C1-C4, B1, B4) sicurezza & data integrity
