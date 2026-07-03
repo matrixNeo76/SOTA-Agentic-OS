@@ -590,3 +590,25 @@ Stage Summary:
 - attachContracts usa createMany (1 query invece di N+1)
 - syncBelief UX fix (auto-sync on first click)
 - Modulo Verify Domain COMPLETATO (Fasi 1-3)
+
+---
+Task ID: LEARN-DOMAIN-FASE1
+Agent: main
+Task: Fase 1 — Audit & Gap Analysis modulo Learn Domain (Advanced/Internals)
+
+Work Log:
+- Mappato modulo Learn Domain: 4 componenti UI, 5 API routes, 5 lib files, 13 modelli Prisma
+- Verificati fix precedenti: Governance C4/C5/C8/C9/C10 ✅, Insights auth ✅, Plan Domain B1 ✅
+- Identificati 4 bug critici (N1-N4), 5 bug medi (N5-N9), 6 gap funzionali (N10-N15)
+- Compilato report completo in docs/LEARN-DOMAIN-FASE1-AUDIT.md con piano di intervento in 2 fasi
+
+Stage Summary:
+- N1: /api/router POST update_config senza requireAdmin → qualsiasi utente cambia routing globale
+- N2: /api/affect POST update_threshold senza requireAdmin → disable Meta-Observer interventions
+- N3: time-router ensemble è puramente cosmetic (route() ignora routedTo, sempre 1 LLM call)
+- N4: LLM error message persistito nel DB (info leak)
+- N7: client.ts 3 funzioni LLM con JSON parsing fragile (parseLlmJson non usato)
+- N8: phase14 JSON.parse senza try/catch in render (crash su dati corrotti)
+- N9: grounded-inference.ts new Function() RCE (cross-domain, verificare se Memory Domain fix è arrivato)
+- N10: Phase 5/9/11/14 senza adaptive polling (saltati in tutti gli audit precedenti)
+- Prossimo: Fase 2 (N1-N4, N7-N9) sicurezza & data integrity
