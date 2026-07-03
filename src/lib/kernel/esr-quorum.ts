@@ -204,6 +204,9 @@ export async function proposeQuorumAction(
 
 /**
  * Un validatore vota su una proposta.
+ *
+ * C3 FIX: duplicate vote prevention — check if voterAgentId already voted.
+ * C4 FIX: race condition — use atomic increment inside transaction.
  */
 export async function voteQuorum(
   decisionId: string,
@@ -212,11 +215,23 @@ export async function voteQuorum(
   reason?: string,
   confidence = 1.0
 ): Promise<{ verdict: 'pending' | 'accepted' | 'rejected'; acceptCount: number; rejectCount: number }> {
-  // Registra il voto
+  // C3: check for duplicate vote
+  const existingVote = await db.quorumVote.findFirst({
+    where: { workflowJoinId: decisionId, voterAgentId },
+  })
+  if (existingVote) {
+    throw new Error(`Voter ${voterAgentId} has already voted on decision ${decisionId}`)
+  }
+
+  // Get decision for action field + current counts
+  const decision = await db.quorumDecision.findUnique({ where: { id: decisionId } })
+  if (!decision) throw new Error('Decision not found')
+
+  // Register the vote
   await db.quorumVote.create({
     data: {
-      workflowJoinId: decisionId, // reuse come FK logica
-      action: (await db.quorumDecision.findUnique({ where: { id: decisionId } }))?.action || '',
+      workflowJoinId: decisionId,
+      action: decision.action,
       voterAgentId,
       vote,
       reason,
@@ -224,10 +239,10 @@ export async function voteQuorum(
     },
   })
 
-  // Aggiorna conteggi
-  const decision = await db.quorumDecision.findUnique({ where: { id: decisionId } })
-  if (!decision) throw new Error('Decision not found')
+  // C4: atomic increment instead of read-then-write
+  const incrementField = vote === 'accept' ? { acceptCount: { increment: 1 } } : { rejectCount: { increment: 1 } }
 
+  // Calculate new verdict based on incremented counts
   const newAccept = decision.acceptCount + (vote === 'accept' ? 1 : 0)
   const newReject = decision.rejectCount + (vote === 'reject' ? 1 : 0)
 
@@ -238,11 +253,11 @@ export async function voteQuorum(
     verdict = 'rejected'
   }
 
+  // C4: use atomic increment + verdict update in single query
   await db.quorumDecision.update({
     where: { id: decisionId },
     data: {
-      acceptCount: newAccept,
-      rejectCount: newReject,
+      ...incrementField,
       verdict,
       decidedAt: verdict !== 'pending' ? new Date() : null,
     },

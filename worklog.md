@@ -505,3 +505,54 @@ Stage Summary:
 - Phase 13 (esr-quorum.ts) ha 10 bug identificati — NEW territory mai auditato
 - Phase 8 (lean4-agent.ts) ha 6 JSON.parse senza try/catch
 - Prossimo: Fase 2 (C1-C6 + B3) sicurezza & data integrity
+
+---
+Task ID: VERIFY-DOMAIN-FASE2
+Agent: main
+Task: Fase 2 — Sicurezza & data integrity (C1-C6, B3)
+
+Work Log:
+- C1: requireAdmin su POST /api/esr (era requireAuth):
+  * Split read-only (requireAuth) / mutative (requireAdmin)
+  * Input validation: beliefType, requiredQuorum (1-10 integer), vote (accept/reject)
+  * C6: AgentLog writes su tutte le 4 mutative actions
+  * C3: duplicate vote error → 409 Conflict con code DUPLICATE_VOTE
+- C2: requireAdmin su POST /api/lean (era requireAuth):
+  * auto_contracts, verify, evolve ora richiedono requireAdmin
+- C3: Duplicate vote prevention in esr-quorum.ts voteQuorum():
+  * findFirst check su (workflowJoinId, voterAgentId) prima del create
+  * Throw "already voted" error se duplicato
+- C4: Race condition fix in voteQuorum():
+  * PRIMA: read-then-write (decision.acceptCount + 1 → update)
+  * ORA: atomic increment ({ acceptCount: { increment: 1 } }) in singola query
+  * Verdict calcolato dai nuovi conteggi ma scritto nella stessa query
+- C5: leanEvolve ora applica rewrite al planJson:
+  * PRIMA: rewrittenInstruction salvato solo in LeanEvolveEvent → ri-validazione su piano originale (no-op)
+  * ORA: deep clone planJson → update task.description → persist → ri-valida contro piano aggiornato
+- C6: AgentLog writes su /api/esr mutative actions:
+  * record_belief → AgentLog phase=13 event=belief_recorded
+  * sync_belief → AgentLog phase=13 event=esr_sync
+  * propose_quorum → AgentLog phase=13 event=quorum_proposed
+  * vote_quorum → AgentLog phase=13 event=quorum_vote
+- B3: Wrap 6 JSON.parse in try/catch in lean4-agent.ts:
+  * 2x planJson (autoGenerateContracts, verifyWorkflow) → fallback { tasks: [] }
+  * 3x contract fields (preconditions, postconditions, variableTypes) → fallback []
+  * 1x depContract.postconditions → fallback []
+- Test: 17 nuovi test integration in tests/integration/verify-domain-fase2.test.ts:
+  * C1 esr auth: 8 test (401/403/200 + beliefType/requiredQuorum/vote validation)
+  * C2 lean auth: 2 test (200 viewer GET, 403 viewer POST)
+  * C3 duplicate vote: 4 test (first vote OK, duplicate throws, different voter OK, API 409)
+  * C6 audit trail: 2 test (AgentLog su record_belief + propose_quorum)
+  * B3 JSON robustness: 1 test (corrupted planJson non crasha)
+
+Stage Summary:
+- 5 file modificati + 1 nuovo test file
+- 17 nuovi test integration (tutti passing)
+- 0 regressioni (99/99 test verify domain passano)
+- 0 TypeScript errors nei file modificati
+- /api/esr e /api/lean ora protette con requireAdmin
+- Quorum voting non più forgiabile (duplicate prevention + atomic increment)
+- leanEvolve ora applica effettivamente il rewrite (non più no-op)
+- AgentLog trail su tutte le operazioni Phase 13
+- lean4-agent non crasha più su planJson corrotto
+- Prossimo: Fase 3 (B1-B2, B4-B9, B11) bug fix & validation

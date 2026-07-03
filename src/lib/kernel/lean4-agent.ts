@@ -78,7 +78,9 @@ export async function autoGenerateContracts(planId: string): Promise<FormalContr
   })
   if (!plan) throw new Error(`Piano ${planId} non trovato`)
 
-  const planJson = JSON.parse(plan.planJson)
+  // B3 FIX: wrap JSON.parse in try/catch
+  let planJson: any
+  try { planJson = JSON.parse(plan.planJson) } catch { planJson = { tasks: [] } }
   const tasks: { taskId: string; agentId: string; description: string; dependencies: string[] }[] = planJson.tasks || []
   const contracts: FormalContractSpec[] = []
 
@@ -125,7 +127,9 @@ export async function verifyWorkflow(planId: string): Promise<{
   })
   if (!plan) throw new Error(`Piano ${planId} non trovato`)
 
-  const planJson = JSON.parse(plan.planJson)
+  // B3 FIX: wrap JSON.parse in try/catch
+  let planJson: any
+  try { planJson = JSON.parse(plan.planJson) } catch { planJson = { tasks: [] } }
   const tasks: { taskId: string; agentId: string; description: string; dependencies: string[] }[] = planJson.tasks || []
   const contractRows = await db.formalContract.findMany({ where: { planId } })
   const contractMap = new Map(contractRows.map((c) => [c.taskId, c]))
@@ -164,9 +168,13 @@ export async function verifyWorkflow(planId: string): Promise<{
       continue
     }
 
-    const preconditions: string[] = JSON.parse(c.preconditions)
-    const postconditions: string[] = JSON.parse(c.postconditions)
-    const variableTypes: Record<string, string> = JSON.parse(c.variableTypes)
+    // B3 FIX: wrap JSON.parse in try/catch
+    let preconditions: string[] = []
+    let postconditions: string[] = []
+    let variableTypes: Record<string, string> = {}
+    try { preconditions = JSON.parse(c.preconditions) } catch { preconditions = [] }
+    try { postconditions = JSON.parse(c.postconditions) } catch { postconditions = [] }
+    try { variableTypes = JSON.parse(c.variableTypes) } catch { variableTypes = {} }
 
     const errors: string[] = []
     const warnings: string[] = []
@@ -192,7 +200,9 @@ export async function verifyWorkflow(planId: string): Promise<{
         errors.push(`Dipendenza ${dep} senza contratto (cannot verify closure)`)
         continue
       }
-      const depPost: string[] = JSON.parse(depContract.postconditions)
+      // B3 FIX: wrap JSON.parse in try/catch
+      let depPost: string[] = []
+      try { depPost = JSON.parse(depContract.postconditions) } catch { depPost = [] }
       const expectedPost = `task.${dep}.status = 'completed'`
       // B4 FIX: use regex instead of loose includes to avoid false positives
       // PRIMA: p.includes('completed') matchava anche 'not-completed' o 'incomplete'
@@ -325,7 +335,23 @@ export async function leanEvolve(
     rewrittenInstruction = deterministicRewrite
   }
 
-  // Ri-valida
+  // C5 FIX: apply rewrittenInstruction back to planJson BEFORE re-verifying.
+  // PRIMA: rewrittenInstruction era salvato solo nell'evento, ma il planJson
+  // non veniva modificato → la ri-validazione girava contro il piano originale.
+  // ORA: aggiorna la description del task fallito nel planJson, poi ri-valida.
+  if (failedTask && rewrittenInstruction) {
+    const updatedPlanJson = JSON.parse(JSON.stringify(planJson)) // deep clone
+    const taskToUpdate = (updatedPlanJson.tasks || []).find((t: any) => t.taskId === failedTaskId)
+    if (taskToUpdate) {
+      taskToUpdate.description = rewrittenInstruction
+      await db.agentPlan.update({
+        where: { id: planId },
+        data: { planJson: JSON.stringify(updatedPlanJson) },
+      })
+    }
+  }
+
+  // Ri-valida (ora contro il piano aggiornato con la nuova istruzione)
   const verification = await verifyWorkflow(planId)
   const revalidated = verification.verified
 

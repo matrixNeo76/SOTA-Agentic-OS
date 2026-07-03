@@ -1,7 +1,10 @@
 /**
  * API: /api/lean (Fase 8 - Lean4Agent)
- * GET  - workflow verificati + eventi evolve + stats
- * POST - auto-genera contratti / verifica / evolve
+ * GET  - workflow verificati + eventi evolve + stats (requireAuth)
+ * POST - auto-genera contratti / verifica / evolve (requireAdmin — C2 FIX)
+ *
+ * C2 FIX: POST actions sono mutative (auto_contracts fa deleteMany + recreate,
+ * verify scrive risultati, evolve modifica plan). Ora richiedono requireAdmin.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import {
@@ -10,6 +13,7 @@ import {
 } from '@/lib/kernel/lean4-agent'
 import { publishAgentEvent } from '@/lib/ws-publish'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -38,7 +42,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req)
+  // C2 FIX: requireAdmin instead of requireAuth
+  const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body
