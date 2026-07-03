@@ -660,3 +660,39 @@ Stage Summary:
 - grounded-inference.ts RCE risolta (new Function → node:vm)
 - phase14 non crasha più su ensembleModels corrotti
 - Prossimo: Fase 3 (N5-N6, N10-N13) bug fix & UX
+
+---
+Task ID: LEARN-DOMAIN-FASE3
+Agent: main
+Task: Fase 3 — Bug fix & UX (N5-N6, N10, N13)
+
+Work Log:
+- N5: inputHash dedup in time-router.ts:
+  * findFirst check su inputHash prima di creare nuova RoutingDecision
+  * Se esiste, ritorna decision cached con flag cached: true
+  * Aggiunto cached?: boolean al RoutingResult type
+  * Stesso prompt non crea più N righe duplicate
+- N6: Sostituito cycleCounter module-level con DB-backed sequence:
+  * PRIMA: let cycleCounter = 0 a livello modulo → collisioni in multi-istanza
+  * ORA: db.affectSample.count() per cycleId unico basato su DB
+  * Verificato con test: cycleId è unico across calls
+- N10: Adaptive polling (30s + Page Visibility API) integrato in:
+  * phase5.tsx (ERL)
+  * phase9.tsx (Retainer)
+  * phase11.tsx (Affect)
+  * phase14.tsx (Router) — con cleanup combinato (setTimeout + setInterval)
+- N13: 14 nuovi unit test in tests/unit/learn-domain-core.test.ts:
+  * time-router: 6 test (extractFeatures structure/empty, routerStats, DEFAULT_MODELS, listRoutingDecisions)
+  * affect-subsystem: 6 test (computeAffect creates sample, low/high desperation, affectStats, affectHistory, updateThreshold, N6 cycleId unique)
+  * agent-objective: 2 test (objectiveStats, listTrees)
+
+Stage Summary:
+- 7 file modificati + 1 nuovo test file
+- 14 nuovi unit test (tutti passing)
+- 0 TypeScript errors nei file modificati
+- inputHash dedup previene righe duplicate per stesso prompt
+- cycleId ora DB-backed (no più collisioni multi-istanza)
+- Phase 5/9/11/14 ora auto-refreshano ogni 30s quando visibili
+- 3 moduli core (time-router, affect-subsystem, agent-objective) ora hanno test coverage
+- Modulo Learn Domain COMPLETATO (Fasi 1-3)
+- TUTTI I 4 ADVANCED DOMAINS COMPLETATI

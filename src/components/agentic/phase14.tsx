@@ -58,13 +58,17 @@ Dimostra con un proof formale che la funzione è errata.`)
 
  useEffect(() => {
  void (async () => { await refresh() })()
+ // N10: adaptive polling with Page Visibility API
+ const pollInterval = setInterval(() => {
+   if (!document.hidden) void refresh()
+ }, 30_000)
  // Also compute features live as user types
  const t = setTimeout(async () => {
  const r = await fetch(`/api/router?action=features&prompt=${encodeURIComponent(prompt)}`)
  const d = await r.json()
  setFeatures(d.features)
  }, 400)
- return () => clearTimeout(t)
+ return () => { clearTimeout(t); clearInterval(pollInterval) }
  }, [prompt])
 
  const route = async () => {

@@ -51,6 +51,7 @@ export type RoutingResult = {
   finalOutput?: string | null
   llmError?: string | null // N4: null if success, error message if LLM failed
   decisionId: string
+  cached?: boolean         // N5: true if returned from dedup cache
 }
 
 /**
@@ -152,6 +153,26 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
   // Configurazione router
   const config = await getOrCreateConfig()
   const inputHash = createHash('sha256').update(prompt).digest('hex').slice(0, 16)
+
+  // N5 FIX: dedup — check if we already have a decision for this inputHash
+  const existing = await db.routingDecision.findFirst({
+    where: { inputHash },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (existing) {
+    return {
+      primaryModel: existing.primaryModel,
+      confidence: existing.confidence,
+      margin: existing.margin,
+      diversity: existing.diversity,
+      routedTo: existing.routedTo as 'primary' | 'ensemble' | 'critic',
+      ensembleModels: existing.ensembleModels ? JSON.parse(existing.ensembleModels) : undefined,
+      finalOutput: existing.finalOutput,
+      llmError: null,
+      decisionId: existing.id,
+      cached: true, // N5: signal to caller that this was a cache hit
+    }
+  }
 
   // Gate Selettivo
   let routedTo: 'primary' | 'ensemble' | 'critic' = 'primary'

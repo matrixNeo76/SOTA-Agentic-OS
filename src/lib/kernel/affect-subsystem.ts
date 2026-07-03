@@ -25,7 +25,8 @@ const WEIGHTS = {
   decayPerCycle: 0.05,           // decay naturale per ciclo
 }
 
-let cycleCounter = 0
+// N6 FIX: removed module-level cycleCounter — was causing cycleId collisions
+// in multi-instance/serverless. Now uses DB-backed count for unique cycleId.
 
 export type AffectInput = {
   agentId: string
@@ -51,8 +52,9 @@ export type AffectMetrics = {
  * Combina dati del ciclo corrente + decay della storia recente.
  */
 export async function computeAffect(input: AffectInput): Promise<AffectMetrics> {
-  cycleCounter += 1
-  const cycleId = Math.floor(Date.now() / 1000) % 100000 * 1000 + (cycleCounter % 1000)
+  // N6 FIX: DB-backed cycleId instead of module-level counter
+  const sampleCount = await db.affectSample.count()
+  const cycleId = Math.floor(Date.now() / 1000) % 100000 * 1000 + (sampleCount % 1000)
 
   // Tassi del ciclo corrente
   const toolFailureRate = input.toolCalls > 0 ? input.toolFailures / input.toolCalls : 0

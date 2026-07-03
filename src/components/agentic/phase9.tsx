@@ -84,7 +84,14 @@ export function Phase9() {
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
- useEffect(() => { void refresh() }, [])
+ useEffect(() => {
+   void refresh()
+   // N10: adaptive polling with Page Visibility API
+   const interval = setInterval(() => {
+     if (!document.hidden) void refresh()
+   }, 30_000)
+   return () => clearInterval(interval)
+ }, [])
 
  const grantDelegation = async () => {
  let constraints: unknown
