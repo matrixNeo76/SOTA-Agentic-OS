@@ -79,11 +79,28 @@ export async function POST(req: NextRequest) {
     }
     try {
       const result = await installTool({ toolId, name, version, description, publisher }, installedBy || actor)
-      // Applica permessi di default se specificati
-      if (defaultPermissions && Array.isArray(defaultPermissions)) {
-        for (const scope of defaultPermissions) {
-          await setPermission(toolId, scope, true, installedBy || actor)
+      // B8 — Applica permessi di default in batch (PRIMA: N+1 setPermission loop).
+      // Verifica che gli scopes richiesti siano validi, poi upsert in parallelo.
+      if (defaultPermissions && Array.isArray(defaultPermissions) && defaultPermissions.length > 0) {
+        const validScopes = new Set<string>([
+          'filesystem:read', 'filesystem:write',
+          'network:get', 'network:post',
+          'tool:exec', 'db:read', 'db:write',
+          'process:spawn', 'env:read', 'secret:access',
+        ])
+        const invalid = defaultPermissions.filter((s: string) => !validScopes.has(s))
+        if (invalid.length > 0) {
+          return NextResponse.json(
+            { ok: false, error: `Scope non validi: ${invalid.join(', ')}` },
+            { status: 400 },
+          )
         }
+        // setPermission è safe (upsert), può girare in parallelo
+        await Promise.all(
+          defaultPermissions.map((scope: string) =>
+            setPermission(toolId, scope, true, installedBy || actor),
+          ),
+        )
       }
       await publishAgentEvent({
         agentId: 'tool-registry', phase: '18',

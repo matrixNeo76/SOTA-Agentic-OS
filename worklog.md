@@ -786,3 +786,70 @@ Stage Summary:
 - /api/steering e /api/admin/tools ora non leaked stack trace
 - require() inline rimossi (G4)
 - Prossimo: Fase 3 (B3, B5-B8, G1-G3) bug fix & UX
+
+---
+Task ID: PHASE3-TOOLMANAGER-FASE3
+Agent: main
+Task: Fase 3 — Bug fix & UX (B3, B5-B8, G1-G3)
+
+Work Log:
+- B3: Sostituito dynamic Tailwind class con lookup map in phase3.tsx:
+  * PRIMA: `border-${lastStrategy.toLowerCase()}-500/30` (JIT purged, non renderizza)
+  * ORA: STRATEGY_STYLE[lastStrategy].border statico ('border-status-info/30' etc.)
+  * Aggiunto campo `border` a STRATEGY_STYLE per tutte e 5 le strategie
+- B5: try/catch + toast.error in tool-manager.tsx (5 funzioni):
+  * refresh: HTTP status check + catch network error
+  * install: try/catch con toast su fetch/parse/install failure
+  * revoke: try/catch + confirm() dialog (PRIMA: revoke accidentale possibile)
+  * togglePermission: try/catch + HTTP status check
+  * installBuiltin: try/catch
+  * BuiltinTools useEffect: catch su fetch builtin
+- B6: Rimosso dead code `let cycleCounter = 0` in acts.ts:
+  * Era incrementato in steer() ma mai letto
+  * cycleId è già unico via generateTimeSortableId()
+- B7: /api/tools POST install ora usa actor email (auth.email) come default installedBy:
+  * PRIMA: installedBy || 'admin' (placeholder generico)
+  * ORA: installedBy || actor (admin.email dalla sessione)
+  * Verificato da test: 'install logs actor email in publishAgentEvent'
+- B8: Batch defaultPermissions in /api/tools POST install:
+  * PRIMA: for-loop con await setPermission → N+1 query (10 scopes × 3 round-trips = 30 query)
+  * ORA: Promise.all + scope validation (1 round-trip parallel)
+  * Aggiunta validazione: scopes non validi → 400 con lista
+- G1: 37 nuovi unit test in tests/unit/phase3-toolmanager-core.test.ts:
+  * acts.ts decideStrategy: 11 test (HALT, CHECK errors, PLAN step 0, EXECUTE after PLAN,
+    CHECK after EXECUTE, PLAN/EXECUTE after CHECK, PLAN after REFLECT, fallback,
+    boundary budget=50, boundary errors=2)
+  * acts.ts STEERING_VOCABULARY: 3 test (5 strategie, struttura, HALT budget=0)
+  * acts.ts B6: 2 test (no cycleCounter export, steer result structure)
+  * tool-registry installTool: 2 test (signature + 10 permessi, dedup P2002)
+  * tool-registry setPermission: 3 test (concede, idempotent, revoke)
+  * tool-registry checkToolPermission: 2 test (not granted, not installed)
+  * tool-registry revokeTool: 2 test (disattiva + revoca permessi, throw su non esistente)
+  * tool-registry listTools: 2 test (structure, includeRevoked)
+  * tool-registry toolStats: 1 test (structure)
+  * tool-registry AVAILABLE_SCOPES + BUILTIN_TOOLS: 2 test (10 scope, 3 builtin)
+  * builtin-tools isPathAllowed (B1): 3 test (sibling block, inside allow, boundary path===allowed)
+  * builtin-tools listBuiltinTools + getBuiltinTool: 4 test (7 tools, by name, undefined, structure)
+- G3: try/catch su refresh() in phase3.tsx:
+  * PRIMA: const r = await fetch('/api/steering'); const d = await r.json() (unhandled rejection)
+  * ORA: try/catch + HTTP status check + toast.error
+- G2: aria-* minimi su phase3.tsx e tool-manager.tsx:
+  * phase3.tsx: aria-label su Step/Auto-run/Reset buttons, role="status" aria-live su steering phrase
+  * tool-manager.tsx: aria-label su Revoca button, Switch, Installa button
+- Verifica:
+  * tsc --noEmit: 0 errori nei file modificati
+  * 268/268 test passano (217 integration + 51 unit Phase3/LearnDomain)
+  * 37 nuovi unit test, 0 regressioni
+
+Stage Summary:
+- 5 file modificati + 1 nuovo test file
+- 37 nuovi unit test (tutti passing)
+- 0 TypeScript errors nei file modificati
+- 0 regressioni (tutti 268 test passing)
+- phase3.tsx: dynamic Tailwind fixato + refresh robusta + a11y
+- tool-manager.tsx: 5 funzioni con try/catch + confirm su revoke + a11y
+- acts.ts: dead code rimosso (cycleCounter)
+- tool-registry.ts: commento B8 su createMany (già usato)
+- /api/tools: install defaultPermissions parallel + scope validation
+- MODULO PHASE 3 (ACTS) + TOOL MANAGER COMPLETATO (Fasi 1-3)
+- TUTTI I 12 MODULI DEL PROGETTO SONO STATI ANALIZZATI E FIXATI

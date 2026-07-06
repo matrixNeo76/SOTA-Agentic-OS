@@ -41,8 +41,6 @@ export const STEERING_VOCABULARY: Record<Strategy, { phrase: string; budgetCost:
   },
 }
 
-let cycleCounter = 0
-
 /**
  * Decide la prossima strategia in base allo stato del ciclo.
  * Logica deterministica (rule-based, no LLM qui → O(1)).
@@ -84,7 +82,8 @@ export async function steer(
   lastCheckPassed: boolean | null,
   errorsConsecutive: number
 ): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number }> {
-  cycleCounter += 1
+  // B6 — cycleCounter (ex module-level) era incrementato ma mai letto.
+  // Rimosso: cycleId basato su generateTimeSortableId() è già unico.
   // UUID v7 time-sortable: timestamp + counter casuale
   const cycleId = generateTimeSortableId()
   const budgetRemaining = budgetTotal - budgetUsed

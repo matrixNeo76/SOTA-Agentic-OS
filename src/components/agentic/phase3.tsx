@@ -24,12 +24,12 @@ type HistoryItem = {
  phrase: string; tokenBudget: number; tokenUsed: number; timestamp: string;
 }
 
-const STRATEGY_STYLE: Record<Strategy, { color: string; bg: string; icon: any }> = {
- PLAN: { color: 'text-status-info', bg: 'bg-status-info', icon: Brain },
- EXECUTE: { color: 'text-status-ok', bg: 'bg-status-ok', icon: Zap },
- CHECK: { color: 'text-status-warn', bg: 'bg-status-warn', icon: CheckCircle2 },
- REFLECT: { color: 'text-cat-cognitive', bg: 'bg-cat-cognitive', icon: Compass },
- HALT: { color: 'text-status-danger', bg: 'bg-status-danger', icon: Square },
+const STRATEGY_STYLE: Record<Strategy, { color: string; bg: string; border: string; icon: any }> = {
+ PLAN: { color: 'text-status-info', bg: 'bg-status-info', border: 'border-status-info/30', icon: Brain },
+ EXECUTE: { color: 'text-status-ok', bg: 'bg-status-ok', border: 'border-status-ok/30', icon: Zap },
+ CHECK: { color: 'text-status-warn', bg: 'bg-status-warn', border: 'border-status-warn/30', icon: CheckCircle2 },
+ REFLECT: { color: 'text-cat-cognitive', bg: 'bg-cat-cognitive', border: 'border-cat-cognitive/30', icon: Compass },
+ HALT: { color: 'text-status-danger', bg: 'bg-status-danger', border: 'border-status-danger/30', icon: Square },
 }
 
 export function Phase3() {
@@ -46,10 +46,19 @@ export function Phase3() {
  const [autoRun, setAutoRun] = useState(false)
 
  const refresh = async () => {
+ // G3 — try/catch per evitare unhandled promise rejection su network error
+ try {
  const r = await fetch('/api/steering')
+ if (!r.ok) {
+ toast.error(`Caricamento steering fallito (HTTP ${r.status})`)
+ return
+ }
  const d = await r.json()
  setVocabulary(d.vocabulary)
  setHistory(d.history || [])
+ } catch (e: any) {
+ toast.error(`Caricamento steering fallito: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  useEffect(() => { refresh() }, [])
@@ -163,7 +172,12 @@ export function Phase3() {
  </div>
 
  <div className="flex gap-2">
- <Button size="sm" onClick={doStep} disabled={stepping || lastStrategy === 'HALT'}>
+ <Button
+ size="sm"
+ onClick={doStep}
+ disabled={stepping || lastStrategy === 'HALT'}
+ aria-label="Esegui uno step di steering"
+ >
  <Play className="size-3.5 mr-1.5" /> Step
  </Button>
  <Button
@@ -171,11 +185,13 @@ export function Phase3() {
  variant={autoRun ? 'destructive' : 'outline'}
  onClick={() => setAutoRun(!autoRun)}
  disabled={lastStrategy === 'HALT'}
+ aria-label={autoRun ? 'Ferma auto-run' : 'Avvia auto-run'}
+ aria-pressed={autoRun}
  >
  {autoRun ? <Square className="size-3.5 mr-1.5" /> : <Zap className="size-3.5 mr-1.5" />}
  {autoRun ? 'Stop' : 'Auto-run'}
  </Button>
- <Button size="sm" variant="ghost" onClick={reset}>
+ <Button size="sm" variant="ghost" onClick={reset} aria-label="Resetta il ciclo cognitivo">
  <RotateCcw className="size-3.5 mr-1.5" /> Reset
  </Button>
  </div>
@@ -189,7 +205,9 @@ export function Phase3() {
  </CardHeader>
  <CardContent className="space-y-4">
  {currentPhrase ? (
- <div className={cn('rounded-md p-4 border', STRATEGY_STYLE[lastStrategy].bg, `border-${lastStrategy.toLowerCase()}-500/30`)}>
+ // B3 — border class non più dinamica (border-${strategy}-500/30 purged da JIT).
+ // Usa STRATEGY_STYLE[lastStrategy].border lookup statica.
+ <div className={cn('rounded-md p-4 border', STRATEGY_STYLE[lastStrategy].bg, STRATEGY_STYLE[lastStrategy].border)} role="status" aria-live="polite" aria-label={`Steering phrase per strategia ${lastStrategy}`}>
  <div className="flex items-center gap-2 mb-2">
  {(() => {
  const Icon = STRATEGY_STYLE[lastStrategy].icon

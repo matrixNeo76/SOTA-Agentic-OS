@@ -71,7 +71,9 @@ export async function installTool(spec: ToolSpec, installedBy = 'admin'): Promis
     },
   })
 
-  // Crea tutti i permessi predefiniti come negati (principio minimo privilegio)
+  // B8 — Batch insert di tutti i permessi default in una singola query
+  // (PRIMA: N+1 con 10 setPermission calls × 3 round-trips = 30 query).
+  // createMany è atomico e O(1) round-trip.
   const perms = AVAILABLE_SCOPES.map((scope) => ({
     toolId: tool.id,
     scope,
