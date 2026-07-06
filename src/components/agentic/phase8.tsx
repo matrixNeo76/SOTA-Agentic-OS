@@ -22,7 +22,7 @@ import { LeanWorkflowVisualizer } from './dag-visualizers'
 type Plan = { id: string; taskGoal: string; status: string; agentCount: number }
 type Workflow = {
  id: string; planId: string; verified: boolean; deployed: boolean; version: number;
- leanSource: string; createdAt: string
+ leanSource: string; contractsJson: string; createdAt: string
 }
 type EvolveEvent = {
  id: string; planId: string; failedTaskId: string; failureReason: string;
@@ -289,21 +289,46 @@ export function Phase8() {
  <CardDescription>Visualizzazione React Flow dei contratti Lean4 con pre/post conditions</CardDescription>
  </CardHeader>
  <CardContent>
- {verification?.results ? (
- <LeanWorkflowVisualizer
- contracts={verification.results.map((r: any) => ({
- taskId: r.taskId,
- verified: r.verified,
- preconditions: r.warnings || [],   // B2 FIXME: should fetch actual contracts from /api/lean?action=workflows
- postconditions: r.errors || [],    // B2 FIXME: these are issue strings, not contract predicates
- }))}
- dependencies={{}}
- />
- ) : (
+ {(() => {
+ // B2 FIX: usa contracts reali dal VerifiedWorkflow più recente del piano
+ // selezionato (PRIMA: warnings/errors della verification corrente, che sono
+ // issue strings non contract predicates).
+ const wfForGraph = selectedPlan
+ ? workflows.find((w) => w.planId === selectedPlan)
+ : workflows[0]
+ if (!wfForGraph) {
+ return (
  <div className="text-xs text-muted-foreground italic p-8 text-center border rounded-md">
  Esegui la verifica formale nel tab "Verifica" per visualizzare il grafo del workflow.
  </div>
- )}
+ )
+ }
+ // Parse contractsJson: array di { taskId, preconditions, postconditions, verified }
+ let contracts: Array<{ taskId: string; preconditions: string[]; postconditions: string[]; verified: boolean }> = []
+ try {
+ contracts = JSON.parse(wfForGraph.contractsJson || '[]')
+ } catch {
+ contracts = []
+ }
+ if (contracts.length === 0) {
+ return (
+ <div className="text-xs text-muted-foreground italic p-8 text-center border rounded-md">
+ Workflow vuoto (nessun contratto formale). Esegui "Auto-genera contratti" nel tab "Verifica".
+ </div>
+ )
+ }
+ return (
+ <LeanWorkflowVisualizer
+ contracts={contracts.map((c) => ({
+ taskId: c.taskId,
+ verified: c.verified,
+ preconditions: c.preconditions || [],
+ postconditions: c.postconditions || [],
+ }))}
+ dependencies={{}}
+ />
+ )
+ })()}
  </CardContent>
  </Card>
  </TabsContent>

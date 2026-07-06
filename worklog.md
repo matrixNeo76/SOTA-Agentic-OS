@@ -853,3 +853,58 @@ Stage Summary:
 - /api/tools: install defaultPermissions parallel + scope validation
 - MODULO PHASE 3 (ACTS) + TOOL MANAGER COMPLETATO (Fasi 1-3)
 - TUTTI I 12 MODULI DEL PROGETTO SONO STATI ANALIZZATI E FIXATI
+
+---
+Task ID: AUDIT-HARDENING-FASE4
+Agent: main
+Task: Fase 4 — Documentation + B2 phase8 fix + E2E smoke tests
+
+Work Log:
+- B2 phase8 fix: Sostituito preconditions/postconditions mock con contracts reali:
+  * PRIMA: r.warnings (issue strings) come preconditions, r.errors come postconditions
+  * ORA: parse di wfForGraph.contractsJson dal VerifiedWorkflow più recente del piano selezionato
+  * Aggiunto campo contractsJson al tipo Workflow
+  * Aggiunto fallback: workflow vuoto → messaggio "Auto-genera contratti"
+- README.md: Aggiunta sezione "Audit & Hardening Cycle" prima di "Licenza":
+  * Tabella 5 moduli auditati con link ai report
+  * Risultati complessivi (20+ C, 35+ B, 20+ G, 268+ test)
+  * Sezione Sicurezza con 7 ✓ (auth, SSRF, path traversal, RCE, key consistency, scope check, info leak)
+  * Tabella 3 known issues residui (B2 apiKey, N3 ensemble, B2 Lean4) con sforzo
+- ARCHITECTURE.md: Aggiunta sezione 13 "Audit & Hardening Cycle":
+  * 13.1 Moduli auditati e stato (tabella)
+  * 13.2 Categorie di fix (C/B/G con esempi)
+  * 13.3 Metriche finali (12 moduli, 268+ test, 100% pass rate)
+  * 13.4 Known issues residui (3 future work)
+- E2E smoke tests: 16 nuovi test in tests/e2e/audit-hardening-smoke.test.ts:
+  * Smoke 1 (Tool install + grant + dispatch): 2 test
+    - admin installa, concede scope, dispatch passa scope check
+    - install via /api/tools + check_permission via /api/tools
+  * Smoke 2 (Steering cycle): 4 test
+    - sequenza PLAN → EXECUTE → CHECK
+    - POST /api/steering 200 + result
+    - POST /api/steering 400 per JSON invalido (B4)
+    - HALT quando budget < 50
+  * Smoke 3 (Auth boundary): 8 test
+    - viewer 403 install/revoke/set_permission
+    - viewer 200 check_permission (read-only)
+    - viewer 403 admin/tools GET + POST
+    - admin 200 install
+    - 401 senza sessione su /api/tools e /api/steering
+  * Smoke 4 (SSRF invariant): 2 test
+    - cloud metadata bloccato su 3 invocazioni consecutive (no state leakage)
+    - 8 SSRF targets comuni tutti bloccati
+- Verifica finale:
+  * 938/939 test passing (1 flaky preesistente crash-resume C7b che passa da solo)
+  * 16/16 nuovi E2E smoke passing
+  * 0 TypeScript errors nei file Fase 4
+  * 0 ESLint errors nei file modificati
+  * npx tsc --noEmit: pulito su phase8 + lean + audit-hardening
+
+Stage Summary:
+- 4 file modificati + 1 nuovo test file + 2 doc aggiornate
+- 16 nuovi E2E smoke test (tutti passing)
+- 0 TypeScript errors, 0 ESLint errors
+- B2 phase8 FIXME chiuso (preconditions/postconditions reali)
+- README.md + ARCHITECTURE.md aggiornate con stato audit/fix completo
+- 3 known issues residui documentati come future work
+- CICLO AUDIT & HARDENING COMPLETATO su tutti i 12 moduli
