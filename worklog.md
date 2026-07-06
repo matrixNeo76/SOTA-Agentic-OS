@@ -718,3 +718,71 @@ Stage Summary:
 - G1: zero test per acts.ts e tool-registry.ts (solo 23 LOC trivial)
 - CON QUESTO AUDIT, TUTTI I 12 MODULI DEL PROGETTO SONO STATI ANALIZZATI
 - Prossimo: Fase 2 (C1-C4, B1, B4) sicurezza & data integrity
+
+---
+Task ID: PHASE3-TOOLMANAGER-FASE2
+Agent: main
+Task: Fase 2 — Sicurezza & data integrity (C1-C4, B1, B4)
+
+Work Log:
+- Pre-check allineamento repo: locale vs GitHub divergenza solo mode bits
+  (100755 vs 100644), contenuto identico. Reset --hard origin/main per
+  allineare, disabilitato core.fileMode per evitare futuri drift.
+- C1: Standardizzato ToolPermission.toolId su tool.id (cuid interno) ovunque:
+  * installTool (tool-registry.ts) — già corretto (scrive tool.id)
+  * admin/tools grant-scope (admin/tools/route.ts) — ORA fa lookup tool.toolId
+    → tool.id e salva tool.id (PRIMA salvava toolId user-facing)
+  * Aggiunto upsert per idempotenza (no duplicati su grant multipli)
+  * executeRegistered (tool-dispatcher.ts) — usa tool.id nella signature tipo
+  * checkToolPermission/setPermission — già corretti (lookup tool.id interno)
+- C2: Fix executeRegistered da existence-based a scope-based check:
+  * PRIMA: findMany({toolId, granted:true}).length === 0 → blocca
+    (qualsiasi permesso granted sblocca l'intero tool)
+  * ORA: usa checkToolPermission(tool.toolId, scope) per ogni scope richiesto
+  * Scope richiesti: ['tool:exec'] default + 'network:get'/'network:post'
+    in base al transport (http/mcp)
+  * Aggiunto requiredScopes? a DispatchOptions (overridable dal chiamante)
+- C3: requireAdmin su POST /api/tools per azioni mutative:
+  * PRIMA: requireAuth su tutto il POST → viewer può install/revoke/set_perm
+  * ORA: requireAuth per parse body + check_permission (read-only),
+    poi requireAdmin per install/revoke/set_permission (mutative)
+  * Actor email loggato in publishAgentEvent payload
+- C4: SSRF protection in http.fetch builtin tool:
+  * Implementato assertSafeUrl() con:
+    - hostname string checks: localhost, .localhost, .local, 0.0.0.0, ::
+    - IP literal check: isPrivateIP() per IPv4/IPv6
+    - DNS lookup + check su tutti gli IP risolti
+  * isPrivateIP() blocca: 127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16,
+    172.16.0.0/12, 169.254.0.0/16 (cloud metadata!), 0.0.0.0/8, CGNAT,
+    IPv6 ::1, ::, fe80::/10, fc00::/7, NAT64, ::ffff: mapped
+- B1: Fix isPathAllowed con path-separator-aware comparison:
+  * PRIMA: filePath.startsWith(resolved) → '/tmp/foo' consentiva '/tmp/foobar'
+  * ORA: filePath === resolved || filePath.startsWith(resolved + sep)
+- B2: Documentato apiKey plaintext come known issue in admin/tools/route.ts
+  (richiede secret manager non disponibile in fase di bootstrapping)
+- B4: try/catch strutturato su /api/steering e /api/admin/tools:
+  * GET e POST wrappati in try/catch
+  * Body parsing separato con 400 su JSON invalido
+  * 500 con {error, detail} invece di stack trace
+- G4: Rimossi require() inline in builtin-tools.ts (lines 139 e 171):
+  * Sostituiti con import top-level: dirname, readdirSync, statSync
+- Test: 28 nuovi test integration in tests/integration/phase3-toolmanager-fase2.test.ts:
+  * C1 key consistency: 4 test (installTool, grant-scope, checkToolPermission, idempotent)
+  * C3 auth: 6 test (viewer 403 install/revoke/set_perm, admin 200, actor logging)
+  * C4 SSRF: 8 test (127.0.0.1, localhost, 169.254.169.254, 192.168, 10.0, ::1, .local, ftp://)
+  * B1 path traversal: 4 test (sibling block, inside allow, path===allowed, write block)
+  * B4 try/catch: 4 test (steering invalid JSON, steering valid, admin/tools invalid, admin/tools GET)
+  * C2 scope-based: 2 test (no tool:exec blocked, with exec+network:post passes scope check)
+
+Stage Summary:
+- 6 file modificati + 1 nuovo test file
+- 28 nuovi test integration (tutti passing, 217/217 total integration tests green)
+- 0 TypeScript errors nei file modificati
+- ToolPermission.toolId ora coerente: tool.id (cuid) ovunque
+- executeRegistered ora verifica scope-specific (non existence-based)
+- /api/tools POST mutative ora admin-only (viewer non può install/revoke/set_perm)
+- http.fetch ora blocca SSRF (localhost, private IPs, cloud metadata)
+- isPathAllowed ora path-aware (no prefix match bypass)
+- /api/steering e /api/admin/tools ora non leaked stack trace
+- require() inline rimossi (G4)
+- Prossimo: Fase 3 (B3, B5-B8, G1-G3) bug fix & UX

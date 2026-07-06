@@ -17,6 +17,7 @@
  */
 
 import { db } from '@/lib/db'
+import { checkToolPermission } from '@/lib/kernel/tool-registry'
 import { getBuiltinTool, type BuiltinTool, type ToolExecutionContext, type ToolResult } from './builtin-tools'
 
 // === Tipi ============================================================
@@ -36,7 +37,8 @@ export interface DispatchOptions {
   planId: string
   taskId: string
   timeout?: number
-  allowedScopes?: string[] // scope concessi all'agente
+  allowedScopes?: string[] // scope concessi all'agente (per builtin tools)
+  requiredScopes?: string[] // scope richiesti dal tool registrato (default: ['tool:exec'])
 }
 
 // === Main dispatcher =================================================
@@ -127,31 +129,47 @@ async function executeBuiltin(
   }
 }
 
-// === Registered tool execution (HTTP + MCP) — C2 ====================
+// === Registered tool execution (HTTP + MCP) — C1+C2 =================
+// C1: ToolPermission.toolId ora standardizzato su tool.id (cuid interno).
+//     - installTool (tool-registry.ts) scrive tool.id
+//     - admin/tools grant-scope ora fa lookup tool.toolId → tool.id e scrive tool.id
+//     - qui query per tool.id (NON tool.toolId)
+// C2: scope check ora è scope-based (non existence-based).
+//     Verifica TUTTI gli scopes richiesti siano granted per il tool,
+//     non solo "almeno un permesso granted".
 
 async function executeRegistered(
-  tool: { toolId: string; name: string; description: string | null; transport?: string | null; endpoint?: string | null; apiKey?: string | null },
+  tool: { id: string; toolId: string; name: string; description: string | null; transport?: string | null; endpoint?: string | null; apiKey?: string | null },
   call: ToolCallRequest,
   options: DispatchOptions,
   startTime: number,
   timeout: number,
 ): Promise<ToolCallResult> {
-  // Cerca permessi per questo tool
-  const permissions = await db.toolPermission.findMany({
-    where: { toolId: tool.toolId, granted: true },
-  })
+  // C2 — Scope check: ogni scope richiesto deve essere granted per il tool.
+  // Default richiesto: 'tool:exec'. Se transport=http e method POST, anche 'network:post'.
+  // Se transport=mcp, anche 'network:get' (MCP tool call via HTTP).
+  const requiredScopes = new Set<string>(options.requiredScopes || ['tool:exec'])
+  const method = (call.arguments.__method as string) || (call.arguments.method as string) || 'POST'
+  if (tool.transport === 'http') {
+    requiredScopes.add(method.toUpperCase() === 'GET' ? 'network:get' : 'network:post')
+  } else if (tool.transport === 'mcp') {
+    requiredScopes.add('network:get')
+  }
 
-  if (permissions.length === 0) {
-    return {
-      toolName: call.name,
-      success: false,
-      output: '',
-      error: `No permissions granted for tool: ${tool.toolId}`,
-      durationMs: Date.now() - startTime,
+  for (const scope of requiredScopes) {
+    const check = await checkToolPermission(tool.toolId, scope)
+    if (!check.authorized) {
+      return {
+        toolName: call.name,
+        success: false,
+        output: '',
+        error: `Permission denied: ${check.reason}`,
+        durationMs: Date.now() - startTime,
+      }
     }
   }
 
-  // C2 — Dispatch basato sul transport
+  // Dispatch basato sul transport
   const transport = tool.transport
   const endpoint = tool.endpoint
 

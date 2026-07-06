@@ -15,8 +15,10 @@
  *   - Tutti i tool rispettano timeout (10s default)
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join, resolve, isAbsolute } from 'path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { join, resolve, isAbsolute, dirname, sep } from 'path'
+import { lookup } from 'dns/promises'
+import { isIP } from 'net'
 import { getCachedArray, isCacheLoaded } from '@/lib/settings'
 
 // === Tipi ============================================================
@@ -136,7 +138,7 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
         return { success: false, output: '', error: `Path not allowed: ${filePath}` }
       }
       try {
-        const dir = require('path').dirname(filePath)
+        const dir = dirname(filePath)
         mkdirSync(dir, { recursive: true })
         writeFileSync(filePath, params.content as string, 'utf-8')
         return {
@@ -168,7 +170,6 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
         return { success: false, output: '', error: `Path not allowed: ${dirPath}` }
       }
       try {
-        const { readdirSync, statSync } = require('fs')
         const entries = readdirSync(dirPath)
         const result = entries.map((name: string) => {
           const stat = statSync(join(dirPath, name))
@@ -200,6 +201,12 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
       const url = params.url as string
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         return { success: false, output: '', error: 'Only http/https URLs allowed' }
+      }
+      // C4 — SSRF protection: block localhost, loopback, private, link-local,
+      // cloud metadata IPs (169.254.169.254) and IPv6 ULA/link-local.
+      const ssrfCheck = await assertSafeUrl(url)
+      if (!ssrfCheck.ok) {
+        return { success: false, output: '', error: ssrfCheck.reason }
       }
       try {
         const response = await fetch(url, {
@@ -328,10 +335,121 @@ function resolvePath(p: string, ctx: ToolExecutionContext): string {
 }
 
 function isPathAllowed(filePath: string, allowedPaths: string[]): boolean {
+  // B1 — Path-separator-aware comparison (non string prefix match).
+  // PRIMA: `filePath.startsWith(resolved)` → '/tmp/foo' consentiva '/tmp/foobar'
+  // ORA:   `filePath === resolved || filePath.startsWith(resolved + sep)`
+  //        assicura che solo path dentro la directory consentita siano ammessi.
   for (const allowed of allowedPaths) {
     const resolved = resolve(allowed)
-    if (filePath.startsWith(resolved)) return true
+    if (filePath === resolved) return true
+    if (filePath.startsWith(resolved + sep)) return true
   }
+  return false
+}
+
+// === SSRF Protection (C4) ============================================
+
+/**
+ * Verifica che un URL non punti a host privati/loopback/metadata.
+ * Blocca:
+ *   - hostname string: 'localhost', '*.localhost', '*.local'
+ *   - IPv4 loopback: 127.0.0.0/8
+ *   - IPv4 private: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ *   - IPv4 link-local: 169.254.0.0/16 (include AWS/GCP metadata 169.254.169.254)
+ *   - IPv4 unspecified: 0.0.0.0/8
+ *   - IPv6 loopback: ::1
+ *   - IPv6 unspecified: ::
+ *   - IPv6 ULA: fc00::/7 (unique local addresses)
+ *   - IPv6 link-local: fe80::/10
+ *
+ * Risolve il hostname via DNS per verificare l'IP effettivo (TOCTOU: la risoluzione
+ * avviene prima della fetch; in caso di DNS rebinding la fetch potrebbe comunque
+ * raggiungere un IP diverso. Mitigazione completa richiede custom DNS resolver
+ * + IP pinning, fuori scope per ora).
+ */
+async function assertSafeUrl(urlStr: string): Promise<{ ok: boolean; reason?: string }> {
+  let parsed: URL
+  try {
+    parsed = new URL(urlStr)
+  } catch {
+    return { ok: false, reason: `Invalid URL: ${urlStr}` }
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '') // strip IPv6 brackets
+
+  // 1. String-based hostname checks
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    return { ok: false, reason: `SSRF blocked: localhost not allowed (${hostname})` }
+  }
+  if (hostname.endsWith('.local')) {
+    return { ok: false, reason: `SSRF blocked: .local hostnames not allowed (${hostname})` }
+  }
+  if (hostname === '0.0.0.0' || hostname === '::' || hostname === '[::]') {
+    return { ok: false, reason: `SSRF blocked: unspecified address (${hostname})` }
+  }
+
+  // 2. If hostname is already an IP literal, check it directly
+  if (isIP(hostname)) {
+    if (isPrivateIP(hostname)) {
+      return { ok: false, reason: `SSRF blocked: private/loopback IP (${hostname})` }
+    }
+    return { ok: true }
+  }
+
+  // 3. DNS lookup — resolve hostname and check ALL resolved IPs
+  let addresses: Array<{ address: string }>
+  try {
+    addresses = await lookup(hostname, { all: true })
+  } catch (err: any) {
+    // DNS resolution failed; let fetch handle the error
+    return { ok: true }
+  }
+
+  if (addresses.length === 0) {
+    return { ok: true }
+  }
+
+  for (const { address } of addresses) {
+    if (isPrivateIP(address)) {
+      return { ok: false, reason: `SSRF blocked: ${hostname} resolves to private IP ${address}` }
+    }
+  }
+
+  return { ok: true }
+}
+
+/**
+ * Verifica se un IP (IPv4 o IPv6) è privato/loopback/link-local.
+ */
+function isPrivateIP(ip: string): boolean {
+  // IPv4
+  if (isIP(ip) === 4) {
+    if (/^127\./.test(ip)) return true // loopback
+    if (/^10\./.test(ip)) return true // private
+    if (/^192\.168\./.test(ip)) return true // private
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return true // private
+    if (/^169\.254\./.test(ip)) return true // link-local + cloud metadata
+    if (/^0\./.test(ip)) return true // unspecified
+    if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(ip)) return true // CGNAT
+    if (/^192\.0\.[01]\./.test(ip)) return true // IETF protocol assignments
+    if (/^198\.(1[89])\./.test(ip)) return true // benchmarking
+    return false
+  }
+
+  // IPv6
+  if (isIP(ip) === 6) {
+    if (ip === '::1') return true // loopback
+    if (ip === '::') return true // unspecified
+    if (/^fe[89ab]/i.test(ip)) return true // link-local fe80::/10
+    if (/^f[cd]/i.test(ip)) return true // ULA fc00::/7
+    if (/^64:ff9b:/i.test(ip)) return true // NAT64
+    if (/^100::/i.test(ip)) return true // discard prefix
+    // IPv4-mapped IPv6: ::ffff:a.b.c.d
+    const v4mapped = ip.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+    if (v4mapped && isPrivateIP(v4mapped[1])) return true
+    return false
+  }
+
   return false
 }
 
