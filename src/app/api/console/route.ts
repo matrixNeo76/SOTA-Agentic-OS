@@ -224,6 +224,8 @@ Regole:
           lastStrategy, lastCheckPassed, errorsConsecutive
         )
         step.strategy = steerResult.strategy
+        // C1 fix — salva la phrase per iniettarla nella chiamata LLM qui sotto
+        ;(step as any).steeringPhrase = steerResult.phrase
         budgetUsed += steerResult.tokenUsed
         lastStrategy = steerResult.strategy
       } catch (e: any) {
@@ -296,7 +298,11 @@ Regole:
 
       // --- Esecuzione task via LLM ---
       try {
-        const execResult = await executeTaskWithLLM(taskSpec, plan.goal, i, steps)
+        const execResult = await executeTaskWithLLM(
+          taskSpec, plan.goal, i, steps,
+          // C1 fix — passa la steering phrase per iniettarla nel prompt LLM
+          (step as any).steeringPhrase as string | undefined,
+        )
 
         if (execResult.success) {
           step.status = 'done'
@@ -442,7 +448,8 @@ async function executeTaskWithLLM(
   task: { taskId: string; agentId: string; description: string },
   goal: string,
   stepIndex: number,
-  previousSteps: ExecutionStep[]
+  previousSteps: ExecutionStep[],
+  steeringPhrase?: string,
 ): Promise<{ success: boolean; output?: string; error?: string; suggestion?: string }> {
   try {
     const zai = await ZAI.create()
@@ -452,7 +459,14 @@ async function executeTaskWithLLM(
       `${s.taskId} (${s.agentId}): ${s.status} — ${s.result || 'nessun output'}`
     ).join('\n')
 
-    const prompt = `Sei l'agente "${task.agentId}" in un sistema operativo agentico.
+    // C1 fix — Inietta la steering phrase dell'ACTS Controller nel prompt.
+    // PRIMA: la phrase era calcolata da steer() ma scartata, l'LLM non la vedeva.
+    // ORA: la phrase prepende il prompt per indirizzare l'LLM verso la strategia.
+    const steeringBlock = steeringPhrase
+      ? `== ACTS Steering (strategia corrente: ${steeringPhrase}) ==\nSegui l'indirizzo cognitivo sopra per questo task.\n\n`
+      : ''
+
+    const prompt = `${steeringBlock}Sei l'agente "${task.agentId}" in un sistema operativo agentico.
 Obiettivo generale: ${goal}
 Task assegnato: ${task.description}
 

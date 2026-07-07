@@ -72,6 +72,10 @@ export function decideStrategy(state: {
 
 /**
  * Esegue uno steering event: decide, registra, consuma budget.
+ *
+ * G1 (ACTS audit) — Ora persiste anche lo stato FSM su SteeringState.
+ * Questo permette di riprendere un ciclo cognitivo interrotto (es. dopo
+ * refresh browser) e condividere lo stato tra UI, executor e API.
  */
 export async function steer(
   agentId: string,
@@ -80,7 +84,9 @@ export async function steer(
   step: number,
   lastStrategy: Strategy,
   lastCheckPassed: boolean | null,
-  errorsConsecutive: number
+  errorsConsecutive: number,
+  // G1 — planId opzionale per associare lo stato a un piano specifico
+  planId?: string,
 ): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number }> {
   // B6 — cycleCounter (ex module-level) era incrementato ma mai letto.
   // Rimosso: cycleId basato su generateTimeSortableId() è già unico.
@@ -104,12 +110,77 @@ export async function steer(
     },
   })
 
+  // G1 — Upsert dello stato FSM su SteeringState (per piano + agent, o solo agent)
+  const stateKey = { agentId_planId: { agentId, planId: planId || null } }
+  try {
+    await db.steeringState.upsert({
+      where: stateKey as any,
+      create: {
+        agentId,
+        planId: planId || null,
+        step,
+        lastStrategy: strategy, // salva la strategia DECISA, non l'input
+        lastCheckPassed,
+        errorsConsecutive,
+        budgetTotal,
+        budgetUsed: budgetUsed + tokenUsed,
+      },
+      update: {
+        step,
+        lastStrategy: strategy, // aggiorna con la strategia appena decisa
+        lastCheckPassed,
+        errorsConsecutive,
+        budgetTotal,
+        budgetUsed: budgetUsed + tokenUsed,
+      },
+    })
+  } catch {
+    // Non bloccante: l'evento è già persistito su SteeringEvent
+  }
+
   return {
     strategy,
     phrase: entry.phrase,
     tokenUsed,
     budgetRemaining: budgetRemaining - tokenUsed,
   }
+}
+
+/**
+ * G1 (ACTS audit) — Recupera lo stato FSM persistito per un agent (+ optional planId).
+ * Ritorna null se non c'è stato precedente (prima chiamata).
+ */
+export async function getSteeringState(agentId: string, planId?: string): Promise<{
+  step: number
+  lastStrategy: Strategy
+  lastCheckPassed: boolean | null
+  errorsConsecutive: number
+  budgetTotal: number
+  budgetUsed: number
+  updatedAt: Date
+} | null> {
+  const state = await db.steeringState.findUnique({
+    where: { agentId_planId: { agentId, planId: planId || null } } as any,
+  })
+  if (!state) return null
+  return {
+    step: state.step,
+    lastStrategy: state.lastStrategy as Strategy,
+    lastCheckPassed: state.lastCheckPassed,
+    errorsConsecutive: state.errorsConsecutive,
+    budgetTotal: state.budgetTotal,
+    budgetUsed: state.budgetUsed,
+    updatedAt: state.updatedAt,
+  }
+}
+
+/**
+ * G1 (ACTS audit) — Reset dello stato FSM per ricominciare un ciclo.
+ */
+export async function resetSteeringState(agentId: string, planId?: string): Promise<void> {
+  await db.steeringState.deleteMany({
+    where: { agentId, planId: planId || null },
+  })
 }
 
 /**

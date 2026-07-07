@@ -171,6 +171,25 @@ model SteeringStrategy {
   active      Boolean  @default(true)
 }
 
+// G1 (ACTS audit) — Persistenza dello stato FSM tra richieste API.
+// Permette di riprendere un ciclo cognitivo interrotto (es. dopo refresh browser)
+// e condividere lo stato tra UI, executor e API. Upsert-ato ad ogni steer().
+model SteeringState {
+  id                String   @id @default(cuid())
+  agentId           String
+  planId            String?
+  step              Int      @default(0)
+  lastStrategy      String   @default("PLAN") // PLAN|EXECUTE|CHECK|REFLECT|HALT
+  lastCheckPassed   Boolean?
+  errorsConsecutive Int      @default(0)
+  budgetTotal       Int      @default(1000)
+  budgetUsed        Int      @default(0)
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+
+  @@unique([agentId, planId])
+}
+
 // =====================================================
 // FASE 4: Zero-Trust e Verifica Formale (AgentVerify)
 // =====================================================

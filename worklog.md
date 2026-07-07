@@ -948,3 +948,64 @@ Stage Summary:
   * Fase C (B3+B4+B6+G3+G4+G5+G6) — UX & completamento — 1 giornata — MEDIA
 - Totale stimato: 2.5 giornate
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: ACTS-CONTROLLER-FASE-A
+Agent: main
+Task: Fase A — C1+C2+G1 (fix effettività ACTS Controller)
+
+Work Log:
+- C1: Iniettata steeringPhrase nel ReAct loop (era scartata):
+  * Aggiunto `steeringPhrase?: string` a ReActOptions in react-loop.ts
+  * Rinominato SYSTEM_PROMPT → BASE_SYSTEM_PROMPT
+  * Costruito systemPrompt dinamico con sezione "ACTS Steering" se phrase presente
+  * executor.ts: passa `steeringPhrase: steeringResult.phrase` a executeReActLoop
+  * console/route.ts: aggiunto steeringPhrase a executeTaskWithLLM signature,
+    iniettato nel prompt come blocco prependuto
+  * La phrase ora raggiunge l'LLM (non è più cosmetica)
+- C2: Sostituiti parametri hardcoded in executor.ts con stato reale:
+  * Aggiunto `steeringState?` a executeTask params (backward compat: default a valori vecchi)
+  * Lo stato FSM viene letto dal caller (executePlan) invece che hardcoded
+  * executePlan: inizializza `steeringState` come variabile locale + snapshot per batch
+  * Dopo ogni batch: aggiorna step, lastStrategy, budgetUsed, errorsConsecutive,
+    lastCheckPassed in base al risultato dell'ultimo task
+  * Il FSM evolve durante l'esecuzione del piano (PLAN → EXECUTE → CHECK → ...)
+- G1: Aggiunto modello SteeringState per persistenza FSM:
+  * prisma/schema.prisma: nuovo modello SteeringState con unique([agentId, planId])
+    campi: step, lastStrategy, lastCheckPassed, errorsConsecutive, budgetTotal, budgetUsed
+  * prisma generate + db push (SQLite synced)
+  * acts.ts: steer() ora accetta planId? opzionale + fa upsert su SteeringState
+    (create usa `lastStrategy: strategy` = strategia DECISA, non input)
+  * acts.ts: aggiunte getSteeringState() e resetSteeringState()
+  * api/steering GET: ritorna anche `currentState` (per riprendere ciclo interrotto)
+  * api/steering POST: accetta `planId` nel body
+- Test: 14 nuovi test integration in tests/integration/acts-controller-faseA.test.ts:
+  * G1 SteeringState persistence: 6 test
+    - steer() crea stato su prima chiamata
+    - steer() upserta su chiamata successiva (no duplicati)
+    - steer() salva strategia decisa (non input)
+    - getSteeringState ritorna null se nessuno stato
+    - resetSteeringState rimuove stato
+    - unique per (agentId, planId) — stati diversi per piani diversi
+  * C1 ReAct loop injection: 3 test
+    - ReActOptions accetta steeringPhrase
+    - steer() ritorna sempre phrase
+    - executeTask backward compat (steeringState opzionale)
+  * C2 executeTask steeringState: 2 test
+    - executeTask accetta steeringState
+    - decideStrategy evoluto ritorna strategie corrette
+  * Smoke integration: 3 test
+    - steer() phrase contiene contenuto strategia-specifica
+    - system prompt include phrase se passata
+    - GET /api/steering ritorna currentState
+
+Stage Summary:
+- 5 file modificati + 1 nuovo test file + 1 schema migration
+- 14 nuovi test integration (tutti passing)
+- 284/284 test totali passing (0 regressioni)
+- 0 TypeScript errors nei file Fase A
+- C1: ACTS non è più cosmetico — la phrase raggiunge l'LLM via system prompt
+- C2: executeTask evolve il FSM durante il piano (no hardcoded)
+- G1: SteeringState persistito su DB, riprendibile dopo refresh
+- Modulo ACTS Controller ora FUNZIONA effettivamente a runtime
+- Prossimo: Fase B (C3+B1+B2+B5+B7) sicurezza & robustezza

@@ -58,10 +58,14 @@ export interface ReActOptions {
   maxIterations?: number
   signal?: AbortSignal
   onIteration?: (iteration: ReActIteration) => void
+  // C1 (ACTS audit) — Steering phrase iniettata dall'ACTS Controller.
+  // Se presente, viene prependuta al system prompt per indirizzare il
+  // comportamento dell'LLM verso la strategia corrente (PLAN/EXECUTE/CHECK/REFLECT/HALT).
+  steeringPhrase?: string
 }
 
 const MAX_ITERATIONS = 10
-const SYSTEM_PROMPT = `You are an autonomous agent in the SOTA Agentic OS. You can use tools to accomplish tasks.
+const BASE_SYSTEM_PROMPT = `You are an autonomous agent in the SOTA Agentic OS. You can use tools to accomplish tasks.
 
 When you need information or need to perform an action, call a tool. When you have enough information to answer, provide your final answer as plain text (no tool calls).
 
@@ -92,8 +96,20 @@ export async function executeReActLoop(options: ReActOptions): Promise<ReActResu
       },
     }))
 
+    // C1 (ACTS audit) — Costruisci il system prompt includendo la steering phrase
+    // se fornita dall'ACTS Controller. La phrase indirizza il LLM verso la strategia
+    // corrente (PLAN: struttura piano, EXECUTE: esegui step, CHECK: verifica, etc.).
+    const systemPrompt = options.steeringPhrase
+      ? `${BASE_SYSTEM_PROMPT}
+
+== ACTS Steering (strategia corrente) ==
+${options.steeringPhrase}
+
+Segui l'indirizzo cognitivo sopra indicato per questa iterazione.`
+      : BASE_SYSTEM_PROMPT
+
     const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       {
         role: 'user',
         content: `Task: ${options.task}\n${options.context ? `Context: ${options.context}` : ''}`,

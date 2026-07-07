@@ -3,7 +3,7 @@
  * ACTS Controller: decide strategia e applica steering phrase.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { steer, STEERING_VOCABULARY, steeringHistory } from '@/lib/kernel/acts'
+import { steer, STEERING_VOCABULARY, steeringHistory, getSteeringState } from '@/lib/kernel/acts'
 import { db } from '@/lib/db'
 import { publishAgentEvent } from '@/lib/ws-publish'
 import { requireAuth } from '@/lib/auth/require-auth'
@@ -14,6 +14,9 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const agentId = searchParams.get('agentId') || 'controller'
+    const planId = searchParams.get('planId') || undefined
+    // G1 — Recupera lo stato FSM persistito (per riprendere ciclo interrotto)
+    const currentState = await getSteeringState(agentId, planId)
     const [history, strategies] = await Promise.all([
       steeringHistory(agentId, 30),
       db.steeringStrategy.findMany(),
@@ -21,6 +24,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       vocabulary: STEERING_VOCABULARY,
       history,
+      currentState, // G1 — stato FSM corrente (null se prima chiamata)
       strategies: strategies.length ? strategies : Object.entries(STEERING_VOCABULARY).map(([name, info]) => ({
         name, triggerPhrase: info.phrase, description: info.description, budgetCost: info.budgetCost, active: true,
       })),
@@ -50,10 +54,12 @@ export async function POST(req: NextRequest) {
       lastStrategy = 'PLAN',
       lastCheckPassed = null,
       errorsConsecutive = 0,
+      planId,
     } = body
     const result = await steer(
       agentId, budgetTotal, budgetUsed, step,
-      lastStrategy, lastCheckPassed, errorsConsecutive
+      lastStrategy, lastCheckPassed, errorsConsecutive,
+      planId, // G1 — passa planId per associare lo stato al piano
     )
     await db.agentLog.create({
       data: {
@@ -66,7 +72,7 @@ export async function POST(req: NextRequest) {
     await publishAgentEvent({
       agentId, phase: '3',
       event: 'steer',
-      payload: { strategy: result.strategy, tokenUsed: result.tokenUsed },
+      payload: { strategy: result.strategy, tokenUsed: result.tokenUsed, planId },
     })
     return NextResponse.json({ ok: true, ...result })
   } catch (err: any) {
