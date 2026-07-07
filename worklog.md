@@ -908,3 +908,43 @@ Stage Summary:
 - README.md + ARCHITECTURE.md aggiornate con stato audit/fix completo
 - 3 known issues residui documentati come future work
 - CICLO AUDIT & HARDENING COMPLETATO su tutti i 12 moduli
+
+---
+Task ID: ACTS-CONTROLLER-FASE2-AUDIT
+Agent: main
+Task: Fase 2 — Audit approfondito modulo ACTS Controller (post Fase 1-4)
+
+Work Log:
+- Analizzati 6 file: acts.ts, api/steering/route.ts, phase3.tsx, executor.ts (snippet),
+  console/route.ts (snippet), prisma/schema.prisma (SteeringEvent/Strategy)
+- Verificati consumer di steer(): executor.ts (hardcoded params) e console/route.ts (loop stato)
+- Verificata assenza di integrazione steer() phrase → react-loop.ts (SYSTEM_PROMPT statico)
+- Verificato cycleId non unique constraint + generateTimeSortableId collision risk
+- Compilato report in docs/ACTS-CONTROLLER-FASE2-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: steering phrase calcolata ma mai iniettata nel ReAct loop (ACTS cosmetico)
+  * C2: executor.ts chiama steer() con 6 parametri hardcoded (no stato reale)
+  * C3: cycleId collision risk (~1% per chiamate nello stesso minuto)
+- 7 bug medi (B1-B7):
+  * B1: HALT threshold magico (< 50) non configurabile
+  * B2: errorsConsecutive reset non documentato (console/route.ts non reseta mai)
+  * B3: phase3.tsx auto-run useEffect re-render eccessivi (7 dipendenze)
+  * B4: CHECK simulato con Math.random() (no integration Phase 4/8)
+  * B5: /api/steering POST no input validation (NaN, negativi, >budgetTotal)
+  * B6: SteeringStrategy fallback silenzioso se tabella parzialmente popolata
+  * B7: steer() non idempotente (retry crea eventi duplicati)
+- 6 gap funzionali (G1-G6):
+  * G1: nessuna persistenza stato FSM tra richieste (solo client-side)
+  * G2: zero integrazione con Phase 5/11/14 nonostante RelatedPhases le dichiari
+  * G3: SteeringStrategy DB table mai consultata (steer() usa solo STEERING_VOCABULARY)
+  * G4: REFLECT strategy dead code (decideStrategy non la ritorna mai)
+  * G5: manca integration test end-to-end POST→GET→verifica storia
+  * G6: cycleId Int lungo illeggibile in UI (#20438521)
+- Piano di intervento in 3 fasi:
+  * Fase A (C1+C2+G1) — fixa effettività ACTS — 1 giornata — CRITICA
+  * Fase B (C3+B1+B2+B5+B7) — sicurezza & robustezza — 0.5 giornata — ALTA
+  * Fase C (B3+B4+B6+G3+G4+G5+G6) — UX & completamento — 1 giornata — MEDIA
+- Totale stimato: 2.5 giornate
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
