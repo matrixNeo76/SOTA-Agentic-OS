@@ -1064,3 +1064,65 @@ Stage Summary:
 - B7: steer() idempotente per (agentId, planId, step), retry non crea duplicati
 - Modulo ACTS Controller ora robusto + sicuro
 - Prossimo: Fase C (B3+B4+B6+G3+G4+G5+G6) UX & completamento
+
+---
+Task ID: ACTS-CONTROLLER-FASE-C
+Agent: main
+Task: Fase C — B3+B4+B6+G3+G4+G5+G6 (UX & completamento ACTS Controller)
+
+Work Log:
+- B3: Stabilizzato auto-run loop in phase3.tsx:
+  * Aggiunto stateRef (useRef) con tutte le variabili di stato FSM
+  * useEffect ora dipende solo da [autoRun, doStep] (non più 7 variabili)
+  * doStep legge stato fresco da stateRef.current (no stale closure)
+  * useCallback per refresh/doStep/performRealCheck (memoizzati)
+  * Timing interval 1500ms stabile, non influenzato da re-render
+- B4: Sostituito Math.random() con check deterministico + integrazione reale:
+  * Aggiunto performRealCheck() che prova prima /api/lean?action=stats
+  * Se Phase 8 ha failedWorkflows > 0 → CHECK fallisce
+  * Se Phase 8 ha verifiedWorkflows > 0 → CHECK passa
+  * Fallback deterministico basato su stato FSM (errorsConsecutive, budgetPct)
+  * Test: verificato pattern `const passed = Math.random` non più presente
+- B6: Uniformato SteeringStrategy fallback in /api/steering GET:
+  * PRIMA: fallback silenzioso se tabella parzialmente popolata
+  * ORA: se tabella vuota → seed con 5 record da STEERING_VOCABULARY
+  * Dopo seed, usa sempre il DB (no fallback hardcoded)
+- G3: steer() consulta SteeringStrategy DB per override phrase/budgetCost:
+  * PRIMA: usava sempre STEERING_VOCABULARY hardcoded
+  * ORA: findUnique per strategia, se record attivo usa triggerPhrase + budgetCost
+  * Fallback a STEERING_VOCABULARY se record non esiste o active=false
+- G4: Aggiunta transizione REFLECT a decideStrategy:
+  * DEFAULT_REFLECT_INTERVAL = 10 (exported)
+  * ogni N step, se errorsConsecutive === 0 e lastStrategy !== REFLECT → REFLECT
+  * reflectInterval=0 disabilita (per test o configurazione custom)
+  * evita loop REFLECT→REFLECT con check lastStrategy !== REFLECT
+  * REFLECT era dead code prima di questo fix
+- G5: 4 integration test end-to-end POST /api/steering → GET /api/steering:
+  * POST crea evento → GET ritorna evento in history con cicloId matching
+  * POST 2 step → GET ritorna entrambi ordinati per timestamp desc
+  * POST input invalido → 400 con errors array (B5 verification)
+  * POST idempotency: stesso step ritorna stesso evento (B7 verification)
+- G6: Display step invece di cycleId illeggibile (già fatto in Fase B, confermato)
+- Test: 22 nuovi test integration in tests/integration/acts-controller-faseC.test.ts:
+  * G4 REFLECT: 7 test (default interval, multipli 10, errors=0, evita loop, custom 5, disable 0, REFLECT→PLAN)
+  * G3 steer() DB lookup: 3 test (hardcoded fallback, custom override, active=false fallback)
+  * B6 seed: 2 test (seed su tabella vuota, no seed se tabella ha record)
+  * B3 useRef: 2 test (component importabile, ref pattern type-level)
+  * B4 no Math.random: 3 test (codice sorgente senza Math.random, performRealCheck function, logica deterministica)
+  * G5 e2e: 4 test (POST→GET history, 2 step ordinati, 400 validation, idempotency)
+  * +1 test strutturale (DEFAULT_REFLECT_INTERVAL)
+
+Stage Summary:
+- 3 file modificati + 1 nuovo test file
+- 22 nuovi test integration (tutti passing)
+- 116/116 test totali ACTS+Phase3+e2e passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- B3: auto-run loop stabile (useRef + useCallback, no stale closure)
+- B4: CHECK deterministico + integrazione Phase 8 (no Math.random)
+- B6: SteeringStrategy seed su tabella vuota (no fallback silenzioso)
+- G3: steer() usa SteeringStrategy DB con fallback hardcoded
+- G4: REFLECT transizione ogni 10 step (no più dead code)
+- G5: 4 integration test e2e (POST→GET→verifica storia)
+- G6: UI mostra step (leggibile) invece di cycleId (cuid lungo)
+- MODULO ACTS CONTROLLER COMPLETATO (Fasi A+B+C)
+- Tutti i 16 item dell'audit risolti (3 C + 7 B + 6 G)

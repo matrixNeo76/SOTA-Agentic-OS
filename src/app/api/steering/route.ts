@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   steer, STEERING_VOCABULARY, steeringHistory, getSteeringState,
-  VALID_STRATEGIES, DEFAULT_HALT_THRESHOLD,
+  VALID_STRATEGIES, DEFAULT_HALT_THRESHOLD, DEFAULT_REFLECT_INTERVAL,
   type Strategy,
 } from '@/lib/kernel/acts'
 import { db } from '@/lib/db'
@@ -21,17 +21,35 @@ export async function GET(req: NextRequest) {
     const planId = searchParams.get('planId') || undefined
     // G1 — Recupera lo stato FSM persistito (per riprendere ciclo interrotto)
     const currentState = await getSteeringState(agentId, planId)
-    const [history, strategies] = await Promise.all([
+
+    // B6 fix — Seed SteeringStrategy se tabella vuota (no fallback silenzioso).
+    // PRIMA: se tabella aveva anche 1 entry, fallback non scattava e UI mostrava
+    // solo quella. ORA: GET seeda la tabella se vuota, poi usa sempre il DB.
+    let strategies = await db.steeringStrategy.findMany()
+    if (strategies.length === 0) {
+      strategies = await Promise.all(
+        Object.entries(STEERING_VOCABULARY).map(async ([name, info]) => {
+          return db.steeringStrategy.create({
+            data: {
+              name,
+              triggerPhrase: info.phrase,
+              description: info.description,
+              budgetCost: info.budgetCost,
+              active: true,
+            },
+          })
+        }),
+      )
+    }
+
+    const [history] = await Promise.all([
       steeringHistory(agentId, 30),
-      db.steeringStrategy.findMany(),
     ])
     return NextResponse.json({
       vocabulary: STEERING_VOCABULARY,
       history,
       currentState, // G1 — stato FSM corrente (null se prima chiamata)
-      strategies: strategies.length ? strategies : Object.entries(STEERING_VOCABULARY).map(([name, info]) => ({
-        name, triggerPhrase: info.phrase, description: info.description, budgetCost: info.budgetCost, active: true,
-      })),
+      strategies,
     })
   } catch (err: any) {
     return NextResponse.json({ error: 'Failed to load steering state', detail: err.message }, { status: 500 })
@@ -97,6 +115,12 @@ function validateSteerInput(body: any): { ok: true; data: ParsedSteerInput } | {
     errors.push({ field: 'haltThreshold', reason: `must be a number > 0, got ${haltThreshold}` })
   }
 
+  // G4 — reflectInterval: optional integer, >= 0, <= 1000
+  const reflectInterval = body.reflectInterval
+  if (reflectInterval !== undefined && (!Number.isInteger(reflectInterval) || reflectInterval < 0 || reflectInterval > 1000)) {
+    errors.push({ field: 'reflectInterval', reason: `must be an integer >= 0 and <= 1000, got ${reflectInterval}` })
+  }
+
   if (errors.length > 0) return { ok: false, errors }
 
   return {
@@ -111,6 +135,7 @@ function validateSteerInput(body: any): { ok: true; data: ParsedSteerInput } | {
       errorsConsecutive,
       planId: planId || undefined,
       haltThreshold: typeof haltThreshold === 'number' ? haltThreshold : undefined,
+      reflectInterval: typeof reflectInterval === 'number' ? reflectInterval : undefined,
     },
   }
 }
@@ -125,6 +150,7 @@ interface ParsedSteerInput {
   errorsConsecutive: number
   planId?: string
   haltThreshold?: number
+  reflectInterval?: number
 }
 
 export async function POST(req: NextRequest) {
@@ -157,8 +183,9 @@ export async function POST(req: NextRequest) {
       input.lastStrategy,
       input.lastCheckPassed,
       input.errorsConsecutive,
-      input.planId, // G1 — passa planId per associare lo stato al piano
-      input.haltThreshold ?? DEFAULT_HALT_THRESHOLD, // B1 — haltThreshold override
+      input.planId,                                              // G1
+      input.haltThreshold ?? DEFAULT_HALT_THRESHOLD,             // B1
+      input.reflectInterval ?? DEFAULT_REFLECT_INTERVAL,         // G4
     )
     await db.agentLog.create({
       data: {

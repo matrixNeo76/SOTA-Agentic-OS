@@ -46,6 +46,10 @@ export const DEFAULT_HALT_THRESHOLD = 50
 // B2 (Fase B) — errorsConsecutive threshold default per forzare CHECK.
 export const DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD = 3
 
+// G4 (Fase C) — REFLECT trigger: ogni N step, se ci sono stati check passati,
+// il controller entra in modalità riflessiva per consolidare euristiche.
+export const DEFAULT_REFLECT_INTERVAL = 10
+
 // B5 (Fase B) — Valori ammissibili per lastStrategy (validation API)
 export const VALID_STRATEGIES: readonly Strategy[] = ['PLAN', 'EXECUTE', 'CHECK', 'REFLECT', 'HALT'] as const
 
@@ -60,6 +64,10 @@ export const VALID_STRATEGIES: readonly Strategy[] = ['PLAN', 'EXECUTE', 'CHECK'
  * B2 fix (Fase B) — errorsConsecutiveThreshold configurabile (default 3).
  * Documentato: il caller DEVE resettare errorsConsecutive a 0 su success
  * (CHECK passato). Su failure, il caller DEVE incrementare errorsConsecutive.
+ *
+ * G4 fix (Fase C) — REFLECT transizione: ogni `reflectInterval` step (default 10),
+ * se step > 0 e non ci sono errori consecutivi, ritorna REFLECT per consolidare
+ * euristiche. PRIMA: REFLECT era dead code (decideStrategy non la ritornava mai).
  */
 export function decideStrategy(state: {
   step: number
@@ -71,16 +79,33 @@ export function decideStrategy(state: {
   haltThreshold?: number
   // B2 — threshold configurable per forzare CHECK (default 3)
   errorsConsecutiveThreshold?: number
+  // G4 — intervallo per trigger REFLECT (default 10). 0 = disabilitato.
+  reflectInterval?: number
 }): Strategy {
   const {
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
     haltThreshold = DEFAULT_HALT_THRESHOLD,
     errorsConsecutiveThreshold = DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD,
+    reflectInterval = DEFAULT_REFLECT_INTERVAL,
   } = state
 
   // HALT conditions
   if (budgetRemaining < haltThreshold) return 'HALT'
   if (errorsConsecutive >= errorsConsecutiveThreshold) return 'CHECK'
+
+  // G4 — REFLECT trigger: ogni `reflectInterval` step, se non siamo in stato
+  // di errore e non siamo già in REFLECT (per evitare loop REFLECT→PLAN→REFLECT).
+  // Esegue PRIMA delle transizioni FSM normali per permettere il consolidamento
+  // periodico delle euristiche apprese.
+  if (
+    reflectInterval > 0 &&
+    step > 0 &&
+    step % reflectInterval === 0 &&
+    lastStrategy !== 'REFLECT' &&
+    errorsConsecutive === 0
+  ) {
+    return 'REFLECT'
+  }
 
   // Flusso PLAN -> EXECUTE -> CHECK -> (loop) -> REFLECT
   if (step === 0) return 'PLAN'
@@ -116,13 +141,31 @@ export async function steer(
   planId?: string,
   // B1 — haltThreshold override (default 50)
   haltThreshold?: number,
+  // G4 — reflectInterval override (default 10, 0 = disable)
+  reflectInterval?: number,
 ): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number; cycleId: string; idempotent: boolean }> {
   const budgetRemaining = budgetTotal - budgetUsed
   const strategy = decideStrategy({
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
     haltThreshold,
+    reflectInterval,
   })
-  const entry = STEERING_VOCABULARY[strategy]
+
+  // G3 fix (Fase C) — Consulta SteeringStrategy DB per override di phrase/budgetCost.
+  // PRIMA: steer() usava sempre STEERING_VOCABULARY hardcoded, ignorando il DB.
+  // ORA: se esiste record attivo per la strategia, usa triggerPhrase + budgetCost dal DB.
+  // Fallback a STEERING_VOCABULARY solo se record non esiste o active=false.
+  const customStrategy = await db.steeringStrategy.findUnique({
+    where: { name: strategy },
+  }).catch(() => null)
+
+  const entry = customStrategy && customStrategy.active
+    ? {
+        phrase: customStrategy.triggerPhrase,
+        budgetCost: customStrategy.budgetCost,
+        description: customStrategy.description || STEERING_VOCABULARY[strategy].description,
+      }
+    : STEERING_VOCABULARY[strategy]
   const tokenUsed = entry.budgetCost
 
   // B7 — Idempotency: se esiste già un SteeringEvent per (agentId, planId, step),
