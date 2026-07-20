@@ -1009,3 +1009,58 @@ Stage Summary:
 - G1: SteeringState persistito su DB, riprendibile dopo refresh
 - Modulo ACTS Controller ora FUNZIONA effettivamente a runtime
 - Prossimo: Fase B (C3+B1+B2+B5+B7) sicurezza & robustezza
+
+---
+Task ID: ACTS-CONTROLLER-FASE-B
+Agent: main
+Task: Fase B — C3+B1+B2+B5+B7 (sicurezza & robustezza ACTS Controller)
+
+Work Log:
+- C3: cycleId ora String (cuid) invece di Int (generateTimeSortableId):
+  * prisma/schema.prisma: SteeringEvent.cycleId da Int a String @default(cuid())
+  * acts.ts: rimosso import generateTimeSortableId, cycleId generato dal DB
+  * Aggiunti campi planId + step a SteeringEvent + @@unique([agentId, planId, step])
+  * cockpit/types.ts: SteeringEvent.cycleId aggiornato a string
+  * phase3.tsx: HistoryItem.cycleId aggiornato a string + aggiunti planId/step
+  * Test: 100 cycleId univoci su 100 steer() (no collision)
+- B1: HALT threshold configurabile:
+  * acts.ts: DEFAULT_HALT_THRESHOLD = 50 (exported)
+  * decideStrategy accetta haltThreshold? opzionale (override del default)
+  * steer() accetta haltThreshold? come 9° parametro
+  * /api/steering POST accetta haltThreshold nel body (validato)
+  * Test: threshold=10 non HALT con budget 30, threshold=600 HALT con budget 500
+- B2: errorsConsecutive reset documentato:
+  * acts.ts: DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD = 3 (exported)
+  * decideStrategy accetta errorsConsecutiveThreshold? opzionale
+  * executor.ts: commento esplicito del contratto B2 (reset su success, increment su failure)
+  * Test: verificato che errorsConsecutive=3 forza CHECK, reset a 0 prosegue FSM
+- B5: Input validation su /api/steering POST:
+  * validateSteerInput() con validation completa:
+    - budgetTotal: number > 0, <= 1e6
+    - budgetUsed: number >= 0, <= budgetTotal
+    - step: integer >= 0, <= 10000
+    - lastStrategy: enum PLAN|EXECUTE|CHECK|REFLECT|HALT
+    - lastCheckPassed: boolean | null
+    - errorsConsecutive: integer >= 0, < 100
+    - planId: optional string <= 200 char
+    - haltThreshold: optional number > 0
+  * 400 con {error: 'Validation failed', errors: [...]} se input invalido
+  * Test: 6 casi di validation (NaN, negativi, >budgetTotal, non intero, enum, threshold)
+- B7: Idempotency per steer():
+  * Unique constraint @@unique([agentId, planId, step]) su SteeringEvent
+  * steer() fa findUnique prima di create: se esiste, ritorna evento esistente
+  * Result ora include cycleId + idempotent flag
+  * Test: 3 chiamate con stesso step = 1 evento su DB; step diverso = nuovo evento
+
+Stage Summary:
+- 5 file modificati + 1 nuovo test file + 1 schema migration
+- 27 nuovi test integration (tutti passing)
+- 94/94 test totali ACTS+Phase3+e2e passing (0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- C3: cycleId collision risk eliminato (cuid string univoco globale)
+- B1: HALT threshold configurabile per piano/agent
+- B2: contratto errorsConsecutive documentato e verificato
+- B5: /api/steering POST validato contro 8 tipi di input invalido
+- B7: steer() idempotente per (agentId, planId, step), retry non crea duplicati
+- Modulo ACTS Controller ora robusto + sicuro
+- Prossimo: Fase C (B3+B4+B6+G3+G4+G5+G6) UX & completamento

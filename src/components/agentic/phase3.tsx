@@ -20,8 +20,9 @@ import { RelatedPhases, link } from './related-phases'
 type Strategy = 'PLAN' | 'EXECUTE' | 'CHECK' | 'REFLECT' | 'HALT'
 type Vocab = Record<Strategy, { phrase: string; budgetCost: number; description: string }>
 type HistoryItem = {
- id: string; cycleId: number; agentId: string; strategy: string;
+ id: string; cycleId: string; agentId: string; strategy: string;
  phrase: string; tokenBudget: number; tokenUsed: number; timestamp: string;
+ planId: string | null; step: number;
 }
 
 const STRATEGY_STYLE: Record<Strategy, { color: string; bg: string; border: string; icon: any }> = {
@@ -273,7 +274,8 @@ export function Phase3() {
  <li key={h.id} className="text-xs flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 border">
  <Icon className={cn('size-3.5 shrink-0', style.color)} />
  <Badge variant="outline" className="text-[10px] py-0 font-mono">{h.strategy}</Badge>
- <span className="text-[10px] text-muted-foreground">#{h.cycleId}</span>
+ {/* G6 fix (Fase C) — mostra step (leggibile) invece di cycleId (cuid lungo illeggibile) */}
+ <span className="text-[10px] text-muted-foreground">step {h.step}</span>
  <span className="flex-1 truncate italic">"{h.phrase}"</span>
  <span className="text-[10px] text-muted-foreground font-mono">{h.tokenUsed} tok</span>
  </li>

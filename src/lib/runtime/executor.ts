@@ -528,15 +528,23 @@ export async function executePlan(params: {
     // (PLAN → EXECUTE → CHECK → ...). Usiamo l'ultimo step come proxy per
     // l'evoluzione; in una versione futura si potrebbe leggere lo stato
     // persistito da SteeringState (G1).
+    //
+    // B2 fix (Fase B) — Contratto errorsConsecutive documentato:
+    //   - reset a 0 su success (task done) → lastCheckPassed = true
+    //   - incrementa su failure (task failed) → lastCheckPassed = false
+    //   - decideStrategy usa errorsConsecutive >= 3 per forzare CHECK
+    // Il caller (executePlan) è responsabile di mantenere questo invariant.
     const lastStepInBatch = batchResults[batchResults.length - 1]
     if (lastStepInBatch?.strategy) {
       steeringState.step += batchResults.length
       steeringState.lastStrategy = lastStepInBatch.strategy as Strategy
       steeringState.budgetUsed += 100 // stima cost media per step
       if (lastStepInBatch.status === 'failed') {
+        // B2 — failure: increment errorsConsecutive, lastCheckPassed = false
         steeringState.errorsConsecutive += 1
         steeringState.lastCheckPassed = false
       } else if (lastStepInBatch.status === 'done') {
+        // B2 — success: RESET errorsConsecutive to 0, lastCheckPassed = true
         steeringState.errorsConsecutive = 0
         steeringState.lastCheckPassed = true
       }

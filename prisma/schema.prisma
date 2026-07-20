@@ -153,13 +153,25 @@ model CompiledTemplate {
 
 model SteeringEvent {
   id         String   @id @default(cuid())
-  cycleId    Int
+  // C3 fix — cycleId ora String (cuid) per evitare collisioni.
+  // PRIMA: Int generato da generateTimeSortableId() con counter casuale 0-99
+  // → collision probability ~1% per chiamate nello stesso minuto.
+  // ORA: cuid() stringa univoca globale.
+  cycleId    String   @default(cuid())
   agentId    String
   strategy   String   // PLAN|EXECUTE|CHECK|REFLECT
   phrase     String   // steering phrase inviata
   tokenBudget Int
   tokenUsed  Int
   timestamp  DateTime @default(now())
+
+  // B7 fix — Idempotency: stesso (agentId, planId, step) deve produrre 1 solo evento.
+  // planId è opzionale (per compatibilità con chiamate senza planId), ma quando
+  // presente, un retry non deve creare duplicati.
+  planId     String?
+  step       Int
+
+  @@unique([agentId, planId, step])
 }
 
 model SteeringStrategy {

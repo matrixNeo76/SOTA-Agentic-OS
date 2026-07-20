@@ -9,7 +9,6 @@
  * Budget di token O(1) per decisione.
  */
 import { db } from '@/lib/db'
-import { generateTimeSortableId } from '@/lib/utils'
 
 export type Strategy = 'PLAN' | 'EXECUTE' | 'CHECK' | 'REFLECT' | 'HALT'
 
@@ -41,9 +40,26 @@ export const STEERING_VOCABULARY: Record<Strategy, { phrase: string; budgetCost:
   },
 }
 
+// B1 (Fase B) — HALT threshold default. Può essere override per call via haltThreshold param.
+export const DEFAULT_HALT_THRESHOLD = 50
+
+// B2 (Fase B) — errorsConsecutive threshold default per forzare CHECK.
+export const DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD = 3
+
+// B5 (Fase B) — Valori ammissibili per lastStrategy (validation API)
+export const VALID_STRATEGIES: readonly Strategy[] = ['PLAN', 'EXECUTE', 'CHECK', 'REFLECT', 'HALT'] as const
+
 /**
  * Decide la prossima strategia in base allo stato del ciclo.
  * Logica deterministica (rule-based, no LLM qui → O(1)).
+ *
+ * B1 fix (Fase B) — haltThreshold è configurabile (default 50). Per task con
+ * budget 100 è troppo aggressivo (HALT al 50%); per budget 10000 è quasi mai
+ * (HALT a 9950). Ora il caller può passare haltThreshold proporzionale al budget.
+ *
+ * B2 fix (Fase B) — errorsConsecutiveThreshold configurabile (default 3).
+ * Documentato: il caller DEVE resettare errorsConsecutive a 0 su success
+ * (CHECK passato). Su failure, il caller DEVE incrementare errorsConsecutive.
  */
 export function decideStrategy(state: {
   step: number
@@ -51,12 +67,20 @@ export function decideStrategy(state: {
   lastCheckPassed: boolean | null
   budgetRemaining: number
   errorsConsecutive: number
+  // B1 — threshold configurable per HALT (default DEFAULT_HALT_THRESHOLD)
+  haltThreshold?: number
+  // B2 — threshold configurable per forzare CHECK (default 3)
+  errorsConsecutiveThreshold?: number
 }): Strategy {
-  const { step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive } = state
+  const {
+    step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
+    haltThreshold = DEFAULT_HALT_THRESHOLD,
+    errorsConsecutiveThreshold = DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD,
+  } = state
 
   // HALT conditions
-  if (budgetRemaining < 50) return 'HALT'
-  if (errorsConsecutive >= 3) return 'CHECK'
+  if (budgetRemaining < haltThreshold) return 'HALT'
+  if (errorsConsecutive >= errorsConsecutiveThreshold) return 'CHECK'
 
   // Flusso PLAN -> EXECUTE -> CHECK -> (loop) -> REFLECT
   if (step === 0) return 'PLAN'
@@ -73,9 +97,12 @@ export function decideStrategy(state: {
 /**
  * Esegue uno steering event: decide, registra, consuma budget.
  *
- * G1 (ACTS audit) — Ora persiste anche lo stato FSM su SteeringState.
- * Questo permette di riprendere un ciclo cognitivo interrotto (es. dopo
- * refresh browser) e condividere lo stato tra UI, executor e API.
+ * G1 (Fase A) — Persiste lo stato FSM su SteeringState.
+ * C3 (Fase B) — cycleId ora String (cuid generato dal DB default), non più
+ *               generateTimeSortableId() con collision risk ~1%.
+ * B1 (Fase B) — haltThreshold configurabile.
+ * B7 (Fase B) — Idempotency: stesso (agentId, planId, step) non crea duplicati
+ *               (unique constraint su SteeringEvent + lookup pre-create).
  */
 export async function steer(
   agentId: string,
@@ -87,27 +114,51 @@ export async function steer(
   errorsConsecutive: number,
   // G1 — planId opzionale per associare lo stato a un piano specifico
   planId?: string,
-): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number }> {
-  // B6 — cycleCounter (ex module-level) era incrementato ma mai letto.
-  // Rimosso: cycleId basato su generateTimeSortableId() è già unico.
-  // UUID v7 time-sortable: timestamp + counter casuale
-  const cycleId = generateTimeSortableId()
+  // B1 — haltThreshold override (default 50)
+  haltThreshold?: number,
+): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number; cycleId: string; idempotent: boolean }> {
   const budgetRemaining = budgetTotal - budgetUsed
   const strategy = decideStrategy({
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
+    haltThreshold,
   })
   const entry = STEERING_VOCABULARY[strategy]
   const tokenUsed = entry.budgetCost
 
-  await db.steeringEvent.create({
+  // B7 — Idempotency: se esiste già un SteeringEvent per (agentId, planId, step),
+  // ritorna quello esistente senza crearne uno nuovo. Previene duplicati su retry.
+  const planIdForKey = planId || null
+  const existing = await db.steeringEvent.findUnique({
+    where: {
+      agentId_planId_step: { agentId, planId: planIdForKey as any, step },
+    } as any,
+    select: { id: true, cycleId: true, strategy: true, phrase: true, tokenUsed: true, tokenBudget: true },
+  }).catch(() => null)
+
+  if (existing) {
+    // Idempotent: ritorna l'evento esistente
+    return {
+      strategy: existing.strategy as Strategy,
+      phrase: existing.phrase,
+      tokenUsed: existing.tokenUsed,
+      budgetRemaining: existing.tokenBudget - existing.tokenUsed,
+      cycleId: existing.cycleId,
+      idempotent: true,
+    }
+  }
+
+  // C3 — cycleId generato dal DB default (cuid string), non più generateTimeSortableId()
+  const created = await db.steeringEvent.create({
     data: {
-      cycleId,
       agentId,
+      planId: planIdForKey,
+      step,
       strategy,
       phrase: entry.phrase,
       tokenBudget: budgetTotal,
       tokenUsed,
     },
+    select: { id: true, cycleId: true },
   })
 
   // G1 — Upsert dello stato FSM su SteeringState (per piano + agent, o solo agent)
@@ -143,6 +194,8 @@ export async function steer(
     phrase: entry.phrase,
     tokenUsed,
     budgetRemaining: budgetRemaining - tokenUsed,
+    cycleId: created.cycleId,
+    idempotent: false,
   }
 }
 
