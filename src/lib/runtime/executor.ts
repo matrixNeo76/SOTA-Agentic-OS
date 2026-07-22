@@ -200,8 +200,29 @@ export async function executeTask(params: {
   planGoal: string
   signal?: AbortSignal
   onEvent?: (event: string, data: Record<string, unknown>) => void
+  // C2 (ACTS audit) — Stato FSM passato dal loop executePlan per evitare
+  // parametri hardcoded. Permette al ACTS Controller di evolvere durante
+  // l'esecuzione del piano (PLAN → EXECUTE → CHECK → ...).
+  steeringState?: {
+    step: number
+    lastStrategy: Strategy
+    lastCheckPassed: boolean | null
+    errorsConsecutive: number
+    budgetTotal: number
+    budgetUsed: number
+  }
 }): Promise<ExecutorStep> {
   const { planId, taskDef, planGoal, signal, onEvent } = params
+  // C2 — Default a stato iniziale (backward compat: se caller non passa steeringState,
+  // usa valori equivalenti al vecchio hardcoded: step=1, PLAN, no errors, budget 1000/50).
+  const sState = params.steeringState || {
+    step: 1,
+    lastStrategy: 'PLAN' as Strategy,
+    lastCheckPassed: null,
+    errorsConsecutive: 0,
+    budgetTotal: 1000,
+    budgetUsed: 50,
+  }
   const step: ExecutorStep = {
     taskId: taskDef.taskId,
     agentId: taskDef.agentId,
@@ -248,15 +269,15 @@ export async function executeTask(params: {
   try {
     if (signal?.aborted) throw new Error('Aborted')
 
-    // Steering (ACTS)
+    // Steering (ACTS) — C2 fix: usa stato reale passato dal caller (no hardcoded)
     const steeringResult = await steer(
       taskDef.agentId,
-      1000,
-      50,
-      1,
-      'PLAN' as Strategy,
-      null,
-      0,
+      sState.budgetTotal,
+      sState.budgetUsed,
+      sState.step,
+      sState.lastStrategy,
+      sState.lastCheckPassed,
+      sState.errorsConsecutive,
     )
     step.strategy = steeringResult.strategy
 
@@ -287,6 +308,8 @@ export async function executeTask(params: {
     }
 
     // WS1.4 — Execute via ReAct loop (pensa → chiama tool → osserva → ripeti)
+    // C1 fix: inietta la steering phrase dell'ACTS Controller nel system prompt.
+    // Senza questo, le steering phrases erano calcolate ma mai inviate all'LLM.
     const { executeReActLoop } = await import('./react-loop')
     const reactResult = await executeReActLoop({
       agentId: taskDef.agentId,
@@ -295,6 +318,7 @@ export async function executeTask(params: {
       task: taskDef.description,
       context: `obiettivo globale = ${planGoal}`,
       signal,
+      steeringPhrase: steeringResult.phrase,
       onIteration: (iter) => {
         onEvent?.('task_iteration', {
           taskId: taskDef.taskId,
@@ -427,6 +451,19 @@ export async function executePlan(params: {
   // === Phase 2: Task execution per batch ===
   // WS1.5c — Dispatch parallelo dentro il batch (task indipendenti)
   // topologicalBatches garantisce che i task nello stesso batch non hanno dipendenze reciproche.
+  //
+  // C2 (ACTS audit) — Stato FSM dell'ACTS Controller mantenuto tra batch.
+  // I task nello stesso batch sono indipendenti e possono leggere lo stesso
+  // stato (snapshot); l'aggiornamento avviene sequenzialmente dopo ogni batch.
+  let steeringState = {
+    step: 0,
+    lastStrategy: 'PLAN' as Strategy,
+    lastCheckPassed: null as boolean | null,
+    errorsConsecutive: 0,
+    budgetTotal: 1000,
+    budgetUsed: 0,
+  }
+
   for (const batch of batches) {
     if (signal?.aborted) break
 
@@ -454,6 +491,10 @@ export async function executePlan(params: {
 
     if (tasksToExecute.length === 0) continue
 
+    // C2 — Snapshot dello stato FSM per questo batch (tutti i task del batch
+    // leggono lo stesso stato iniziale, perché sono indipendenti).
+    const batchSteeringSnapshot = { ...steeringState }
+
     // WS1.5c — Esegui i task del batch in parallelo (Promise.all)
     // I task nello stesso batch sono indipendenti per costruzione (topologicalBatches)
     const batchResults = await Promise.all(
@@ -464,6 +505,7 @@ export async function executePlan(params: {
           planGoal: plan.goal,
           signal,
           onEvent,
+          steeringState: batchSteeringSnapshot,
         }).catch((err) => {
           // Error in parallel task non deve bloccare gli altri del batch
           const errorStep: ExecutorStep = {
@@ -481,6 +523,32 @@ export async function executePlan(params: {
         }),
       ),
     )
+
+    // C2 — Aggiorna lo stato FSM dopo il batch per evolvere il controller
+    // (PLAN → EXECUTE → CHECK → ...). Usiamo l'ultimo step come proxy per
+    // l'evoluzione; in una versione futura si potrebbe leggere lo stato
+    // persistito da SteeringState (G1).
+    //
+    // B2 fix (Fase B) — Contratto errorsConsecutive documentato:
+    //   - reset a 0 su success (task done) → lastCheckPassed = true
+    //   - incrementa su failure (task failed) → lastCheckPassed = false
+    //   - decideStrategy usa errorsConsecutive >= 3 per forzare CHECK
+    // Il caller (executePlan) è responsabile di mantenere questo invariant.
+    const lastStepInBatch = batchResults[batchResults.length - 1]
+    if (lastStepInBatch?.strategy) {
+      steeringState.step += batchResults.length
+      steeringState.lastStrategy = lastStepInBatch.strategy as Strategy
+      steeringState.budgetUsed += 100 // stima cost media per step
+      if (lastStepInBatch.status === 'failed') {
+        // B2 — failure: increment errorsConsecutive, lastCheckPassed = false
+        steeringState.errorsConsecutive += 1
+        steeringState.lastCheckPassed = false
+      } else if (lastStepInBatch.status === 'done') {
+        // B2 — success: RESET errorsConsecutive to 0, lastCheckPassed = true
+        steeringState.errorsConsecutive = 0
+        steeringState.lastCheckPassed = true
+      }
+    }
 
     for (const step of batchResults) {
       steps.push(step)

@@ -49,14 +49,27 @@ export function ToolManager() {
  const [newPublisher, setNewPublisher] = useState('admin')
 
  const refresh = async () => {
+ // B5 — try/catch su refresh (PRIMA: silent failure su network error)
+ try {
  const [toolsR, statsR] = await Promise.all([
- fetch('/api/tools').then((r) => r.json()),
- fetch('/api/tools?action=stats').then((r) => r.json()),
+ fetch('/api/tools'),
+ fetch('/api/tools?action=stats'),
  ])
- setTools(toolsR.tools || [])
- setStats(statsR)
- if (!selectedTool && (toolsR.tools || []).length > 0) {
- setSelectedTool(toolsR.tools[0])
+ if (!toolsR.ok || !statsR.ok) {
+ toast.error(`Caricamento tool fallito (HTTP ${toolsR.status}/${statsR.status})`)
+ return
+ }
+ const [toolsData, statsData] = await Promise.all([
+ toolsR.json(),
+ statsR.json(),
+ ])
+ setTools(toolsData.tools || [])
+ setStats(statsData)
+ if (!selectedTool && (toolsData.tools || []).length > 0) {
+ setSelectedTool(toolsData.tools[0])
+ }
+ } catch (e: any) {
+ toast.error(`Caricamento tool fallito: ${e?.message || 'errore di rete'}`)
  }
  }
 
@@ -68,6 +81,8 @@ export function ToolManager() {
  toast.error('toolId, name, version obbligatori')
  return
  }
+ // B5 — try/catch su install (PRIMA: silent failure su network/parse error)
+ try {
  const r = await fetch('/api/tools', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -81,31 +96,51 @@ export function ToolManager() {
  }),
  })
  const d = await r.json()
- if (d.ok) {
+ if (r.ok && d.ok) {
  toast.success(`Tool ${newName} installato · signature: ${d.signature.slice(0, 16)}…`)
  setNewToolId('custom-tool')
- refresh()
- } else toast.error(d.error)
+ await refresh()
+ } else {
+ toast.error(d.error || `Installazione fallita (HTTP ${r.status})`)
+ }
+ } catch (e: any) {
+ toast.error(`Installazione fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const revoke = async (toolId: string) => {
+ // B5 — try/catch + conferma (PRIMA: silent failure + revoke accidentale)
+ if (!confirm(`Revocare il tool "${toolId}"? L'azione è reversibile solo reinstallando.`)) {
+ return
+ }
+ try {
  const r = await fetch('/api/tools', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'revoke', toolId, reason: 'revoked by admin' }),
  })
  const d = await r.json()
- if (d.ok) { toast.success('Tool revocato'); refresh() }
+ if (r.ok && d.ok) {
+ toast.success('Tool revocato')
+ await refresh()
+ } else {
+ toast.error(d.error || `Revoca fallita (HTTP ${r.status})`)
+ }
+ } catch (e: any) {
+ toast.error(`Revoca fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const togglePermission = async (toolId: string, scope: string, granted: boolean) => {
+ // B5 — try/catch (PRIMA: silent failure su network error)
+ try {
  const r = await fetch('/api/tools', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'set_permission', toolId, scope, granted: !granted }),
  })
  const d = await r.json()
- if (d.ok) {
+ if (r.ok && d.ok) {
  // Aggiorna localmente
  if (selectedTool && selectedTool.toolId === toolId) {
  setSelectedTool({
@@ -117,10 +152,17 @@ export function ToolManager() {
  })
  }
  toast.success(`${scope}: ${!granted ? 'concesso' : 'revocato'}`)
- } else toast.error(d.error)
+ } else {
+ toast.error(d.error || `Permessi non aggiornati (HTTP ${r.status})`)
+ }
+ } catch (e: any) {
+ toast.error(`Aggiornamento permesso fallito: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const installBuiltin = async (tool: any) => {
+ // B5 — try/catch (PRIMA: silent failure su network error)
+ try {
  const r = await fetch('/api/tools', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -134,8 +176,15 @@ export function ToolManager() {
  }),
  })
  const d = await r.json()
- if (d.ok) { toast.success(`${tool.name} installato`); refresh() }
- else toast.error(d.error)
+ if (r.ok && d.ok) {
+ toast.success(`${tool.name} installato`)
+ await refresh()
+ } else {
+ toast.error(d.error || `Installazione fallita (HTTP ${r.status})`)
+ }
+ } catch (e: any) {
+ toast.error(`Installazione fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  return (
@@ -226,6 +275,7 @@ export function ToolManager() {
  variant="outline"
  className="text-status-danger hover:bg-status-danger dark:hover:bg-status-danger"
  onClick={() => revoke(selectedTool.toolId)}
+ aria-label={`Revoca il tool ${selectedTool.name}`}
  >
  <Trash2 className="size-3 mr-1" /> Revoca
  </Button>
@@ -269,6 +319,7 @@ export function ToolManager() {
  checked={p.granted}
  onCheckedChange={() => togglePermission(selectedTool.toolId, p.scope, p.granted)}
  disabled={!selectedTool.active}
+ aria-label={`${p.granted ? 'Revoca' : 'Concedi'} permesso ${p.scope} per ${selectedTool.name}`}
  />
  </div>
  ))}
@@ -311,7 +362,7 @@ export function ToolManager() {
  <Label className="text-xs">Descrizione</Label>
  <Input value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Cosa fa questo tool?" />
  </div>
- <Button size="sm" onClick={install}>
+ <Button size="sm" onClick={install} aria-label="Installa il nuovo tool specificato">
  <Plus className="size-3.5 mr-1.5" /> Installa
  </Button>
  </CardContent>
@@ -336,7 +387,11 @@ export function ToolManager() {
 function BuiltinTools({ onInstall, installed }: { onInstall: (t: any) => void; installed: string[] }) {
  const [builtin, setBuiltin] = useState<any[]>([])
  useEffect(() => {
- fetch('/api/tools?action=builtin').then((r) => r.json()).then((d) => setBuiltin(d.tools || []))
+ // B5 — try/catch anche su fetch builtin
+ fetch('/api/tools?action=builtin')
+ .then((r) => r.json())
+ .then((d) => setBuiltin(d.tools || []))
+ .catch((e) => toast.error(`Caricamento tool predefiniti fallito: ${e?.message || 'errore di rete'}`))
  }, [])
 
  return (

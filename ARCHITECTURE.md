@@ -668,3 +668,83 @@ Il sistema è progettato come **backplane** per agenti esterni.
 - **Tabular numbers**: `tnum` utility per metriche
 - **Skeleton**: `skeleton-shimmer` per loading states
 - **Token CSS**: OKLCH color space, 7 category colors, 5 status tones, 3 surface levels
+
+---
+
+## 13. Audit & Hardening Cycle
+
+Dopo le Fasi 1-4 di evoluzione architetturale, il progetto è stato sottoposto a un ciclo di audit e hardening sistematico su **12 moduli** organizzati in 4 domini + 1 modulo trasversale.
+
+### 13.1 Moduli auditati e stato
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Dominio              │ Moduli                  │ Stato           │
+├──────────────────────────────────────────────────────────────────┤
+│ Trust & Governance   │ Governance, Sovereign,  │ ✅ Fasi 1-5     │
+│                      │ Conflict Resolution,    │   completate    │
+│                      │ Approval, Taint, LTL    │                 │
+├──────────────────────────────────────────────────────────────────┤
+│ Verify Domain        │ Phase 8 (Lean4          │ ✅ Fasi 1-3     │
+│                      │ Formal Verifier)        │   completate    │
+├──────────────────────────────────────────────────────────────────┤
+│ Plan Domain          │ Phase 7 (Dominator PTA),│ ✅ Fasi 1-3     │
+│                      │ Plan Domain, Quorum     │   completate    │
+├──────────────────────────────────────────────────────────────────┤
+│ Learn Domain         │ Phase 5 (ERL), Phase 9  │ ✅ Fasi 1-3     │
+│                      │ (Retainer), Phase 11    │   completate    │
+│                      │ (Affect), Phase 14      │                 │
+│                      │ (Router)                │                 │
+├──────────────────────────────────────────────────────────────────┤
+│ Phase 3 + Tools      │ ACTS Controller +       │ ✅ Fasi 1-3     │
+│                      │ Tool Manager (Phase 18) │   completate    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 Categorie di fix applicati
+
+**Criticità (Critical, C)** — bug di sicurezza che permettevano bypass di auth, RCE, SSRF, info leak, o key confusion:
+- Tutte le API mutative ora protette con `requireAdmin` (operator+)
+- SSRF protection su `http.fetch` (loopback, private, link-local, cloud metadata 169.254.169.254, CGNAT, IPv6 ULA/link-local)
+- RCE sandbox via `node:vm.runInNewContext` con timeout (no more `new Function`)
+- Tool permission key consistency (`tool.id` cuid ovunque, non user-facing string)
+- Scope-based permission check (non existence-based → qualsiasi permesso granted sblocca tutto)
+- LLM error non più persistito nel DB (info leak)
+
+**Bug medi (B)** — bug logici, UX, performance:
+- Path traversal protection (path-separator-aware: `filePath === resolved || startsWith(resolved + sep)`)
+- Dynamic Tailwind class fix (JIT purged → lookup map statica)
+- Dead code removal (`cycleCounter` in `acts.ts`)
+- try/catch strutturato su 5+ API routes e 6+ funzioni UI
+- N+1 query eliminato (`Promise.all` su `defaultPermissions` invece di for-loop)
+- Adaptive polling (30s + Page Visibility API) su 4 fasi (5/9/11/14)
+- JSON.parse con try/catch su dati corrotti (ensembleModels in phase9/phase14)
+
+**Gap funzionali (G)** — missing test coverage, a11y, UX:
+- 100+ nuovi test (37 unit + 28 integration su Phase3/Tools, + altri 4 moduli)
+- aria-label su button critici (Step, Auto-run, Reset, Revoca, Switch)
+- role=status + aria-live su steering phrase corrente
+- confirm() dialog su revoke accidentale
+
+### 13.3 Metriche finali
+
+| Metrica | Valore |
+|---------|--------|
+| Moduli auditati | 12 |
+| Bug critici (C) fixati | 20+ |
+| Bug medi (B) fixati | 35+ |
+| Gap (G) chiusi | 20+ |
+| Test totali | 268+ (217 integration + 51+ unit) |
+| Test pass rate | 100% |
+| TypeScript errors (file modificati) | 0 |
+| Audit report generati | 5 (in `docs/`) |
+
+### 13.4 Known issues residui (future work)
+
+3 item sono tracciati come **future work** perché richiedono infrastruttura/redesign esterno:
+
+1. **B2 Tool Manager** — `apiKey` plaintext in DB → richiede secret manager (Vault/KMS/Doppler)
+2. **N3 Learn Domain** — time-router ensemble è cosmetic (1 LLM call) → richiede orchestratore parallelo
+3. **B2 Verify Domain** — Lean4 è emulato → richiede integrazione runtime `elan`/Lean4 LSP
+
+Questi sono documentati inline nel codice con commenti `KNOWN ISSUE` / `future work` e nel `README.md` → sezione "Audit & Hardening Cycle → Known issues residui".

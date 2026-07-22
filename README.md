@@ -523,6 +523,50 @@ docker compose up -d
 
 ---
 
+## Audit & Hardening Cycle
+
+Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **12 moduli** organizzati in 4 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
+
+### Moduli auditati
+
+| Dominio | Modulo | Audit Report | Fasi |
+|---------|--------|--------------|------|
+| Trust & Governance | Governance, Sovereign, Conflict Resolution, Approval, Taint, LTL Monitor | `docs/TRUST-GOVERNANCE-FASE1-AUDIT.md` | Fasi 1-5 |
+| Verify | Phase 8 (Lean4 Formal Verifier) | `docs/VERIFY-DOMAIN-FASE1-AUDIT.md` | Fasi 1-3 |
+| Plan | Phase 7 (Dominator PTA), Plan Domain, Quorum | `docs/PLAN-DOMAIN-FASE1-AUDIT.md` | Fasi 1-3 |
+| Learn | Phase 5 (ERL), Phase 9 (Retainer), Phase 11 (Affect), Phase 14 (Router) | `docs/LEARN-DOMAIN-FASE1-AUDIT.md` | Fasi 1-3 |
+| Phase 3 + Tools | ACTS Controller + Tool Manager (Phase 18) | `docs/PHASE3-TOOLMANAGER-FASE1-AUDIT.md` | Fasi 1-3 |
+
+### Risultati complessivi
+
+- **Bug critici (C) fixati**: 20+ (auth bypass, RCE, SSRF, info leak, key confusion)
+- **Bug medi (B) fixati**: 35+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query)
+- **Gap funzionali (G) chiusi**: 20+ (zero test coverage → 100+ nuovi test, a11y, adaptive polling)
+- **Test totali**: 268+ (217 integration + 51+ unit, tutti passing)
+- **TypeScript**: 0 errori nei file modificati
+
+### Sicurezza
+
+- ✅ Tutte le API mutative protette con `requireAdmin` (RBAC operator+)
+- ✅ SSRF protection su `http.fetch` builtin tool (loopback, private, link-local, cloud metadata, CGNAT, IPv6 ULA)
+- ✅ Path traversal protection (path-separator-aware comparison)
+- ✅ RCE sandbox via `node:vm` in `grounded-inference.ts` (no more `new Function`)
+- ✅ Tool permission key consistency (`tool.id` cuid ovunque)
+- ✅ Scope-based permission check (non existence-based)
+- ✅ LLM error non più persistito nel DB (info leak)
+
+### Known issues residui (future work)
+
+| ID | Modulo | Descrizione | Sforzo |
+|----|--------|-------------|--------|
+| B2 (Tool Manager) | `admin/tools` | `apiKey` stored plaintext in DB | Alto (richiede secret manager: HashiCorp Vault / AWS KMS / Doppler) |
+| N3 (Learn Domain) | `time-router` | Ensemble è puramente cosmetic (1 LLM call, non parallelo) | Alto (richiede orchestratore LLM parallelo) |
+| B2 (Verify Domain) | `phase8` | Lean4 è emulato (no runtime reale) | Alto (richiede integrazione `elan`/Lean4 LSP server) |
+
+Questi 3 item sono tracciati come **future work** perché richiedono rispettivamente: infrastruttura esterna, redesign architetturale, integrazione con toolchain esterna. Sono documentati nel codice con commenti `KNOWN ISSUE` / `future work`.
+
+---
+
 ## Licenza
 
 MIT — Libero uso personale e commerciale.
