@@ -1126,3 +1126,47 @@ Stage Summary:
 - G6: UI mostra step (leggibile) invece di cycleId (cuid lungo)
 - MODULO ACTS CONTROLLER COMPLETATO (Fasi A+B+C)
 - Tutti i 16 item dell'audit risolti (3 C + 7 B + 6 G)
+
+---
+Task ID: ACTS-CONTROLLER-G2
+Agent: main
+Task: G2 — Cross-module integrations ACTS ↔ Phase 5/11/14
+
+Work Log:
+- G2.1 (Phase 11 Affect integration):
+  * Aggiunto getAffectContext(agentId) in acts.ts: legge ultimo AffectSample
+  * Aggiunto DEFAULT_AFFECT_HALTERN_THRESHOLD = 0.85 (desperation → HALT)
+  * Aggiunto DEFAULT_AFFECT_CHECK_THRESHOLD = 0.7 (frustration → CHECK)
+  * decideStrategy accetta affectDesperation? e affectFrustration? opzionali
+  * Logica: affectDesperation >= 0.85 → HALT forzato (priorità su budget)
+  * Logica: affectFrustration >= 0.7 → CHECK forzato (priorità su errors)
+  * steer() legge affect context da Phase 11 se non fornito dal caller
+  * Result include affectContext per trasparenza
+- G2.2 (Phase 5 ERL integration):
+  * Aggiunto triggerErlReflection(params) in acts.ts
+  * Chiama reflectAndLearn di erl.ts con operationId, outcome, steps, context
+  * Persiste ReflectionLog su DB + estrae heuristic
+  * Non bloccante: ritorna null se ERL module fallisce
+  * Da chiamare dal caller quando decideStrategy ritorna REFLECT
+- G2.3 (Phase 14 Router integration):
+  * Aggiunto getRoutedModel(strategy, agentId, prompt) in acts.ts
+  * Chiama route() di time-router.ts per suggerire modello specializzato
+  * HALT → null (nessun modello richiesto)
+  * Non bloccante: ritorna null se router fallisce
+  * steer() chiama getRoutedModel dopo decideStrategy, result include routedModel
+- Test: 23 nuovi test integration in tests/integration/acts-controller-g2.test.ts:
+  * G2.1 Affect: 11 test (thresholds, HALT forzato, CHECK forzato, priorità, getAffectContext, steer auto-lettura, override)
+  * G2.2 ERL: 4 test (heuristic estratta, outcome failure, persistenza, graceful failure)
+  * G2.3 Router: 5 test (HALT null, PLAN model, EXECUTE model, steer routedModel, HALT routedModel null)
+  * G2 smoke: 3 test (full integration affect+routing+idempotency, REFLECT→ERL)
+
+Stage Summary:
+- 1 file modificato (acts.ts) + 1 nuovo test file
+- 23 nuovi test integration (tutti passing)
+- 86/86 test totali ACTS A+B+C+G2 passing (0 regressioni)
+- 0 TypeScript errors nei file G2
+- ACTS Controller ora integrato con 3 moduli cross-domain:
+  * Phase 11 (Affect): desperation/frustration influenzano FSM
+  * Phase 5 (ERL): REFLECT triggera estrazione euristiche
+  * Phase 14 (Router): strategie ACTS suggeriscono modello specializzato
+- G2 completato: tutti i 16 item dell'audit risolti (3 C + 7 B + 6 G)

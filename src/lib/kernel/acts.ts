@@ -68,6 +68,12 @@ export const VALID_STRATEGIES: readonly Strategy[] = ['PLAN', 'EXECUTE', 'CHECK'
  * G4 fix (Fase C) — REFLECT transizione: ogni `reflectInterval` step (default 10),
  * se step > 0 e non ci sono errori consecutivi, ritorna REFLECT per consolidare
  * euristiche. PRIMA: REFLECT era dead code (decideStrategy non la ritornava mai).
+ *
+ * G2.1 fix (Fase C) — Integrazione Phase 11 (Affect):
+ *   - se affectDesperation >= affectHaltThreshold → HALT forzato (ignora budget)
+ *   - se affectFrustration >= affectCheckThreshold → CHECK forzato (ignora errors)
+ * L'integrazione è opzionale (i parametri affect sono undefined di default),
+ * così decideStrategy resta testabile in isolamento.
  */
 export function decideStrategy(state: {
   step: number
@@ -81,16 +87,38 @@ export function decideStrategy(state: {
   errorsConsecutiveThreshold?: number
   // G4 — intervallo per trigger REFLECT (default 10). 0 = disabilitato.
   reflectInterval?: number
+  // G2.1 — Affect context (Phase 11). undefined = integrazione disattivata.
+  affectDesperation?: number
+  affectFrustration?: number
+  affectHaltThreshold?: number
+  affectCheckThreshold?: number
 }): Strategy {
   const {
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
     haltThreshold = DEFAULT_HALT_THRESHOLD,
     errorsConsecutiveThreshold = DEFAULT_ERRORS_CONSECUTIVE_THRESHOLD,
     reflectInterval = DEFAULT_REFLECT_INTERVAL,
+    affectDesperation,
+    affectFrustration,
+    affectHaltThreshold = DEFAULT_AFFECT_HALTERN_THRESHOLD,
+    affectCheckThreshold = DEFAULT_AFFECT_CHECK_THRESHOLD,
   } = state
 
-  // HALT conditions
+  // G2.1 — Affect-driven HALT: desperation critica (Phase 11) → HALT immediato
+  // Indipendente dal budget: l'agente è in stato di "panico cognitivo".
+  if (affectDesperation !== undefined && affectDesperation >= affectHaltThreshold) {
+    return 'HALT'
+  }
+
+  // HALT conditions (budget)
   if (budgetRemaining < haltThreshold) return 'HALT'
+
+  // G2.1 — Affect-driven CHECK: frustration alta (Phase 11) → CHECK forzato
+  // Anche se errorsConsecutive è sotto threshold: l'agente è frustrato, deve verificare.
+  if (affectFrustration !== undefined && affectFrustration >= affectCheckThreshold) {
+    return 'CHECK'
+  }
+
   if (errorsConsecutive >= errorsConsecutiveThreshold) return 'CHECK'
 
   // G4 — REFLECT trigger: ogni `reflectInterval` step, se non siamo in stato
@@ -143,13 +171,58 @@ export async function steer(
   haltThreshold?: number,
   // G4 — reflectInterval override (default 10, 0 = disable)
   reflectInterval?: number,
-): Promise<{ strategy: Strategy; phrase: string; tokenUsed: number; budgetRemaining: number; cycleId: string; idempotent: boolean }> {
+  // G2.1 — Affect context override (default: legge da Phase 11 se non fornito)
+  affectDesperation?: number,
+  affectFrustration?: number,
+  // G2.3 — Prompt per Phase 14 model routing (default: usa lastStrategy come hint)
+  routingPrompt?: string,
+): Promise<{
+  strategy: Strategy
+  phrase: string
+  tokenUsed: number
+  budgetRemaining: number
+  cycleId: string
+  idempotent: boolean
+  // G2.3 — Modello suggerito da Phase 14 (null se router non disponibile o HALT)
+  routedModel?: { modelId: string; confidence: number; routedTo: string } | null
+  // G2.1 — Affect context usato per decidere (null se Phase 11 non disponibile)
+  affectContext?: { desperation: number; frustration: number; intervention: string | null } | null
+}> {
+  // G2.1 — Leggi affect context da Phase 11 se non fornito dal caller.
+  // Questo permette a decideStrategy di considerare lo stato affettivo dell'agente.
+  let affectContext: { desperation: number; frustration: number; intervention: string | null } | null = null
+  if (affectDesperation === undefined && affectFrustration === undefined) {
+    const ctx = await getAffectContext(agentId)
+    if (ctx) {
+      affectContext = {
+        desperation: ctx.desperation,
+        frustration: ctx.frustration,
+        intervention: ctx.intervention,
+      }
+      affectDesperation = ctx.desperation
+      affectFrustration = ctx.frustration
+    }
+  } else {
+    affectContext = {
+      desperation: affectDesperation ?? 0,
+      frustration: affectFrustration ?? 0,
+      intervention: null,
+    }
+  }
+
   const budgetRemaining = budgetTotal - budgetUsed
   const strategy = decideStrategy({
     step, lastStrategy, lastCheckPassed, budgetRemaining, errorsConsecutive,
     haltThreshold,
     reflectInterval,
+    affectDesperation,
+    affectFrustration,
   })
+
+  // G2.3 — Suggerisci modello specializzato da Phase 14 (TimeRouter).
+  // Non bloccante: se il router fallisce, routedModel resta null.
+  const routingPromptForStrategy = routingPrompt || `ACTS strategy: ${strategy}`
+  const routedModel = await getRoutedModel(strategy, agentId, routingPromptForStrategy)
 
   // G3 fix (Fase C) — Consulta SteeringStrategy DB per override di phrase/budgetCost.
   // PRIMA: steer() usava sempre STEERING_VOCABULARY hardcoded, ignorando il DB.
@@ -179,7 +252,7 @@ export async function steer(
   }).catch(() => null)
 
   if (existing) {
-    // Idempotent: ritorna l'evento esistente
+    // Idempotent: ritorna l'evento esistente (con routedModel/affectContext ricalcolati)
     return {
       strategy: existing.strategy as Strategy,
       phrase: existing.phrase,
@@ -187,6 +260,8 @@ export async function steer(
       budgetRemaining: existing.tokenBudget - existing.tokenUsed,
       cycleId: existing.cycleId,
       idempotent: true,
+      routedModel,
+      affectContext,
     }
   }
 
@@ -239,6 +314,8 @@ export async function steer(
     budgetRemaining: budgetRemaining - tokenUsed,
     cycleId: created.cycleId,
     idempotent: false,
+    routedModel,
+    affectContext,
   }
 }
 
@@ -277,6 +354,136 @@ export async function resetSteeringState(agentId: string, planId?: string): Prom
   await db.steeringState.deleteMany({
     where: { agentId, planId: planId || null },
   })
+}
+
+// === G2 (Fase C) — Cross-module integrations ======================
+
+/**
+ * G2.1 — Legge le ultime metriche affettive (Phase 11) per un agente.
+ * Ritorna null se non ci sono sample affettivi registrati.
+ *
+ * Usato da decideStrategy per:
+ *   - forzare HALT se desperation >= soglia critica
+ *   - forzare CHECK se frustration alta (anche senza errorsConsecutive)
+ */
+export async function getAffectContext(agentId: string): Promise<{
+  desperation: number
+  frustration: number
+  intervention: string | null
+  timestamp: Date
+} | null> {
+  try {
+    const { db: dbInstance } = await import('@/lib/db')
+    const lastSample = await dbInstance.affectSample.findFirst({
+      where: { agentId },
+      orderBy: { timestamp: 'desc' },
+      select: { desperation: true, frustration: true, intervention: true, timestamp: true },
+    })
+    if (!lastSample) return null
+    return {
+      desperation: lastSample.desperation,
+      frustration: lastSample.frustration,
+      intervention: lastSample.intervention || null,
+      timestamp: lastSample.timestamp,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * G2.1 — Soglia default per forzare HALT da desperation (Phase 11).
+ * Se desperation dell'agente >= questo valore, decideStrategy ritorna HALT
+ * indipendentemente dal budget rimanente.
+ */
+export const DEFAULT_AFFECT_HALTERN_THRESHOLD = 0.85
+
+/**
+ * G2.1 — Soglia default per forzare CHECK da frustration (Phase 11).
+ * Se frustration dell'agente >= questo valore, decideStrategy ritorna CHECK
+ * anche se errorsConsecutive è sotto la threshold normale.
+ */
+export const DEFAULT_AFFECT_CHECK_THRESHOLD = 0.7
+
+/**
+ * G2.2 — Triggera la riflessione ERL (Phase 5) per consolidare euristiche.
+ * Da chiamare quando decideStrategy ritorna REFLECT.
+ *
+ * @param agentId - Agente che sta riflettendo
+ * @param planId - Piano associato (opzionale)
+ * @param outcome - 'success' | 'failure' | 'partial'
+ * @param steps - Steps eseguiti nel ciclo (per contesto)
+ * @param context - Contesto aggiuntivo (goal, errori, etc.)
+ * @returns Result della riflessione (heuristic estratta, approved, stored)
+ */
+export async function triggerErlReflection(params: {
+  agentId: string
+  planId?: string
+  outcome: 'success' | 'failure' | 'partial'
+  steps?: Array<{ action: string; result: string }>
+  context?: string
+}): Promise<{
+  heuristicTrigger: string
+  heuristicAction: string
+  approved: boolean
+  stored: boolean
+  reviewReason: string
+} | null> {
+  try {
+    const { reflectAndLearn } = await import('@/lib/kernel/erl')
+    const result = await reflectAndLearn({
+      operationId: `${params.agentId}:${params.planId || 'standalone'}:${Date.now()}`,
+      goal: params.context || `Steering cycle for agent ${params.agentId}`,
+      outcome: params.outcome,
+      steps: params.steps || [],
+      context: params.context || `Plan: ${params.planId || 'standalone'}.`,
+    })
+    return {
+      heuristicTrigger: result.heuristic.trigger,
+      heuristicAction: result.heuristic.action,
+      approved: result.approved,
+      stored: result.stored,
+      reviewReason: result.reviewReason,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * G2.3 — Suggerisce un modello specializzato (Phase 14) per la strategia corrente.
+ * Da chiamare per scegliere il modello LLM più adatto alla strategia ACTS.
+ *
+ * Mappatura strategia → preferenza modello:
+ *   - PLAN: modello con specializzazione 'reasoning' (più riflessivo)
+ *   - EXECUTE: modello con specializzazione 'coding' (più esecutivo)
+ *   - CHECK: modello con specializzazione 'reasoning' (verifica logica)
+ *   - REFLECT: modello con specializzazione 'reasoning' (sintesi euristiche)
+ *   - HALT: nessun modello richiesto
+ *
+ * @returns modelId suggerito + confidence, o null se router non disponibile
+ */
+export async function getRoutedModel(
+  strategy: Strategy,
+  agentId: string,
+  prompt: string,
+): Promise<{
+  modelId: string
+  confidence: number
+  routedTo: 'primary' | 'ensemble' | 'critic'
+} | null> {
+  if (strategy === 'HALT') return null
+  try {
+    const { route } = await import('@/lib/kernel/time-router')
+    const result = await route(agentId, prompt)
+    return {
+      modelId: result.primaryModel,
+      confidence: result.confidence,
+      routedTo: result.routedTo,
+    }
+  } catch {
+    return null
+  }
 }
 
 /**
