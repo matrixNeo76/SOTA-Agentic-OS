@@ -1170,3 +1170,45 @@ Stage Summary:
   * Phase 5 (ERL): REFLECT triggera estrazione euristiche
   * Phase 14 (Router): strategie ACTS suggeriscono modello specializzato
 - G2 completato: tutti i 16 item dell'audit risolti (3 C + 7 B + 6 G)
+
+---
+Task ID: LTL-TAINT-NORMATIVE-AUDIT
+Agent: main
+Task: Audit & gap analysis modulo LTL Taint Normative
+
+Work Log:
+- Analizzati 7 file: ltl-monitor.ts (890 LOC), taint.ts (184), normative.ts (215),
+  ltl-normative-editor.tsx (447), api/verify/route.ts (297), phase4.tsx (snippet),
+  executor.ts + console/route.ts (consumer)
+- Verificati consumer runtime: executor chiama verifyEvent (LTL) ma NON taint/normative
+- Verificata coverage test esistente: 36 test (6 LTL + 14 Normative + 16 Taint)
+- Compilato report in docs/LTL-TAINT-NORMATIVE-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: LTL monitor singleton in-memory perde stato FSM su restart/crash (cosmetico in prod)
+  * C2: G(a -> X b) non gestisce 'a' consecutivi → falsi positivi (LTL-001 high_risk)
+  * C3: Taint checkSink marca blocked=true ma non resetta → stesso taint appare in N sink
+- 8 bug medi (B1-B8):
+  * B1: LTL parser non valida nomi proposizione (caratteri speciali, numeri)
+  * B2: Normative evaluateIntent non valida claimedPriority range (0 o 999 bypassano)
+  * B3: Taint propagateTaint silent no-op se taintId non esiste
+  * B4: LTL verifyEvent no size cap su payload (DB bloat risk)
+  * B5: Normative evaluateIntent non persiste verdict su DB (se chiamato diretto)
+  * B6: LTL evalEvent resetta stato dopo violazione → maschera violazioni consecutive
+  * B7: Taint SENSITIVE_SINKS hardcoded, non configurabile
+  * B8: LTL compileAST fallback semanticamente errato per pattern annidati (G(F(p)))
+- 7 gap funzionali (G1-G7):
+  * G1: LTL monitor non persiste stato FSM su DB
+  * G2: Zero integrazione Taint ↔ Executor runtime (cosmetico come ACTS pre-Fase A)
+  * G3: Normative evaluateIntent non chiamato da nessun consumer runtime
+  * G4: LTL simulateLTL forza severity='warn' (ignora severity reale)
+  * G5: Taint checkSink non registra blocco su verificationEvent
+  * G6: UI editor non mostra stato runtime FSM
+  * G7: Nessun integration test end-to-end LTL→Taint→Normative
+- Piano di intervento in 3 fasi:
+  * Fase A (C1+C2+C3+B1+B2+B4) sicurezza & robustezza — 1.5 gg — CRITICA
+  * Fase B (G2+G3+B5+B6) integrazione runtime — 1 gg — ALTA
+  * Fase C (B3+B7+B8+G4+G5+G6+G7) UX & completamento — 1 gg — MEDIA
+- Totale stimato: 3.5 giornate
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
