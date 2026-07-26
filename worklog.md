@@ -1212,3 +1212,69 @@ Stage Summary:
   * Fase C (B3+B7+B8+G4+G5+G6+G7) UX & completamento — 1 gg — MEDIA
 - Totale stimato: 3.5 giornate
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: LTL-TAINT-NORMATIVE-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B1+B2+B4+B6 (sicurezza & robustezza)
+
+Work Log:
+- C1: Persistenza stato FSM su DB:
+  * Nuovo modello LTLRuleState (ruleId unique, currentState, history JSON, pendingBCount, updatedAt)
+  * LTLMonitor.loadStateFromDB(): carica stato persistito dopo loadRules
+  * LTLMonitor.persistStateToDB(): upsert stato dopo evalEvent
+  * initMonitor() ora chiama loadStateFromDB() per riprendere dopo restart
+  * verifyEvent() chiama persistStateToDB() dopo ogni eval
+  * Test: stato preservato dopo reloadMonitor simulato
+- C2: G(a -> X b) gestisce 'a' consecutivi con pendingBCount:
+  * Aggiunto pendingBCount a RuntimeRule interface
+  * Logica: ogni 'a' incrementa, ogni 'b' resetta a 0, violazione solo se
+    passo successivo non ha 'b' E pendingBCount > 0
+  * PRIMA: due 'a' consecutivi causavano VIOLATED errato
+  * ORA: sequenza a, a, b → no violazione (verificato da test)
+- C3: Taint checkSink idempotency:
+  * Nuovo campo TaintRecord.blockedAtSink (String?)
+  * Query findMany ora filtra blockedAtSink: null (ignora già bloccati)
+  * checkSink aggiorna blockedAtSink con sink che ha bloccato
+  * PRIMA: stesso taintId in N sink diversi → N blockedFlows
+  * ORA: solo primo sink blocca, successivi sono idempotenti
+- B1: LTL parser valida nomi proposizione:
+  * Regex ^[a-zA-Z_][a-zA-Z0-9_]*$ in parseAtom
+  * Rifiuta: 123, high-risk, tainted!, 1abc
+  * Accetta: high_risk, execute, tainted, halt
+- B2: Normative evaluateIntent valida claimedPriority:
+  * Nuova classe InvalidPriorityError
+  * evaluateIntent throw se claimedPriority non in [1,2,3]
+  * PRIMA: 0 o 999 bypassavano tutti gli assiomi
+  * ORA: throw con messaggio descrittivo
+- B4: verifyEvent size cap su payload (10KB):
+  * MAX_PAYLOAD_SIZE = 10_000
+  * Tronca con marker [truncated] se supera
+  * Fallback a String(payload) se JSON.stringify fallisce (circular)
+- B6 (anticipato da Fase B): evalEvent non resetta stato dopo violazione:
+  * Rimosso r.state = r.fsm.initial dopo violazione
+  * PRIMA: 2 violazioni consecutive → solo prima registrata
+  * ORA: entrambe registrate (test verificato)
+- Test: 26 nuovi test integration in tests/integration/ltl-taint-normative-faseA.test.ts:
+  * C1 persistenza: 3 test (verifyEvent persiste, restart recovery, campi LTLRuleState)
+  * C2 a consecutivi: 4 test (a,a,b no violazione; a,c violazione; reset; multipli)
+  * C3 idempotency: 4 test (2 sink diversi, blockedAtSink tracking, stesso sink, non-sensitive)
+  * B1 validazione: 5 test (nomi validi, numeri, trattini, speciali, cifra iniziale)
+  * B2 claimedPriority: 5 test (0, 999, -5, 1-3 validi, InvalidPriorityError)
+  * B4 size cap: 3 test (sotto 10KB, sopra 10KB truncated, circular fallback)
+  * B6 consecutive: 1 test (2 violazioni consecutive registrate)
+  * Smoke: 1 test (full integration C1+C2+C3+B1+B2+B4)
+
+Stage Summary:
+- 4 file modificati (ltl-monitor.ts, taint.ts, normative.ts, schema.prisma) + 1 nuovo test file
+- 26 nuovi test integration (tutti passing)
+- 108/108 test totali LTL+Taint+Normative passing (0 regressioni)
+- 0 TypeScript errors nei file Fase A
+- C1: LTL monitor non più cosmetico in produzione (stato FSM persistito)
+- C2: G(a -> X b) gestisce correttamente a consecutivi (no falsi positivi)
+- C3: Taint checkSink idempotente (no inflazione log)
+- B1: LTL parser robusto (validazione nomi)
+- B2: Normative evaluateIntent robusto (validazione priority)
+- B4: verifyEvent robusto (size cap payload)
+- B6: evalEvent registra tutte le violazioni (no mascheramento)
+- Prossimo: Fase B (G2+G3+B5) integrazione runtime Taint+Normative in executor

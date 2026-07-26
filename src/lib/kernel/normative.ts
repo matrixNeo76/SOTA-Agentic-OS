@@ -60,8 +60,17 @@ export type NormativeVerdict = {
  * - Se l'intenzione viola un assioma di priorità 1 → BLOCK
  * - Se viola priorità 2 ma l'intenzione è priority 3 → BLOCK
  * - Altrimenti ALLOW
+ *
+ * B2 fix (LTL audit Fase A) — Valida claimedPriority range (1-3).
+ * PRIMA: claimedPriority=0 o 999 bypassavano tutti gli assiomi (ax.priority < 0
+ * è sempre falso; < 999 è sempre vero). ORA: throw se fuori range.
  */
 export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> {
+  // B2 fix — Valida claimedPriority
+  if (![1, 2, 3].includes(intent.claimedPriority)) {
+    throw new InvalidPriorityError(intent.claimedPriority)
+  }
+
   // Carica gli assiomi attivi
   const dbAxioms = await db.normativeRule.findMany({ where: { active: true } })
   const axioms = dbAxioms.length
@@ -96,6 +105,16 @@ export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> 
   return {
     allowed: true,
     auditTrace: auditLines.join('\n'),
+  }
+}
+
+/**
+ * B2 fix — Errore strutturato per claimedPriority non valido.
+ */
+export class InvalidPriorityError extends Error {
+  constructor(public priority: number) {
+    super(`Invalid claimedPriority ${priority}: must be 1 (legal), 2 (operational), or 3 (efficiency)`)
+    this.name = 'InvalidPriorityError'
   }
 }
 

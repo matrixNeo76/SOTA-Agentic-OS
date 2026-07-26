@@ -216,6 +216,19 @@ model LTLRule {
   createdAt   DateTime @default(now())
 }
 
+// C1 fix (LTL audit Fase A) — Persistenza stato FSM per regole LTL.
+// Permette di riprendere il monitoraggio dopo restart/crash del processo.
+// Aggiornato ad ogni evalEvent() via upsert.
+model LTLRuleState {
+  id           String   @id @default(cuid())
+  ruleId       String   @unique
+  currentState String   // stato FSM corrente (es. "EXPECTING_B", "WAITING_B", "OK")
+  history      String   @default("[]") // JSON array di ultimi N event labels
+  pendingBCount Int     @default(0) // C2 fix: contatore 'a' pending per G(a -> X b)
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+}
+
 model VerificationEvent {
   id         String   @id @default(cuid())
   ruleId     String?
@@ -234,6 +247,10 @@ model TaintRecord {
   taintLabel String   @default("TAINTED")
   flowTrace  String   // JSON array di passaggi
   blocked    Boolean  @default(false)
+  // C3 fix (LTL audit Fase A) — traccia quale sink ha bloccato il taint.
+  // NULL = mai bloccato. String = sink che ha bloccato (es. "tool_call:exec").
+  // Questo permette a checkSink di ignorare record già bloccati (idempotency).
+  blockedAtSink String?
   createdAt  DateTime @default(now())
 }
 

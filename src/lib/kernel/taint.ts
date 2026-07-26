@@ -80,6 +80,10 @@ export async function propagateTaint(taintId: string, step: string): Promise<voi
  *
  * B6 fix: legge i flussi dal DB (non più dalla Map in-memory).
  * B7 fix: ignora i taint scaduti (createdAt + TTL < now).
+ * C3 fix (LTL audit Fase A): idempotency — ignora record già bloccati
+ *   (blockedAtSink !== null). PRIMA: stesso taintId passato a N sink diversi
+ *   appariva in N blockedFlows, inflazionando i log. ORA: ogni taint blocca
+ *   solo il primo sink raggiunto; sink successivi non lo ri-bloccano.
  */
 export async function checkSink(
   sink: string,
@@ -92,11 +96,12 @@ export async function checkSink(
   const now = new Date()
   const ttlCutoff = new Date(now.getTime() - TAINT_TTL_MS)
 
-  // Carica tutti i record non scaduti
+  // Carica tutti i record non scaduti E non già bloccati (C3 idempotency)
   const records = await db.taintRecord.findMany({
     where: {
       id: { in: taintIds },
       createdAt: { gt: ttlCutoff }, // B7: ignora scaduti
+      blockedAtSink: null,           // C3: ignora già bloccati
     },
   })
 
@@ -114,12 +119,13 @@ export async function checkSink(
     }
     blockedFlows.push(flow)
 
-    // Aggiorna il record con il nuovo step + marca come blocked
+    // Aggiorna il record con il nuovo step + marca come blocked + traccia sink
     await db.taintRecord.update({
       where: { id: record.id },
       data: {
         flowTrace: JSON.stringify(flowTrace),
         blocked: true,
+        blockedAtSink: sink, // C3: traccia quale sink ha bloccato
       },
     })
   }
@@ -132,13 +138,13 @@ export async function checkSink(
     }
   }
 
-  // Se alcuni taintIds erano scaduti o non esistenti, lo segnaliamo nel reason
+  // Se alcuni taintIds erano scaduti, non esistenti, o già bloccati, lo segnaliamo
   const found = new Set(records.map((r) => r.id))
   const missing = taintIds.filter((id) => !found.has(id))
   if (missing.length > 0) {
     return {
       allowed: true,
-      reason: `${missing.length} taintId(s) scaduti o non trovati (ignorati)`,
+      reason: `${missing.length} taintId(s) scaduti, non trovati o già bloccati (ignorati)`,
       blockedFlows: [],
     }
   }

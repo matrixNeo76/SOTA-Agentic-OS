@@ -207,6 +207,13 @@ class LTLParser {
     if (!t || /(!|&&|\|\||->|\(|\)|G|F|X|U)/.test(t)) {
       throw new Error(`Atomo atteso, trovato: ${t}`)
     }
+    // B1 fix (LTL audit Fase A) — Valida nomi proposizione.
+    // PRIMA: accettava qualsiasi stringa non-operatore, incluse numeri,
+    // trattini, caratteri speciali → mismatch silenzioso in evalAST.
+    // ORA: regex ^[a-zA-Z_][a-zA-Z0-9_]*$ (identificatore standard).
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t)) {
+      throw new Error(`Nome proposizione non valido: "${t}". Deve matchare ^[a-zA-Z_][a-zA-Z0-9_]*$ (es. "high_risk", "execute", "tainted")`)
+    }
     this.consume(t)
     return { kind: 'prop', name: t }
   }
@@ -422,6 +429,12 @@ interface RuntimeRule {
   fsm: CompiledFSM
   state: FSMState
   history: DiscreteState[]
+  // C2 fix (LTL audit Fase A) — contatore 'a' pending per G(a -> X b).
+  // PRIMA: due 'a' consecutivi causavano VIOLATED errato (il secondo 'a'
+  // in EXPECTING_B con bTrue=false → VIOLATED, invece di accumulare attesa).
+  // ORA: ogni 'a' incrementa pendingBCount, ogni 'b' lo resetta a 0.
+  // Violazione solo se passo successivo non ha 'b' E pendingBCount > 0.
+  pendingBCount: number
   // pattern info per il dispatch
   pattern: 'G' | 'F' | 'X' | 'U' | 'G->X' | 'G->!b' | 'G->F' | 'G-plain'
   ast: AST
@@ -449,11 +462,61 @@ class LTLMonitor {
           fsm,
           state: fsm.initial,
           history: [],
+          pendingBCount: 0,
           pattern,
           ast,
         })
       } catch (e) {
         // skip regole non parseabili
+      }
+    }
+  }
+
+  /**
+   * C1 fix (LTL audit Fase A) — Carica stato FSM persistito da DB.
+   * Da chiamare dopo loadRules() per riprendere il monitoraggio dopo restart.
+   * Se non c'è stato persistito, usa lo stato initial della FSM.
+   */
+  async loadStateFromDB(): Promise<void> {
+    const dbStates = await db.lTLRuleState.findMany()
+    const stateMap = new Map(dbStates.map((s) => [s.ruleId, s]))
+    for (const r of this.rules) {
+      const saved = stateMap.get(r.spec.ruleId)
+      if (saved) {
+        r.state = saved.currentState
+        try {
+          r.history = JSON.parse(saved.history || '[]')
+        } catch {
+          r.history = []
+        }
+        r.pendingBCount = saved.pendingBCount || 0
+      }
+    }
+  }
+
+  /**
+   * C1 fix — Persiste stato FSM su DB (upsert).
+   * Da chiamare dopo evalEvent() per durabilità.
+   */
+  async persistStateToDB(): Promise<void> {
+    for (const r of this.rules) {
+      try {
+        await db.lTLRuleState.upsert({
+          where: { ruleId: r.spec.ruleId },
+          create: {
+            ruleId: r.spec.ruleId,
+            currentState: r.state,
+            history: JSON.stringify(r.history.slice(-100)),
+            pendingBCount: r.pendingBCount,
+          },
+          update: {
+            currentState: r.state,
+            history: JSON.stringify(r.history.slice(-100)),
+            pendingBCount: r.pendingBCount,
+          },
+        })
+      } catch {
+        // Non bloccante: il monitor continua anche se la persistenza fallisce
       }
     }
   }
@@ -490,8 +553,10 @@ class LTLMonitor {
         })
         if (r.spec.severity === 'block') verdict = 'reject'
         else if (r.spec.severity === 'warn' && verdict !== 'reject') verdict = 'warn'
-        // Reset after violation (per continuare a monitorare)
-        r.state = r.fsm.initial
+        // B6 fix (LTL audit Fase B anticipato): NON resettare stato dopo violazione.
+        // PRIMA: r.state = r.fsm.initial → mascherava violazioni consecutive.
+        // ORA: mantieni stato per continuare a monitorare. Per pattern G(p) e
+        // simili, lo stato VIOLATED viene naturalmente aggiornato al prossimo step.
       }
       r.history.push(eventLabel)
       if (r.history.length > 100) r.history.shift()
@@ -512,20 +577,32 @@ class LTLMonitor {
         break
       }
       case 'G->X': {
-        // G(a -> X b): se in EXPECTING_B e b è falso → VIOLATED; se a vero → EXPECTING_B
+        // C2 fix (LTL audit Fase A) — Gestisce 'a' consecutivi con contatore.
+        // PRIMA: due 'a' consecutivi causavano VIOLATED errato (il secondo 'a'
+        // in EXPECTING_B con bTrue=false → VIOLATED, invece di accumulare attesa).
+        // ORA: ogni 'a' incrementa pendingBCount, ogni 'b' lo resetta a 0.
+        // Violazione solo se passo successivo non ha 'b' E pendingBCount > 0.
         const antecedent = (a as any).child.left
         const consequent = (a as any).child.right.child
         const aTrue = this.evalAtom(antecedent, eventLabel, r.history)
         const bTrue = this.evalAtom(consequent, eventLabel, r.history)
-        if (r.state === 'EXPECTING_B') {
-          if (bTrue) {
-            r.state = aTrue ? 'EXPECTING_B' : 'IDLE'
-          } else {
-            r.state = 'VIOLATED'
-          }
+
+        if (bTrue) {
+          // b è vero → soddisfa tutti i 'a' pending
+          r.pendingBCount = 0
+          r.state = 'IDLE'
+        } else if (aTrue) {
+          // a è vero ma b no → aggiungi attesa pending
+          r.pendingBCount += 1
+          r.state = 'EXPECTING_B'
         } else {
-          // IDLE
-          if (aTrue) r.state = 'EXPECTING_B'
+          // né a né b → se ci sono attese pending, sono violate
+          if (r.pendingBCount > 0) {
+            r.state = 'VIOLATED'
+            r.pendingBCount = 0 // reset dopo violazione per continuare a monitorare
+          } else {
+            r.state = 'IDLE'
+          }
         }
         break
       }
@@ -621,6 +698,9 @@ let lastRuleCount = -1
 /**
  * Inizializza il monitor con regole dal DB o default.
  * Idempotente: ricarica solo se il numero di regole attive è cambiato.
+ *
+ * C1 fix (LTL audit Fase A) — Dopo loadRules, carica stato FSM persistito
+ * da DB per riprendere il monitoraggio dopo restart/crash.
  */
 export async function initMonitor(): Promise<void> {
   const dbRules = await db.lTLRule.findMany({ where: { active: true } })
@@ -637,6 +717,8 @@ export async function initMonitor(): Promise<void> {
       }))
     : DEFAULT_LTL_RULES
   monitor.loadRules(specs)
+  // C1 fix — Carica stato FSM persistito (per riprendere dopo restart)
+  await monitor.loadStateFromDB()
   monitorInitialized = true
   lastRuleCount = dbRules.length
 }
@@ -657,15 +739,34 @@ export async function verifyEvent(
 ): Promise<{ verdict: 'accept' | 'reject' | 'warn'; violations: { ruleId: string; reason: string }[]; snapshot: { ruleId: string; pattern: string; currentState: string; history: string[] }[] }> {
   await initMonitor()
   const result = monitor.evalEvent(eventLabel, payload)
+
+  // B4 fix (LTL audit Fase A) — Size cap su payload (10KB max).
+  // PRIMA: payload stringified senza limiti → DB bloat con payload 10MB+.
+  // ORA: tronca a 10000 caratteri con marker [truncated].
+  let payloadStr: string
+  try {
+    payloadStr = JSON.stringify(payload)
+  } catch {
+    payloadStr = String(payload)
+  }
+  const MAX_PAYLOAD_SIZE = 10_000
+  if (payloadStr.length > MAX_PAYLOAD_SIZE) {
+    payloadStr = payloadStr.slice(0, MAX_PAYLOAD_SIZE) + '\n...[truncated]'
+  }
+
   await db.verificationEvent.create({
     data: {
       eventType,
-      payload: JSON.stringify(payload),
+      payload: payloadStr,
       stateLabel: eventLabel,
       verdict: result.verdict,
       reason: result.violations.map((v) => v.reason).join('; ') || 'OK',
     },
   })
+
+  // C1 fix — Persiste stato FSM su DB dopo ogni eval (per durabilità)
+  await monitor.persistStateToDB()
+
   return {
     verdict: result.verdict,
     violations: result.violations.map((v) => ({ ruleId: v.ruleId, reason: v.reason })),
