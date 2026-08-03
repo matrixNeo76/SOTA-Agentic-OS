@@ -1688,3 +1688,59 @@ Stage Summary:
 - B4: requireAdmin su mutative (viewer non può più inquinare ring buffer)
 - B5: cycleId collision risk eliminato (cuid string)
 - Prossimo: Fase B (B1+B2+B3+B7+B8) robustezza
+
+---
+Task ID: CONTEXT-MANAGER-FASE-B
+Agent: main
+Task: Fase B — B1+G5+B2+B3+B7+B8 (robustezza)
+
+Work Log:
+- B1+G5: Embedding persistito nel DB per searchContextHistory:
+  * Aggiunto campo embedding (String?) a ContextSummary nel schema
+  * summarizeAndEvict: calcola e persiste embedding al creation time
+  * searchContextHistory: legge embedding dal DB (O(1) per summary)
+  * Fallback: se embedding assente (summary pre-B1), ricalcola
+  * PRIMA: 50 embed() calls per query → ORA: 0 embed() calls (letti dal DB)
+- B2: Size cap sulla narrativa (5KB):
+  * MAX_NARRATIVE_SIZE = 5_000
+  * Tronca narrativa precedente a 5KB prima di appendere nuove entry
+  * Tronca narrativa finale a 10KB (2x cap) con marker [narrative truncated]
+  * PRIMA: narrativa cresceva indefinitamente dopo 100+ cicli
+- B3: Validazione updatePolicy:
+  * windowSize: integer 1-100 (throw se fuori range)
+  * summarizeThreshold: integer 1-1000 (throw se fuori range)
+  * summarizeThreshold >= windowSize (throw se <)
+  * PRIMA: windowSize=0 → contesto vuoto, threshold=-1 → summarization ad ogni call
+- B7: Size cap su callPayload/responsePayload (50KB):
+  * MAX_PAYLOAD_SIZE = 50_000
+  * Tronca con marker [truncated] se supera
+  * Fallback a String() se JSON.stringify fallisce (circular)
+  * PRIMA: DB bloat con payload 10MB+
+- B8: searchContextHistory usa cosine invece di dot product:
+  * Importa cosine da @/lib/embeddings
+  * Sostituito dot product grezzo con cosine(q, emb) normalizzato
+  * PRIMA: biased da magnitudo degli embedding
+- Fix aggiuntivo: pruneOnly ora scatta solo quando autoSummarize=false:
+  * PRIMA: pruneOnly scattava a active > windowSize, tenendo active basso
+    → summarization non triggerava mai (active non raggiungeva threshold)
+  * ORA: con autoSummarize=true, entries accumulano fino a threshold, poi summarize
+- Test: 19 nuovi test integration in tests/integration/context-manager-faseB.test.ts:
+  * B3 validazione: 7 test (0, 101, -1, threshold<window, validi, limiti massimi, autoSummarize)
+  * B7 size cap: 4 test (sotto 50KB, sopra 50KB truncated, response truncated, circular)
+  * B2 narrativa cap: 2 test (troncata > 10KB, precedente troncato a 5KB)
+  * B1+G5 embedding: 3 test (persistito, searchContextHistory usa, fallback senza embedding)
+  * B8 cosine: 2 test (import check, similarity normalizzata)
+  * Smoke: 1 test (full pipeline recordToolCall → truncate → summarize → search)
+
+Stage Summary:
+- 2 file modificati (context-engineering.ts, schema.prisma) + 1 nuovo test file
+- 19 nuovi test integration (tutti passing)
+- 38/38 test totali Context Manager passing (0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B1+G5: embedding persistito (no ricalcolo per query)
+- B2: narrativa capped a 10KB (no crescita indefinita)
+- B3: updatePolicy validato (windowSize 1-100, threshold >= windowSize)
+- B7: payload capped a 50KB (no DB bloat)
+- B8: cosine similarity normalizzato (no bias magnitudo)
+- Fix pruneOnly logic: summarization ora triggera correttamente
+- Prossimo: Fase C (B6+G1+G4+G6+G7) UX & completamento

@@ -342,6 +342,10 @@ model ContextSummary {
   coveredCallIds String // JSON array di ToolCallEntry.id riassunti
   tokenCost    Int      @default(0)
   cycleId      Int      // ciclo cognitivo di generazione
+  // B1+G5 fix (Context Manager audit Fase B): embedding persistito per RAG
+  // PRIMA: searchContextHistory ricalcolava embed() per 50 summary per query.
+  // ORA: persistito al creation time, searchContextHistory lo legge dal DB.
+  embedding    String?  // JSON array di float (serializzato)
   createdAt    DateTime @default(now())
 }
 

@@ -14,11 +14,17 @@
  * situazionale globale senza il peso dei token crudi.
  */
 import { db } from '@/lib/db'
-import { embed, serialize } from '@/lib/embeddings'
+import { embed, serialize, deserialize, cosine } from '@/lib/embeddings'
 
 // Policy di default (override via DB)
 const DEFAULT_WINDOW = 5
 const DEFAULT_THRESHOLD = 10
+
+// B7 fix: size cap su payload (50KB ciascuno)
+const MAX_PAYLOAD_SIZE = 50_000
+
+// B2 fix: size cap sulla narrativa (5KB)
+const MAX_NARRATIVE_SIZE = 5_000
 
 /**
  * Registra una nuova coppia Tool Call/Response nel ring buffer.
@@ -33,12 +39,32 @@ export async function recordToolCall(
 ): Promise<{ entryId: string; evicted: number; summaryId?: string }> {
   const policy = await getOrCreatePolicy(agentId)
 
+  // B7 fix: size cap su payload (50KB ciascuno) per prevenire DB bloat
+  let callStr: string
+  let respStr: string
+  try {
+    callStr = JSON.stringify(callPayload)
+  } catch {
+    callStr = String(callPayload)
+  }
+  try {
+    respStr = JSON.stringify(responsePayload)
+  } catch {
+    respStr = String(responsePayload)
+  }
+  if (callStr.length > MAX_PAYLOAD_SIZE) {
+    callStr = callStr.slice(0, MAX_PAYLOAD_SIZE) + '\n...[truncated]'
+  }
+  if (respStr.length > MAX_PAYLOAD_SIZE) {
+    respStr = respStr.slice(0, MAX_PAYLOAD_SIZE) + '\n...[truncated]'
+  }
+
   const entry = await db.toolCallEntry.create({
     data: {
       agentId,
       toolName,
-      callPayload: JSON.stringify(callPayload),
-      responsePayload: JSON.stringify(responsePayload),
+      callPayload: callStr,
+      responsePayload: respStr,
       tokenCost,
     },
   })
@@ -51,12 +77,16 @@ export async function recordToolCall(
   let evicted = 0
   let summaryId: string | undefined
 
-  // Se supera la threshold e autoSummarize è attivo, scatena summarization
+  // B2 fix: when autoSummarize is on, let entries accumulate until threshold
+  // (don't prune at windowSize — that prevents summarization from ever triggering).
+  // PRIMA: pruneOnly fired at active > windowSize, keeping active at windowSize,
+  // so active never reached summarizeThreshold → summarization never triggered.
+  // ORA: pruneOnly only fires when autoSummarize is off.
   if (policy.autoSummarize && active > policy.summarizeThreshold) {
     const summary = await summarizeAndEvict(agentId, policy.windowSize)
     evicted = summary.evictedCount
     summaryId = summary.summaryId
-  } else if (active > policy.windowSize) {
+  } else if (!policy.autoSummarize && active > policy.windowSize) {
     // Senza summarization, fai solo prune (evict senza riassunto)
     evicted = await pruneOnly(agentId, policy.windowSize)
   }
@@ -170,7 +200,13 @@ export async function summarizeAndEvict(
   // Costruisci narrativa compatta
   const lines: string[] = []
   if (previousSummary) {
-    lines.push(previousSummary.narrative)
+    // B2 fix: tronca narrativa precedente a MAX_NARRATIVE_SIZE prima di appendere
+    // PRIMA: la narrativa cresceva indefinitamente (appende tutto il precedente)
+    // ORA: mantieni solo ultimi 5KB della narrativa precedente
+    const prevNarrative = previousSummary.narrative.length > MAX_NARRATIVE_SIZE
+      ? '...[truncated]\n' + previousSummary.narrative.slice(-MAX_NARRATIVE_SIZE)
+      : previousSummary.narrative
+    lines.push(prevNarrative)
     lines.push('---')
   }
   lines.push(`[${new Date().toISOString()}] Azioni evicted (${toEvict.length}):`)
@@ -180,11 +216,24 @@ export async function summarizeAndEvict(
     lines.push(`- ${e.toolName}(${callPreview}) → ${respPreview}`)
   }
 
-  const narrative = lines.join('\n')
+  let narrative = lines.join('\n')
+  // B2 fix: se la narrativa finale supera il cap, tronca
+  if (narrative.length > MAX_NARRATIVE_SIZE * 2) {
+    narrative = narrative.slice(0, MAX_NARRATIVE_SIZE * 2) + '\n...[narrative truncated]'
+  }
+
   const tokenSaved = toEvict.reduce((s, e) => s + e.tokenCost, 0)
 
-  // Embedding della narrativa per retrieval futuro (RAG su contesto)
-  const narrativeEmb = embed(narrative)
+  // B1+G5 fix: calcola e persisti embedding della narrativa al creation time
+  // PRIMA: searchContextHistory ricalcolava embed() per 50 summary per query
+  // ORA: embedding persistito, searchContextHistory lo legge dal DB
+  let embeddingStr: string | null = null
+  try {
+    const narrativeEmb = embed(narrative)
+    embeddingStr = serialize(narrativeEmb)
+  } catch {
+    // Non bloccante: se embed fallisce, persisti senza embedding
+  }
 
   // Crea il summary
   const cycleId = Math.floor(Date.now() / 1000) % 100000
@@ -195,6 +244,7 @@ export async function summarizeAndEvict(
       coveredCallIds: JSON.stringify(toEvict.map((e) => e.id)),
       tokenCost: Math.ceil(narrative.length / 4), // stima token
       cycleId,
+      ...(embeddingStr && { embedding: embeddingStr }), // B1+G5: persisti embedding
     },
   })
 
@@ -252,11 +302,32 @@ async function getOrCreatePolicy(agentId: string) {
 
 /**
  * Aggiorna la policy di pruning.
+ *
+ * B3 fix (Context Manager audit Fase B): valida input.
+ * PRIMA: windowSize=0 → contesto vuoto, threshold=-1 → summarization ad ogni call.
+ * ORA: windowSize deve essere 1-100, summarizeThreshold >= windowSize e <= 1000.
  */
 export async function updatePolicy(
   agentId: string,
   updates: { windowSize?: number; summarizeThreshold?: number; autoSummarize?: boolean }
 ) {
+  // B3: validazione
+  if (updates.windowSize !== undefined) {
+    if (!Number.isInteger(updates.windowSize) || updates.windowSize < 1 || updates.windowSize > 100) {
+      throw new Error(`Invalid windowSize ${updates.windowSize}: must be integer 1-100`)
+    }
+  }
+  if (updates.summarizeThreshold !== undefined) {
+    if (!Number.isInteger(updates.summarizeThreshold) || updates.summarizeThreshold < 1 || updates.summarizeThreshold > 1000) {
+      throw new Error(`Invalid summarizeThreshold ${updates.summarizeThreshold}: must be integer 1-1000`)
+    }
+    // threshold deve essere >= windowSize (se entrambi specificati)
+    const effectiveWindow = updates.windowSize ?? (await getOrCreatePolicy(agentId)).windowSize
+    if (updates.summarizeThreshold < effectiveWindow) {
+      throw new Error(`summarizeThreshold ${updates.summarizeThreshold} must be >= windowSize ${effectiveWindow}`)
+    }
+  }
+
   return db.pruningPolicy.upsert({
     where: { agentId },
     create: {
@@ -293,6 +364,11 @@ export async function contextStats(agentId?: string) {
 
 /**
  * Ricerca RAG nel contesto storico (narrative dei summary).
+ *
+ * B1+G5 fix: usa embedding persistito nel DB invece di ricalcolare embed() per ogni summary.
+ * B8 fix: usa cosine similarity invece di dot product grezzo.
+ * PRIMA: ricalcolava 50 embedding per query + dot product biased da magnitudo.
+ * ORA: legge embedding dal DB (O(1) per summary) + cosine normalizzato.
  */
 export async function searchContextHistory(agentId: string, query: string, k = 3) {
   const q = embed(query)
@@ -301,13 +377,33 @@ export async function searchContextHistory(agentId: string, query: string, k = 3
     orderBy: { createdAt: 'desc' },
     take: 50,
   })
-  // Note: non memorizziamo embedding dei summary nel DB per semplicità;
-  // ricalcoliamo al volo (50 summary max, costo trascurabile)
+
   const scored = summaries.map((s) => {
-    const emb = embed(s.narrative)
-    let dot = 0
-    for (let i = 0; i < q.length; i++) dot += q[i] * emb[i]
-    return { id: s.id, narrative: s.narrative, cycleId: s.cycleId, similarity: dot }
+    let similarity = 0
+    // B1+G5: usa embedding persistito se disponibile
+    if (s.embedding) {
+      try {
+        const emb = deserialize(s.embedding)
+        similarity = cosine(q, emb) // B8: cosine invece di dot product
+      } catch {
+        // Fallback: ricalcola embedding se deserialize fallisce
+        try {
+          const emb = embed(s.narrative)
+          similarity = cosine(q, emb)
+        } catch {
+          similarity = 0
+        }
+      }
+    } else {
+      // Summary senza embedding (precedente al B1 fix) → ricalcola
+      try {
+        const emb = embed(s.narrative)
+        similarity = cosine(q, emb)
+      } catch {
+        similarity = 0
+      }
+    }
+    return { id: s.id, narrative: s.narrative, cycleId: s.cycleId, similarity }
   })
   scored.sort((a, b) => b.similarity - a.similarity)
   return scored.slice(0, k)
