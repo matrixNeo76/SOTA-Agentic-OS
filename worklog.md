@@ -1828,3 +1828,51 @@ Stage Summary:
   * G4: validateTrace con 0 dominators → coverage=1.0 (sempre accept)
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: valutare chiusura ciclo di audit/hardening
+
+---
+Task ID: PTA-DOMINATORS-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B2+B3 (sicurezza & robustezza)
+
+Work Log:
+- C1: requireAdmin su POST /api/dominator:
+  * PRIMA: requireAuth su tutto il POST → viewer poteva catturare tracce false,
+    sovrascrivere PTA, creare validazioni spurie
+  * ORA: requireAdmin per capture_trace, build_pta, validate_trace
+  * Aggiunto try/catch su body parsing con 400 per JSON invalido
+  * Actor email loggato in publishAgentEvent payload
+- C2: validateTrace non fa più break su deviazione:
+  * PRIMA: break interrompeva la simulazione → coverage sottostimato (falsi reject)
+    Il commento diceva "Non interrompere" ma il codice faceva break
+  * ORA: marca pathValid=false ma continua a processare stati successivi
+  * Coverage calcolato su tutti i dominatori raggiunti, non solo quelli prima della deviazione
+- C3: captureTrace valida input:
+  * workflowId non vuoto (throw se '')
+  * states non vuoto array (throw se [] o non array)
+  * traceLabel non vuoto (throw se '')
+  * PRIMA: states=[] creava traccia vuota che corrompeva il PTA (path lunghezza 0)
+- B2: buildPTA try/catch su JSON.parse(statesJson):
+  * PRIMA: se statesJson corrotto, buildPTA crashava
+  * ORA: skip traccia corrotta con continue, usa solo tracce valide
+  * Skip anche tracce con states vuoto (array vuoto o non array)
+- B3: validateTrace try/catch su tutti i JSON.parse:
+  * PRIMA: 3 JSON.parse senza try/catch (nodesJson, dominatorsJson, acceptNodeIds)
+  * ORA: se uno qualsiasi è corrotto, ritorna {verdict:'warn', reason:'PTA data corrupted'}
+- Test: 18 nuovi test integration in tests/integration/pta-dominators-faseA.test.ts:
+  * C3 captureTrace validation: 4 test (states vuoto, workflowId vuoto, traceLabel vuoto, valido)
+  * C2 validateTrace no break: 3 test (deviazione coverage, traccia valida, codice no break)
+  * B2 buildPTA JSON.parse robusto: 2 test (statesJson corrotto, states vuoto)
+  * B3 validateTrace JSON.parse robusto: 2 test (nodesJson corrotto, dominatorsJson corrotto)
+  * C1 requireAdmin: 5 test (401 no session, 403 viewer, 200 admin, 400 invalid JSON, 400 states vuoto)
+  * Smoke: 2 test (full pipeline capture→build→validate con deviazione, buildPTA salta corrotte)
+
+Stage Summary:
+- 2 file modificati (dominator-tree.ts, api/dominator/route.ts) + 1 nuovo test file
+- 18 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- C1: viewer non può più inquinare PTA (requireAdmin)
+- C2: coverage accurato (no break su deviazione, coverage calcolato su tutti dominatori)
+- C3: no tracce vuote/corrotte (validazione input)
+- B2: buildPTA robusto (skip tracce corrotte)
+- B3: validateTrace robusto (no crash su PTA corrotto)
+- Prossimo: Fase B (B1+B4+B5+B6) robustezza

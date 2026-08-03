@@ -40,6 +40,11 @@ export type PTAGraph = {
 
 /**
  * Cattura una traccia di esecuzione.
+ *
+ * C3 fix (PTA audit Fase A): valida input.
+ * PRIMA: states=[] creava traccia vuota che corrompeva il PTA (path lunghezza 0).
+ * workflowId='' creava tracce senza workflow associato.
+ * ORA: throw se states è vuoto o workflowId è vuoto.
  */
 export async function captureTrace(
   workflowId: string,
@@ -48,12 +53,23 @@ export async function captureTrace(
   actions: string[],
   outcome: 'success' | 'failure' | 'partial' = 'success'
 ): Promise<string> {
+  // C3: validazione input
+  if (!workflowId || !workflowId.trim()) {
+    throw new Error('workflowId is required and cannot be empty')
+  }
+  if (!states || !Array.isArray(states) || states.length === 0) {
+    throw new Error('states is required and must be a non-empty array')
+  }
+  if (!traceLabel || !traceLabel.trim()) {
+    throw new Error('traceLabel is required and cannot be empty')
+  }
+
   const trace = await db.executionTrace.create({
     data: {
       workflowId,
       traceLabel,
       statesJson: JSON.stringify(states),
-      actionsJson: JSON.stringify(actions),
+      actionsJson: JSON.stringify(actions || []),
       outcome,
     },
   })
@@ -92,7 +108,15 @@ export async function buildPTA(workflowId: string): Promise<{ ptaId: string; gra
   const acceptNodeIds: string[] = []
 
   for (const trace of traces) {
-    const states: DiscreteState[] = JSON.parse(trace.statesJson)
+    // B2 fix: try/catch su JSON.parse per statesJson corrotto
+    let states: DiscreteState[]
+    try {
+      states = JSON.parse(trace.statesJson)
+    } catch {
+      // Skip tracce con statesJson corrotto invece di crashare
+      continue
+    }
+    if (!Array.isArray(states) || states.length === 0) continue
     let current = root
 
     for (let i = 0; i < states.length; i++) {
@@ -263,12 +287,27 @@ export async function validateTrace(
     }
   }
 
-  const nodes: Record<string, PTANode> = JSON.parse(ptaRow.nodesJson)
-  const dominators: string[] = JSON.parse(ptaRow.dominatorsJson)
+  // B3 fix: try/catch su tutti i JSON.parse per PTA corrotto
+  let nodes: Record<string, PTANode>
+  let dominators: string[]
+  let acceptNodeIds: string[]
+  try {
+    nodes = JSON.parse(ptaRow.nodesJson)
+    dominators = JSON.parse(ptaRow.dominatorsJson)
+    acceptNodeIds = JSON.parse(ptaRow.acceptNodeIds)
+  } catch {
+    return {
+      verdict: 'warn',
+      dominatorCoverage: 0,
+      passedDominatorIds: [],
+      pathValid: false,
+      reason: `PTA data corrupted for workflow ${workflowId}`,
+    }
+  }
   const graph: PTAGraph = {
     nodes,
     startNodeId: ptaRow.startNodeId,
-    acceptNodeIds: JSON.parse(ptaRow.acceptNodeIds),
+    acceptNodeIds,
     dominators,
   }
 
@@ -282,11 +321,11 @@ export async function validateTrace(
       current = nodes[current.children[s]]
       visitedNodeIds.push(current.id)
     } else {
-      // Transizione non presente nel PTA: deviazione
+      // C2 fix: NON interrompere — continuiamo per calcolare coverage sui dominatori
+      // rimanenti. PRIMA: break interrompeva la simulazione → coverage sottostimato.
+      // ORA: marca pathValid=false ma continua a cercare match per stati successivi.
       pathValid = false
-      // Non interrompere: continuiamo per calcolare coverage sui dominatori
-      // rimanenti tramite matching semantico dello stato
-      break
+      // Continua al prossimo stato senza avanzare nel PTA
     }
   }
 
