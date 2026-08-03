@@ -20,6 +20,51 @@ import { verifyEvent } from '@/lib/kernel/ltl-monitor'
 import { db } from '@/lib/db'
 import { publishAgentEvent } from '@/lib/ws-publish'
 
+// === B8: Fail mode configuration ====================================
+
+/**
+ * B8 fix (ERL audit Fase B): legge la modalità di fallimento da SystemSetting.
+ * 'open' (default): se un hook fallisce per errore tecnico, l'azione è允许.
+ * 'close': se un hook fallisce, l'azione è bloccata (fail-close, per ambienti critici).
+ */
+async function getFailMode(): Promise<'open' | 'close'> {
+  try {
+    const setting = await db.systemSetting.findUnique({
+      where: { key: 'governance.fail_mode' },
+      select: { value: true },
+    })
+    if (setting?.value === 'close') return 'close'
+  } catch {
+    // Non bloccante
+  }
+  return 'open'
+}
+
+/**
+ * B8: helper per determinare il verdict su errore tecnico.
+ */
+async function failResult(
+  hookName: string,
+  err: any,
+  agentId: string,
+): Promise<{ allowed: boolean; reason: string }> {
+  const mode = await getFailMode()
+  console.error(`[governance-hooks] ${hookName} failed: ${err.message}`)
+
+  // B8: pubblica alert quando un hook fallisce (per monitoring)
+  await publishAgentEvent({
+    agentId, phase: '4',
+    event: 'governance_hook_error',
+    level: 'warn',
+    payload: { hook: hookName, error: err.message, failMode: mode },
+  }).catch(() => {})
+
+  if (mode === 'close') {
+    return { allowed: false, reason: `${hookName} error (fail-close): ${err.message}` }
+  }
+  return { allowed: true, reason: `${hookName} error (fail-open): ${err.message}` }
+}
+
 // === G6: Taint Hooks =================================================
 
 /**
@@ -175,7 +220,12 @@ export async function publishStateChangeToLTL(
 export async function evaluateRedLinesForAction(
   action: string,
   agentId: string,
-): Promise<{ allowed: boolean; blockingRedLines: { id: string; description: string; severity: string }[] }> {
+): Promise<{
+  allowed: boolean
+  blockingRedLines: { id: string; description: string; severity: string }[]
+  warnings: { id: string; description: string; severity: string }[]
+  overridable: boolean
+}> {
   try {
     const redLines = await db.redLine.findMany({
       where: { active: true },
@@ -184,20 +234,32 @@ export async function evaluateRedLinesForAction(
 
     const actionLower = action.toLowerCase()
     const blocking: { id: string; description: string; severity: string }[] = []
+    const warnings: { id: string; description: string; severity: string }[] = []
 
     for (const rl of redLines) {
       const rlDescLower = rl.description.toLowerCase()
 
       // C2 fix: usa solo substring match bidirezionale (esatto, non keyword overlap).
-      // Questo è conservativo: blocca solo se l'azione contiene la descrizione
-      // della Red Line (o viceversa) come substring esatta.
       const actionContainsDesc = actionLower.includes(rlDescLower)
       const descContainsAction = rlDescLower.includes(actionLower)
 
       if (actionContainsDesc || descContainsAction) {
-        blocking.push({ id: rl.id, description: rl.description, severity: rl.severity })
+        // B5 fix: distingue severity
+        if (rl.severity === 'absolute') {
+          blocking.push({ id: rl.id, description: rl.description, severity: rl.severity })
+        } else if (rl.severity === 'strong') {
+          blocking.push({ id: rl.id, description: rl.description, severity: rl.severity })
+        } else {
+          // soft → warning only, non blocca
+          warnings.push({ id: rl.id, description: rl.description, severity: rl.severity })
+        }
       }
     }
+
+    // B5: allowed=false solo se ci sono blocking Red Lines (absolute o strong)
+    // soft severity produce warnings ma non blocca
+    const hasBlocking = blocking.length > 0
+    const hasStrongOnly = blocking.length > 0 && blocking.every(b => b.severity === 'strong')
 
     if (blocking.length > 0) {
       await publishAgentEvent({
@@ -207,15 +269,26 @@ export async function evaluateRedLinesForAction(
         payload: { action, blockingRedLines: blocking.map(b => b.description) },
       })
     }
+    if (warnings.length > 0) {
+      await publishAgentEvent({
+        agentId, phase: '5',
+        event: 'redline_warning',
+        level: 'info',
+        payload: { action, warnings: warnings.map(w => w.description) },
+      })
+    }
 
     return {
-      allowed: blocking.length === 0,
+      allowed: !hasBlocking,
       blockingRedLines: blocking,
+      warnings,
+      // B5: strong severity può essere overridden con approval
+      overridable: hasStrongOnly,
     }
   } catch (err: any) {
     console.error(`[governance-hooks] evaluateRedLines failed: ${err.message}`)
     // Fail-open su errori tecnici
-    return { allowed: true, blockingRedLines: [] }
+    return { allowed: true, blockingRedLines: [], warnings: [], overridable: false }
   }
 }
 

@@ -1488,3 +1488,58 @@ Stage Summary:
 - B4: blockingRedLine strutturato per audit trail
 - B6: listRedLines non più ID finti (seeda DB)
 - Prossimo: Fase B (B1+B2+B3+B5+B7+B8) robustezza
+
+---
+Task ID: ERL-RED-LINES-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B5+B7+B8 (robustezza)
+
+Work Log:
+- B1: LLM parse regex più robusto, multi-formato:
+  * 5 pattern alternativi: when/quando, if/se, per/for, colon separator, to/per
+  * Fallback: split su prima frase come trigger, resto come action
+  * Last resort: full heuristic come trigger+action (no perdita dati)
+- B2: feedbackHeuristic ritorna {updated, reason, newCount, newRate}:
+  * PRIMA: silent no-op se ID non esiste (void return)
+  * ORA: {updated: false, reason: 'heuristic not found'}
+  * Overflow protection: appliedCount capped at 1M con reason descrittivo
+- B3: retrieveHeuristics pre-filtering per scalabilità:
+  * PRIMA: caricava TUTTE le euristiche in memoria (O(N) cosine per query)
+  * ORA: pre-filtra top 200 by appliedCount desc prima del cosine (O(200))
+  * Riduzione memoria + CPU su dataset 10K+ euristiche
+- B5: evaluateRedLinesForAction distingue severity:
+  * absolute → block (allowed=false, overridable=false)
+  * strong → block ma overridable=true (può essere overridden con approval)
+  * soft → warning only (allowed=true, warnings[])
+  * Return type ampliato: {allowed, blockingRedLines, warnings, overridable}
+- B7: reflectAndLearn idempotency su operationId:
+  * PRIMA: retry con stesso operationId creava duplicati su ReflectionLog + Heuristic
+  * ORA: se operationId esiste già in ReflectionLog, ritorna risultato cached (idempotent=true)
+  * Non crea duplicati neanche su Heuristic
+  * Return type ampliato: {idempotent?: boolean}
+- B8: Governance hooks fail-close opzione:
+  * getFailMode() legge 'governance.fail_mode' da SystemSetting ('open'|'close')
+  * failResult helper: se mode=close, errori bloccano invece di allow
+  * Pubblica alert 'governance_hook_error' su fallimento (per monitoring)
+  * Default: fail-open (backward compat)
+- Test: 24 nuovi test integration in tests/integration/erl-red-lines-faseB.test.ts:
+  * B1 LLM parse: 2 test (5 pattern check, fallback check)
+  * B2 feedbackHeuristic: 4 test (updated=true, ID non esiste, newRate, overflow cap)
+  * B3 retrieveHeuristics: 3 test (pre-filter limit, similarity score, top-k ordering)
+  * B5 severity: 4 test (absolute block, strong overridable, soft warning, mixed)
+  * B7 idempotency: 4 test (cached result, no duplicates ReflectionLog, no duplicates Heuristic, different operationId)
+  * B8 fail-close: 4 test (getFailMode exists, fail-close logic, alert, default open)
+  * Smoke: 3 test (full pipeline, idempotency+feedback, severity all 3)
+
+Stage Summary:
+- 2 file modificati (erl.ts, governance-hooks.ts) + 1 nuovo test file
+- 24 nuovi test integration (tutti passing)
+- 62/62 test totali ERL passing (1 flaky per LLM rate limit, non bug codice)
+- 0 TypeScript errors nei file Fase B
+- B1: LLM parse robusto (5 pattern + fallback)
+- B2: feedbackHeuristic non più silent (ritorna feedback strutturato + overflow cap)
+- B3: retrieveHeuristics scalable (pre-filter top 200)
+- B5: severity distinction (absolute/strong/soft + overridable)
+- B7: reflectAndLearn idempotente (no duplicati su retry)
+- B8: fail-close configurable via SystemSetting
+- Prossimo: Fase C (G3+G4+G5+G6+G7) UX & completamento

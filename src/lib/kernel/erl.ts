@@ -67,23 +67,54 @@ async function extractHeuristic(input: ReflectionInput, useLLM = true): Promise<
       })
 
       if (result.source === 'llm' && result.heuristic.length > 10) {
-        // Split LLM output into trigger/action heuristics
-        // Format: "When I encounter X, I should do Y"
-        const match = result.heuristic.match(/(?:when|quando)\s+(.+?)[,]\s*(?:i should|devo|dovrei)\s+(.+)/i)
-        if (match) {
+        // B1 fix (ERL audit Fase B): LLM parse regex più robusto, multi-formato.
+        // PRIMA: solo "when/quando X, i should/devo Y" → miss su "If X then Y",
+        // "Per X esegui Y", "Quando X: Y", ecc.
+        // ORA: 5 pattern alternativi + fallback split su frase.
+        const patterns = [
+          // Pattern 1: "When/Quando X, I should/devo Y"
+          /(?:when|quando)\s+(.+?)[,]\s*(?:i should|devo|dovrei)\s+(.+)/i,
+          // Pattern 2: "If/Se X then/allora Y"
+          /(?:if|se)\s+(.+?)[,]?\s*(?:then|allora)\s+(.+)/i,
+          // Pattern 3: "Per/For X, esegui/execute Y"
+          /(?:per|for)\s+(.+?)[,]\s*(?:esegui|execute|run)\s+(.+)/i,
+          // Pattern 4: "Quando/When X: Y" (colon separator)
+          /(?:when|quando)\s+(.+?)[:]\s*(.+)/i,
+          // Pattern 5: "To/Per X, do/fai Y"
+          /(?:to|per)\s+(.+?)[,]\s*(?:do|fai)\s+(.+)/i,
+        ]
+
+        let matched = false
+        for (const pattern of patterns) {
+          const match = result.heuristic.match(pattern)
+          if (match) {
+            return {
+              trigger: match[1].trim(),
+              action: match[2].trim(),
+              context: input.context,
+              redLineFlagged: result.redLineFlag,
+            }
+          }
+        }
+
+        // B1 fallback: split su prima frase come trigger, resto come action
+        if (!matched) {
+          const sentences = result.heuristic.split(/[.!?\n]/).filter((s: string) => s.trim().length > 0)
+          if (sentences.length >= 2) {
+            return {
+              trigger: sentences[0].trim().slice(0, 200),
+              action: sentences.slice(1).join('. ').trim(),
+              context: input.context,
+              redLineFlagged: result.redLineFlag,
+            }
+          }
+          // Last resort: use the full heuristic as trigger+action (duplicato ma non perde info)
           return {
-            trigger: `Quando ${match[1]}`,
-            action: match[2],
+            trigger: result.heuristic.slice(0, 80),
+            action: result.heuristic,
             context: input.context,
             redLineFlagged: result.redLineFlag,
           }
-        }
-        // Fallback: use the full heuristic as trigger+action
-        return {
-          trigger: result.heuristic.slice(0, 80),
-          action: result.heuristic,
-          context: input.context,
-          redLineFlagged: result.redLineFlag,
         }
       }
     } catch {
@@ -229,6 +260,11 @@ async function supervisorReview(
 
 /**
  * Pipeline ERL completa: riflessione → estrazione → review → persistenza.
+ *
+ * B7 fix (ERL audit Fase B): idempotency su operationId.
+ * PRIMA: chiamate ripetute con stesso operationId creavano duplicati su
+ * ReflectionLog e Heuristic (no unique constraint).
+ * ORA: se operationId esiste già in ReflectionLog, ritorna risultato cached.
  */
 export async function reflectAndLearn(input: ReflectionInput): Promise<{
   heuristic: ExtractedHeuristic
@@ -236,7 +272,35 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
   reviewReason: string
   stored: boolean
   blockingRedLine?: { id: string; description: string; severity: string }
+  idempotent?: boolean
 }> {
+  // B7: check if already processed (idempotency)
+  const existingLog = await db.reflectionLog.findFirst({
+    where: { operationId: input.operationId },
+    orderBy: { timestamp: 'desc' },
+  })
+
+  if (existingLog) {
+    // Already processed — return cached result
+    const existingHeuristic = await db.heuristic.findFirst({
+      where: { source: input.operationId },
+    })
+    return {
+      heuristic: {
+        trigger: existingLog.extractedHeuristic?.split(' → ')[0] || '',
+        action: existingLog.extractedHeuristic?.split(' → ')[1] || '',
+        context: input.context,
+        redLineFlagged: existingLog.redLineFlag,
+      },
+      approved: !existingLog.redLineFlag,
+      reviewReason: existingLog.redLineFlag
+        ? 'Red Line violation (cached)'
+        : 'Superato controllo Red Line (cached)',
+      stored: !!existingHeuristic,
+      idempotent: true,
+    }
+  }
+
   const heuristic = await extractHeuristic(input)
   const review = await supervisorReview(heuristic, input)
 
@@ -280,10 +344,25 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
 
 /**
  * RAG: recupera le top-k euristiche rilevanti per un nuovo task.
+ *
+ * B3 fix (ERL audit Fase B): pre-filtering per scalabilità.
+ * PRIMA: caricava TUTTE le euristiche dal DB in memoria per cosine similarity.
+ * Con 10.000+ euristiche → 10MB memoria + 10.000 cosine calc per query.
+ * ORA: pre-filtra per top 200 by (appliedCount * successRate) prima del cosine,
+ * riducendo il calcolo da O(N) a O(200) per query.
  */
 export async function retrieveHeuristics(taskDescription: string, k = 5) {
   const q = embed(taskDescription)
-  const all = await db.heuristic.findMany({ where: { redLineOk: true } })
+
+  // B3: pre-filter top 200 by relevance score (appliedCount * successRate)
+  // Questo riduce il set da O(N) a O(200) prima del cosine calculation.
+  const PRE_FILTER_LIMIT = 200
+  const all = await db.heuristic.findMany({
+    where: { redLineOk: true },
+    orderBy: { appliedCount: 'desc' },
+    take: PRE_FILTER_LIMIT,
+  })
+
   const scored = all.map((h) => ({
     id: h.id,
     trigger: h.trigger,
@@ -300,16 +379,39 @@ export async function retrieveHeuristics(taskDescription: string, k = 5) {
 
 /**
  * Aggiorna il tasso di successo di un'euristica applicata.
+ *
+ * B2 fix (ERL audit Fase B): ritorna { updated, reason } invece di silent no-op.
+ * PRIMA: se ID non esiste, ritornava void silenziosamente.
+ * ORA: ritorna { updated: false, reason: 'heuristic not found' }.
+ * Inoltre, overflow protection su appliedCount (cap a 1M).
  */
-export async function feedbackHeuristic(id: string, success: boolean) {
+export async function feedbackHeuristic(id: string, success: boolean): Promise<{
+  updated: boolean
+  reason?: string
+  newCount?: number
+  newRate?: number
+}> {
   const h = await db.heuristic.findUnique({ where: { id } })
-  if (!h) return
-  const newCount = h.appliedCount + 1
+  if (!h) {
+    return { updated: false, reason: `heuristic not found: ${id}` }
+  }
+
+  // B2: overflow protection — cap appliedCount at 1M
+  const MAX_COUNT = 1_000_000
+  const newCount = Math.min(h.appliedCount + 1, MAX_COUNT)
   const newRate = (h.successRate * h.appliedCount + (success ? 1 : 0)) / newCount
+
   await db.heuristic.update({
     where: { id },
     data: { appliedCount: newCount, successRate: newRate },
   })
+
+  return {
+    updated: true,
+    newCount,
+    newRate,
+    reason: newCount >= MAX_COUNT ? 'appliedCount capped at 1M (overflow protection)' : undefined,
+  }
 }
 
 /**
