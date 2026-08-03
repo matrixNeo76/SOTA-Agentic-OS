@@ -34,6 +34,39 @@ async function cleanupFixtures() {
   })
 }
 
+/**
+ * Setup helper per test C2: disabilita TUTTE le regole default (LTL-001..006)
+ * e riattiva solo la regola di test. Questo evita interferenze quando il test
+ * manda eventi 'a' che potrebbero violare regole default (es. LTL-006 G(plan -> F execute)).
+ */
+async function isolateTestRule(ruleId: string) {
+  // Disabilita tutte le regole non di test (not: { startsWith } per compatibilità Prisma)
+  await db.lTLRule.updateMany({
+    where: { ruleId: { not: { startsWith: TEST_PREFIX } } },
+    data: { active: false },
+  })
+  // Riattiva solo la regola di test
+  await db.lTLRule.update({
+    where: { ruleId },
+    data: { active: true },
+  })
+  // Forza reload del monitor
+  const { reloadMonitor } = await import('@/lib/kernel/ltl-monitor')
+  await reloadMonitor()
+}
+
+/**
+ * Ripristina le regole default dopo i test C2 (per non rompere altri test).
+ */
+async function restoreDefaultRules() {
+  await db.lTLRule.updateMany({
+    where: { ruleId: { not: { startsWith: TEST_PREFIX } } },
+    data: { active: true },
+  })
+  const { reloadMonitor } = await import('@/lib/kernel/ltl-monitor')
+  await reloadMonitor()
+}
+
 vi.mock('@/lib/ws-publish', () => ({
   publishAgentEvent: vi.fn().mockResolvedValue(undefined),
 }))
@@ -117,7 +150,10 @@ describe('Fase A — C1: LTL monitor stato FSM persistito su DB', () => {
 
 describe('Fase A — C2: G(a -> X b) gestisce a consecutivi', () => {
   beforeEach(async () => { await cleanupFixtures() })
-  afterEach(async () => { await cleanupFixtures() })
+  afterEach(async () => {
+    await restoreDefaultRules()
+    await cleanupFixtures()
+  })
 
   it('sequenza a, a, b NON genera violazione (PRIMA: VIOLATED errato)', async () => {
     const { addLTLRule, reloadMonitor, verifyEvent } = await import('@/lib/kernel/ltl-monitor')
@@ -129,6 +165,7 @@ describe('Fase A — C2: G(a -> X b) gestisce a consecutivi', () => {
       severity: 'block',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     // Sequenza: a, a, b
     const r1 = await verifyEvent('a', 'test', {})
@@ -151,6 +188,7 @@ describe('Fase A — C2: G(a -> X b) gestisce a consecutivi', () => {
       severity: 'block',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     // a → pendingBCount=1, EXPECTING_B
     await verifyEvent('a', 'test', {})
@@ -172,6 +210,7 @@ describe('Fase A — C2: G(a -> X b) gestisce a consecutivi', () => {
       severity: 'block',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     await verifyEvent('a', 'test', {}) // pendingBCount=1
     await verifyEvent('b', 'test', {}) // pendingBCount=0
@@ -182,13 +221,15 @@ describe('Fase A — C2: G(a -> X b) gestisce a consecutivi', () => {
 
   it('multipli a consecutivi poi b → no violazione', async () => {
     const { addLTLRule, reloadMonitor, verifyEvent } = await import('@/lib/kernel/ltl-monitor')
+    const ruleId = `${TEST_PREFIX}c2-multi`
     await addLTLRule({
-      ruleId: `${TEST_PREFIX}c2-multi`,
+      ruleId,
       formula: 'G(a -> X b)',
       description: 'Test C2 multi a',
       severity: 'block',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     // a, a, a, a, b
     await verifyEvent('a', 'test', {})
@@ -423,7 +464,10 @@ describe('Fase A — B4: verifyEvent size cap su payload (10KB)', () => {
 
 describe('Fase A — B6: evalEvent non resetta stato dopo violazione', () => {
   beforeEach(async () => { await cleanupFixtures() })
-  afterEach(async () => { await cleanupFixtures() })
+  afterEach(async () => {
+    await restoreDefaultRules()
+    await cleanupFixtures()
+  })
 
   it('2 violazioni consecutive della stessa regola → 2 violations registrate', async () => {
     const { addLTLRule, reloadMonitor, verifyEvent } = await import('@/lib/kernel/ltl-monitor')
@@ -436,6 +480,7 @@ describe('Fase A — B6: evalEvent non resetta stato dopo violazione', () => {
       severity: 'warn',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     // Due eventi non-safe consecutivi
     const r1 = await verifyEvent('unsafe', 'test', {})
@@ -452,7 +497,10 @@ describe('Fase A — B6: evalEvent non resetta stato dopo violazione', () => {
 
 describe('Fase A — Smoke: full integration C1+C2+C3+B1+B2+B4', () => {
   beforeEach(async () => { await cleanupFixtures() })
-  afterEach(async () => { await cleanupFixtures() })
+  afterEach(async () => {
+    await restoreDefaultRules()
+    await cleanupFixtures()
+  })
 
   it('LTL rule con a consecutivi + persistenza + taint block + normative validation', async () => {
     const { addLTLRule, reloadMonitor, verifyEvent } = await import('@/lib/kernel/ltl-monitor')
@@ -468,6 +516,7 @@ describe('Fase A — Smoke: full integration C1+C2+C3+B1+B2+B4', () => {
       severity: 'block',
     })
     await reloadMonitor()
+    await isolateTestRule(ruleId)
 
     // 2. Sequenza a, a, b → no violazione (C2)
     const r1 = await verifyEvent('a', 'test', { step: 1 })
