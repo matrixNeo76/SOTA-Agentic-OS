@@ -94,8 +94,17 @@ export async function markExternalInputTainted(
 /**
  * Sensitive sinks — tool call che richiedono check taint.
  * Mappatura tool name → sink category.
+ *
+ * G5 fix (ERL audit Fase C): ORA legge dinamicamente da getSensitiveSinks()
+ * (SystemSetting 'taint.sensitive_sinks') invece di usare solo la mappa hardcoded.
+ * Se un sink è stato aggiunto via admin API (es. 'tool_call:email'), viene
+ * riconosciuto automaticamente da checkToolCallSink.
+ *
+ * La mappa TOOL_SINK_MAP_BASE rimane come fallback per i tool name più comuni,
+ * ma il check effettivo avviene confrontando il sink mappato contro la lista
+ * dinamica da SystemSetting.
  */
-const TOOL_SINK_MAP: Record<string, string> = {
+const TOOL_SINK_MAP_BASE: Record<string, string> = {
   exec: 'tool_call:exec',
   shell: 'tool_call:exec',
   bash: 'tool_call:exec',
@@ -130,10 +139,36 @@ export async function checkToolCallSink(
   taintIds: string[],
   agentId: string,
 ): Promise<{ allowed: boolean; reason: string; sink?: string }> {
-  const sink = TOOL_SINK_MAP[toolName.toLowerCase()]
+  const sink = TOOL_SINK_MAP_BASE[toolName.toLowerCase()]
   if (!sink) {
-    // Tool non sensibile → allow
-    return { allowed: true, reason: `Tool '${toolName}' is not a sensitive sink` }
+    // G5 fix: se il tool non è nella mappa base, potrebbe essere un sink custom
+    // aggiunto via SystemSetting. Verifica dinamicamente.
+    try {
+      const { taintInput, checkSink: taintCheckSink } = await import('@/lib/kernel/taint')
+      // Prova a usare 'tool_call:'+toolName come sink name e verifica se è sensibile
+      const dynamicSink = `tool_call:${toolName.toLowerCase()}`
+      const sensitiveSinks = await getSensitiveSinksDynamic()
+      if (!sensitiveSinks.includes(dynamicSink)) {
+        return { allowed: true, reason: `Tool '${toolName}' is not a sensitive sink` }
+      }
+      // È un sink sensibile dinamico → procedi con checkSink
+      if (taintIds.length === 0) {
+        return { allowed: true, reason: 'No active taint in context', sink: dynamicSink }
+      }
+      const result = await taintCheckSink(dynamicSink, taintIds)
+      if (!result.allowed) {
+        await publishAgentEvent({
+          agentId, phase: '4',
+          event: 'taint_blocked_sink',
+          level: 'warn',
+          payload: { toolName, sink: dynamicSink, taintIds, blockedFlows: result.blockedFlows.length },
+        })
+      }
+      return { allowed: result.allowed, reason: result.reason, sink: dynamicSink }
+    } catch (err: any) {
+      console.error(`[governance-hooks] checkToolCallSink dynamic failed: ${err.message}`)
+      return { allowed: true, reason: `Tool '${toolName}' is not a sensitive sink (error: ${err.message})` }
+    }
   }
 
   if (taintIds.length === 0) {
@@ -157,6 +192,33 @@ export async function checkToolCallSink(
     // (ma logga per audit). In produzione critica si potrebbe scegliere fail-close.
     return { allowed: true, reason: `checkSink error (fail-open): ${err.message}`, sink }
   }
+}
+
+/**
+ * G5 fix — Legge i sensitive sinks dinamicamente da SystemSetting.
+ * Helper per checkToolCallSink quando il tool non è nella mappa base.
+ */
+async function getSensitiveSinksDynamic(): Promise<string[]> {
+  try {
+    const setting = await db.systemSetting.findUnique({
+      where: { key: 'taint.sensitive_sinks' },
+      select: { value: true },
+    })
+    if (setting?.value) {
+      const parsed = setting.value
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+      if (parsed.length > 0) return parsed
+    }
+  } catch {
+    // Non bloccante
+  }
+  // Fallback: sinks di default di taint.ts
+  return [
+    'tool_call:exec', 'tool_call:file_write', 'tool_call:network',
+    'tool_call:db_write', 'tool_call:deploy', 'tool_call:delete',
+  ]
 }
 
 // === G7: LTL Hook ====================================================

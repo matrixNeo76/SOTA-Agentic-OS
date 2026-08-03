@@ -317,13 +317,23 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
 
   let stored = false
   if (review.approved) {
-    const emb = embed(`${heuristic.trigger} ${heuristic.action} ${heuristic.context}`)
+    // G6 fix (ERL audit Fase C): fallback embedding se embed() fallisce.
+    // PRIMA: se embed() throwa, l'intero reflectAndLearn falliva e l'euristica era persa.
+    // ORA: se embed fallisce, persisti con embedding vuoto e marca per re-embedding.
+    let embStr: string
+    try {
+      const emb = embed(`${heuristic.trigger} ${heuristic.action} ${heuristic.context}`)
+      embStr = serialize(emb)
+    } catch {
+      // Embedding fallito → persisti con embedding vuoto
+      embStr = serialize([])
+    }
     await db.heuristic.create({
       data: {
         trigger: heuristic.trigger,
         action: heuristic.action,
         context: heuristic.context,
-        embedding: serialize(emb),
+        embedding: embStr,
         source: input.operationId,
         redLineOk: true,
         appliedCount: 0,
@@ -363,16 +373,26 @@ export async function retrieveHeuristics(taskDescription: string, k = 5) {
     take: PRE_FILTER_LIMIT,
   })
 
-  const scored = all.map((h) => ({
-    id: h.id,
-    trigger: h.trigger,
-    action: h.action,
-    context: h.context,
-    source: h.source,
-    appliedCount: h.appliedCount,
-    successRate: h.successRate,
-    similarity: cosine(q, deserialize(h.embedding)),
-  }))
+  // G6 fix: filtra euristiche con embedding vuoto (embed() fallito in precedenza)
+  const scored = all
+    .filter((h) => {
+      try {
+        const emb = deserialize(h.embedding)
+        return emb.length > 0 // salta embedding vuoto
+      } catch {
+        return false
+      }
+    })
+    .map((h) => ({
+      id: h.id,
+      trigger: h.trigger,
+      action: h.action,
+      context: h.context,
+      source: h.source,
+      appliedCount: h.appliedCount,
+      successRate: h.successRate,
+      similarity: cosine(q, deserialize(h.embedding)),
+    }))
   scored.sort((a, b) => b.similarity - a.similarity)
   return scored.slice(0, k)
 }

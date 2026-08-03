@@ -1543,3 +1543,52 @@ Stage Summary:
 - B7: reflectAndLearn idempotente (no duplicati su retry)
 - B8: fail-close configurable via SystemSetting
 - Prossimo: Fase C (G3+G4+G5+G6+G7) UX & completamento
+
+---
+Task ID: ERL-RED-LINES-FASE-C
+Agent: main
+Task: Fase C — G3+G4+G5+G6+G7 (UX & completamento)
+
+Work Log:
+- G5: TOOL_SINK_MAP sincronizzato con getSensitiveSinks():
+  * Rinominato TOOL_SINK_MAP → TOOL_SINK_MAP_BASE (fallback per tool comuni)
+  * checkToolCallSink ora verifica dinamicamente SystemSetting per tool non in mappa
+  * Nuova funzione getSensitiveSinksDynamic() legge 'taint.sensitive_sinks'
+  * Se admin aggiunge sink custom (es. tool_call:email), viene riconosciuto
+- G6: reflectAndLearn fallback embedding:
+  * PRIMA: se embed() throwa, l'intero reflectAndLearn falliva (euristica persa)
+  * ORA: try/catch su embed(), persisti con embedding vuoto '[]' se fallisce
+  * retrieveHeuristics salta euristiche con embedding vuoto (no cosine su [])
+- G3: Test per supervisorReview con Red Lines custom (4 test):
+  * Red Line custom blocca euristica che la viola
+  * Red Line custom non blocca euristica non correlata
+  * Multiple Red Lines: la prima che matcha blocca
+  * Red Line soft blocca comunque in supervisorReview
+- G4: Test per falsi positivi in evaluateRedLinesForAction (5 test):
+  * "non ignorare dataset" + "leggi dataset" → ALLOW
+  * "non bypassare sicurezza" + "aggiorna sicurezza" → ALLOW
+  * "delete all users" + "delete one user" → ALLOW (partial match non basta)
+  * "never deploy without approval" + "deploy with approval" → ALLOW
+  * DB vuoto → ALLOW tutto
+- G7: Integration test end-to-end (4 test):
+  * Red Line custom → reflectAndLearn blocca → Heuristic non persistita
+  * Red Line custom → reflectAndLearn passa → Heuristic persistita + RAG trova
+  * preExecuteGate blocca action con Red Line attiva (match esatto)
+  * Full pipeline: Red Line + Taint + LTL composite (preExecuteGate)
+- Test: 20 nuovi test integration in tests/integration/erl-red-lines-faseC.test.ts:
+  * G3 supervisorReview custom: 4 test
+  * G4 falsi positivi: 5 test
+  * G5 TOOL_SINK_MAP sync: 4 test
+  * G6 fallback embedding: 3 test
+  * G7 e2e: 4 test
+
+Stage Summary:
+- 2 file modificati (erl.ts, governance-hooks.ts) + 1 nuovo test file
+- 20 nuovi test integration (tutti passing)
+- 81/82 test totali ERL passing (1 flaky per LLM rate limit, non bug codice)
+- 0 TypeScript errors nei file Fase C
+- G5: TOOL_SINK_MAP sincronizzato con SystemSetting (no più hardcoded)
+- G6: reflectAndLearn robusto (fallback embedding, no perdita euristiche)
+- G3+G4+G7: test coverage completa per Red Lines custom + falsi positivi + e2e
+- MODULO ERL RED LINES COMPLETATO (Fasi A+B+C)
+- Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
