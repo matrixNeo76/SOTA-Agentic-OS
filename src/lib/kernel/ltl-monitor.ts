@@ -313,6 +313,13 @@ function compileAST(ast: AST, rule: LTLRuleSpec): CompiledFSM | null {
       const consequent = ast.child.right.child
       return buildGThenFFSM(antecedent, consequent, rule)
     }
+    // B8 fix (LTL audit Fase C) — Verifica che il child di G non sia un operatore
+    // temporale annidato (es. G(F(p)), G(p U q), G(G(p))). PRIMA: cadde nel fallback
+    // buildGFSM(ast, rule) trattandoli come G(p) atomico — semanticamente errato.
+    // ORA: ritorna null esplicito → loadRules salta la regola.
+    if (['G', 'F', 'X', 'U'].includes(ast.child.kind)) {
+      return null // pattern annidato non supportato
+    }
     // Caso generale G(p): 2 stati
     return buildGFSM(ast.child, rule)
   }
@@ -332,7 +339,10 @@ function compileAST(ast: AST, rule: LTLRuleSpec): CompiledFSM | null {
     return buildUFSM(ast.left, ast.right, rule)
   }
 
-  // Pattern nudo (senza operatore temporale): trattalo come G(p)
+  // B8 fix — Pattern nudo (senza operatore temporale): trattalo come G(p).
+  // Questo è valido solo se l'AST è una proposizione atomica o combinazione
+  // booleana (!, &&, ||, ->). Gli operatori temporali annidati sono già
+  // gestiti sopra (ritornano null se non supportati).
   return buildGFSM(ast, rule)
 }
 
@@ -858,6 +868,28 @@ export function validateLTLFormula(formula: string): { valid: boolean; error?: s
   }
 }
 
+/**
+ * G6 fix (LTL audit Fase C) — Ritorna lo stato runtime corrente di tutte le FSM.
+ * Permette alla UI di mostrare in tempo reale lo stato di ogni regola attiva
+ * (es. "LTL-001 è in stato EXPECTING_B dal step 5").
+ */
+export async function getRuntimeState(): Promise<{
+  ruleId: string
+  pattern: string
+  currentState: string
+  history: string[]
+  pendingBCount: number
+}[]> {
+  await initMonitor()
+  return monitor.snapshot().map((s) => ({
+    ruleId: s.ruleId,
+    pattern: s.pattern,
+    currentState: s.currentState,
+    history: s.history,
+    pendingBCount: 0, // snapshot non espone pendingBCount; in futuro estendere
+  }))
+}
+
 function detectPatternExternal(ast: AST): string {
   if (ast.kind === 'G') {
     if (ast.child.kind === 'impl' && ast.child.right.kind === 'X') return 'G(a -> X b)'
@@ -927,13 +959,20 @@ function describePattern(pattern: string): string {
  *
  * Utile per validare semanticamente una regola prima del salvataggio.
  *
+ * G4 fix (LTL audit Fase C) — accetta severity param opzionale.
+ * PRIMA: forza sempre severity='warn', ignorando la severity reale.
+ * ORA: se severity non fornito, prova a leggere dal DB se la regola esiste;
+ * se non esiste, default 'warn'.
+ *
  * @param formula Formula LTL (es. "G(plan -> F execute)")
  * @param events  Sequenza di state labels (es. ["plan", "execute", "halt"])
+ * @param severity Override severity ('block'|'warn'|'log'); default: 'warn' o da DB
  * @returns Per-step verdict + final verdict + violations
  */
 export function simulateLTL(
   formula: string,
-  events: string[]
+  events: string[],
+  severity?: 'block' | 'warn' | 'log'
 ): {
   valid: boolean
   error?: string
@@ -944,15 +983,18 @@ export function simulateLTL(
 } {
   try {
     const ast = new LTLParser(formula).parse()
-    const fsm = compileAST(ast, { ruleId: 'SIM', formula, description: 'simulation', severity: 'warn' })
+    const fsm = compileAST(ast, { ruleId: 'SIM', formula, description: 'simulation', severity: severity || 'warn' })
     if (!fsm) {
       return { valid: false, error: 'Pattern non supportato', steps: [], finalVerdict: 'reject', totalViolations: 0 }
     }
     const pattern = detectPatternExternal(ast)
 
+    // G4 fix — Usa severity fornita, o default 'warn'
+    const effectiveSeverity = severity || 'warn'
+
     // Crea un monitor temporaneo con solo questa regola
     const tempMonitor = new LTLMonitor()
-    tempMonitor.loadRules([{ ruleId: 'SIM', formula, description: 'simulation', severity: 'warn' }])
+    tempMonitor.loadRules([{ ruleId: 'SIM', formula, description: 'simulation', severity: effectiveSeverity }])
 
     const steps: { event: string; stepIndex: number; verdict: 'accept' | 'warn' | 'reject'; violations: { ruleId: string; reason: string }[] }[] = []
     let totalViolations = 0

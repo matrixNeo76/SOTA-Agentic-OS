@@ -13,7 +13,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   verifyEvent, listLTLRules, addLTLRule, deleteLTLRule,
-  validateLTLFormula, previewFSM, simulateLTL, type LTLRuleSpec,
+  validateLTLFormula, previewFSM, simulateLTL, getRuntimeState,
+  type LTLRuleSpec,
   LTLRuleConflictError, LTLRuleNotFoundError,
 } from '@/lib/kernel/ltl-monitor'
 import { taintInput, checkSink, listTaintRecords, propagateTaint } from '@/lib/kernel/taint'
@@ -44,6 +45,11 @@ export async function GET(req: NextRequest) {
   if (section === 'events') {
     const events = await db.verificationEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 30 })
     return NextResponse.json({ events })
+  }
+  // G6 fix (LTL audit Fase C) — Runtime state per UI editor
+  if (section === 'runtime') {
+    const runtimeState = await getRuntimeState()
+    return NextResponse.json({ runtimeState })
   }
 
   // all
@@ -82,12 +88,21 @@ export async function POST(req: NextRequest) {
     // G3: read-only (requireAuth). Simula una formula su una sequenza di eventi.
     const auth = await requireAuth(req)
     if (!auth.ok) return auth.response
-    const { formula, events } = body
+    const { formula, events, severity } = body
     if (!formula || !Array.isArray(events)) {
       return NextResponse.json({ ok: false, error: 'Missing formula or events array' }, { status: 400 })
     }
-    const result = simulateLTL(formula, events)
+    // G4 fix — accetta severity opzionale
+    const result = simulateLTL(formula, events, severity)
     return NextResponse.json(result)
+  }
+
+  if (action === 'runtime_state') {
+    // G6 fix — read-only (requireAuth). Ritorna stato runtime FSM.
+    const auth = await requireAuth(req)
+    if (!auth.ok) return auth.response
+    const runtimeState = await getRuntimeState()
+    return NextResponse.json({ runtimeState })
   }
 
   // === MUTATIVE actions (requireAdmin) ===

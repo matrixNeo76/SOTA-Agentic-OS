@@ -17,10 +17,40 @@
  */
 import { db } from '@/lib/db'
 
-const SENSITIVE_SINKS = [
+// B7 fix (LTL audit Fase C) — SENSITIVE_SINKS hardcoded come fallback.
+// A runtime, checkSink legge da SystemSetting 'taint.sensitive_sinks' (comma-separated).
+// Se non presente o vuoto, usa questo default.
+const DEFAULT_SENSITIVE_SINKS = [
   'tool_call:exec', 'tool_call:file_write', 'tool_call:network',
   'tool_call:db_write', 'tool_call:deploy', 'tool_call:delete',
 ]
+
+/**
+ * B7 fix — Legge la lista di sink sensibili da SystemSetting.
+ * Se la chiave 'taint.sensitive_sinks' esiste e non è vuota, la usa (comma-separated).
+ * Altrimenti fallback a DEFAULT_SENSITIVE_SINKS.
+ *
+ * Permette all'admin di aggiungere sink sensibili (es. 'tool_call:email',
+ * 'tool_call:slack_post') senza redeploy.
+ */
+async function getSensitiveSinks(): Promise<string[]> {
+  try {
+    const setting = await db.systemSetting.findUnique({
+      where: { key: 'taint.sensitive_sinks' },
+      select: { value: true },
+    })
+    if (setting?.value) {
+      const parsed = setting.value
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+      if (parsed.length > 0) return parsed
+    }
+  } catch {
+    // Non bloccante: fallback a default
+  }
+  return DEFAULT_SENSITIVE_SINKS
+}
 
 // B7: TTL per i taint records. Dopo questo tempo, il taint è considerato
 // "scaduto" e non blocca più i sink. Default 24h.
@@ -55,16 +85,23 @@ export async function taintInput(source: string, payload: string): Promise<strin
  *
  * B6 fix: ora aggiorna direttamente il DB (non più la Map in-memory).
  * Legge il flowTrace corrente, aggiunge lo step, e persiste.
+ *
+ * B3 fix (LTL audit Fase C): ritorna { propagated, reason } invece di
+ * silent no-op. PRIMA: se taintId non esiste, ritornava void silenziosamente
+ * → il caller non sapeva che la propagazione non era avvenuta.
+ * ORA: ritorna { propagated: false, reason: 'taintId not found' }.
  */
-export async function propagateTaint(taintId: string, step: string): Promise<void> {
+export async function propagateTaint(taintId: string, step: string): Promise<{
+  propagated: boolean
+  reason?: string
+}> {
   const record = await db.taintRecord.findUnique({
     where: { id: taintId },
     select: { flowTrace: true },
   })
   if (!record) {
-    // B6: prima questo era un silent no-op nella Map; ora ritorniamo
-    // esplicitamente per segnalare che il taintId non esiste.
-    return
+    // B3 fix: ritorna esplicitamente che il taintId non esiste
+    return { propagated: false, reason: `taintId not found: ${taintId}` }
   }
   const flow: string[] = JSON.parse(record.flowTrace || '[]')
   flow.push(step)
@@ -72,6 +109,7 @@ export async function propagateTaint(taintId: string, step: string): Promise<voi
     where: { id: taintId },
     data: { flowTrace: JSON.stringify(flow) },
   })
+  return { propagated: true }
 }
 
 /**
@@ -87,9 +125,12 @@ export async function propagateTaint(taintId: string, step: string): Promise<voi
  */
 export async function checkSink(
   sink: string,
-  taintIds: string[]
+  taintIds: string[],
+  options?: { auditLog?: boolean }
 ): Promise<{ allowed: boolean; reason: string; blockedFlows: TaintFlow[] }> {
-  if (!SENSITIVE_SINKS.includes(sink)) {
+  // B7 fix — Legge sink sensibili da SystemSetting (configurabile)
+  const sensitiveSinks = await getSensitiveSinks()
+  if (!sensitiveSinks.includes(sink)) {
     return { allowed: true, reason: 'Sink non sensibile', blockedFlows: [] }
   }
 
@@ -131,6 +172,31 @@ export async function checkSink(
   }
 
   if (blockedFlows.length > 0) {
+    // G5 fix (LTL audit Fase C) — Crea verificationEvent per audit trail
+    // quando checkSink blocca. Permette di tracciare blocchi taint anche
+    // quando chiamato da consumer interni (es. tool-dispatcher).
+    if (options?.auditLog !== false) {
+      try {
+        await db.verificationEvent.create({
+          data: {
+            eventType: 'taint_block',
+            payload: JSON.stringify({
+              sink,
+              blockedFlowsCount: blockedFlows.length,
+              blockedFlows: blockedFlows.map((f) => ({
+                recordId: f.recordId,
+                source: f.source,
+              })),
+            }),
+            stateLabel: `taint_block:${sink}`,
+            verdict: 'reject',
+            reason: `Bloccato: ${blockedFlows.length} flussi tainted hanno raggiunto sink ${sink}`,
+          },
+        })
+      } catch {
+        // Non bloccante: se auditLog fallisce, il blocco è comunque registrato su TaintRecord
+      }
+    }
     return {
       allowed: false,
       reason: `Bloccato: ${blockedFlows.length} flussi tainted hanno raggiunto sink ${sink}`,

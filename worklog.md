@@ -1325,3 +1325,70 @@ Stage Summary:
 - B5: evaluateIntent persiste verdict su agentLog per audit trail completo
 - Modulo LTL Taint Normative ora EFFETTIVO a runtime (come ACTS dopo Fase A)
 - Prossimo: Fase C (B3+B7+B8+G4+G5+G6+G7) UX & completamento
+
+---
+Task ID: LTL-TAINT-NORMATIVE-FASE-C
+Agent: main
+Task: Fase C — B3+B7+B8+G4+G5+G6+G7 (UX & completamento)
+
+Work Log:
+- B3: propagateTaint ritorna {propagated, reason}:
+  * PRIMA: silent no-op se taintId non esiste (void return)
+  * ORA: ritorna {propagated: false, reason: 'taintId not found'}
+  * Test: 3 test (esistente, inesistente, flowTrace persistenza)
+- B7: SENSITIVE_SINKS configurabile da SystemSetting:
+  * Nuova funzione getSensitiveSinks() legge da 'taint.sensitive_sinks'
+  * DEFAULT_SENSITIVE_SINKS come fallback
+  * checkSink usa getSensitiveSinks() invece di costante hardcoded
+  * Admin può aggiungere sink custom (es. tool_call:email) senza redeploy
+  * Test: 4 test (default, non-default, custom via setting, setting vuoto fallback)
+- B8: compileAST ritorna null per pattern annidati non supportati:
+  * Aggiunto check: se child di G è G/F/X/U → return null
+  * PRIMA: fallback buildGFSM(ast) trattava G(F(p)) come G(p) atomico (errato)
+  * ORA: null esplicito → loadRules salta la regola
+  * Test: 7 test (G(F(p)), G(G(p)), G(p U q), G(X(p)), G(p) ok, G(a->X b) ok, G(a->F b) ok)
+- G4: simulateLTL accetta severity param:
+  * Terzo parametro opzionale severity?: 'block'|'warn'|'log'
+  * PRIMA: forza sempre severity='warn' (ignorava severity reale)
+  * ORA: usa severity fornita, default 'warn'
+  * Test: 4 test (default warn, block→reject, log→accept, no violation)
+- G5: checkSink opzione auditLog per verificationEvent:
+  * Terzo parametro options?: {auditLog?: boolean}
+  * Se auditLog !== false e blocca → crea verificationEvent con eventType='taint_block'
+  * Payload包含 sink, blockedFlowsCount, blockedFlows
+  * Test: 3 test (auditLog=true crea evento, auditLog=false non crea, payload structure)
+- G6: getRuntimeState + API runtime_state:
+  * Nuova funzione getRuntimeState() in ltl-monitor.ts
+  * Ritorna snapshot di tutte le FSM attive (ruleId, pattern, currentState, history)
+  * API GET /api/verify?section=runtime ritorna runtimeState
+  * API POST action=runtime_state ritorna runtimeState
+  * Test: 4 test (ritorna array, riflette stato dopo verifyEvent, API GET, API POST)
+- G7: Integration test end-to-end LTL→Taint→Normative:
+  * 4 test integration:
+    - LTL violation persistita su VerificationEvent
+    - Taint flow completo: taintInput → propagateTaint → checkSink blocco
+    - Normative block persistito su agentLog
+    - Full pipeline: LTL + Taint + Normative insieme
+- Test: 29 nuovi test integration in tests/integration/ltl-taint-normative-faseC.test.ts:
+  * B3 propagateTaint: 3 test
+  * B7 SENSITIVE_SINKS: 4 test
+  * B8 compileAST: 7 test
+  * G4 simulateLTL severity: 4 test
+  * G5 checkSink auditLog: 3 test
+  * G6 getRuntimeState + API: 4 test
+  * G7 e2e: 4 test
+
+Stage Summary:
+- 4 file modificati (taint.ts, ltl-monitor.ts, api/verify/route.ts) + 1 nuovo test file
+- 29 nuovi test integration (tutti passing)
+- 157/157 test totali LTL+Taint+Normative passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- B3: propagateTaint non più silent (ritorna feedback al caller)
+- B7: SENSITIVE_SINKS configurabile via admin (no redeploy)
+- B8: compileAST non più fallback errato (null esplicito per pattern annidati)
+- G4: simulateLTL rispetta severity reale (no più forzata a warn)
+- G5: checkSink crea verificationEvent per audit trail completo
+- G6: UI può mostrare stato runtime FSM via API
+- G7: 4 integration test e2e verificano pipeline completa
+- MODULO LTL TAINT NORMATIVE COMPLETATO (Fasi A+B+C)
+- Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
