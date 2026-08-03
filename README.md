@@ -525,7 +525,7 @@ docker compose up -d
 
 ## Audit & Hardening Cycle
 
-Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **15 moduli** organizzati in 7 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
+Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **16 moduli** organizzati in 8 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
 
 ### Moduli auditati
 
@@ -539,13 +539,14 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 | ACTS Controller (deep) | ACTS steering + cross-module integrations | `docs/ACTS-CONTROLLER-FASE2-AUDIT.md` | Fasi A+B+C+G2 |
 | LTL Taint Normative (deep) | LTL monitor + Taint tracking + Normative gate | `docs/LTL-TAINT-NORMATIVE-AUDIT.md` | Fasi A+B+C |
 | ERL Red Lines (deep) | ERL heuristic extraction + Red Lines + governance-hooks | `docs/ERL-RED-LINES-AUDIT.md` | Fasi A+B+C |
+| Context Manager (deep) | Context engineering + Curator + Sensorium | `docs/CONTEXT-MANAGER-AUDIT.md` | Fasi A+B+C |
 
 ### Risultati complessivi
 
-- **Bug critici (C) fixati**: 26+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime)
-- **Bug medi (B) fixati**: 51+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close)
-- **Gap funzionali (G) chiusi**: 33+ (zero test coverage → 300+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds)
-- **Test totali**: 400+ (tutti passing, 0 regressioni)
+- **Bug critici (C) fixati**: 29+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime, metriche simulate)
+- **Bug medi (B) fixati**: 59+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close, size cap, embedding persistence)
+- **Gap funzionali (G) chiusi**: 40+ (zero test coverage → 460+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds, real metrics)
+- **Test totali**: 460+ (tutti passing, 0 regressioni)
 - **TypeScript**: 0 errori nei file modificati
 
 ### Sicurezza
@@ -563,6 +564,11 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 - ✅ Red Lines custom valutate dal supervisorReview (non più regex hardcoded)
 - ✅ Governance hooks (preExecuteGate) integrati nell'executor (G6+G7+G8 composite)
 - ✅ Fail-close opzione configurabile via SystemSetting per ambienti critici
+- ✅ Context Manager integrato nell'executor (recordToolCall + assembleWorkingContext nel ReAct loop)
+- ✅ Curator con metriche reali (DB + OS invece di formule simulate)
+- ✅ JSON.parse robusto su payload corrotti (safeJsonParse helper)
+- ✅ Payload size cap 50KB + narrative size cap 5KB (no DB bloat)
+- ✅ Embedding persistito per RAG searchContextHistory (no ricalcolo per query)
 
 ### Known issues residui (future work)
 

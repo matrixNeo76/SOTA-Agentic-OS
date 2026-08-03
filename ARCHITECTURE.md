@@ -730,14 +730,14 @@ Dopo le Fasi 1-4 di evoluzione architetturale, il progetto è stato sottoposto a
 
 | Metrica | Valore |
 |---------|--------|
-| Moduli auditati | 15 (12 iniziali + 3 deep-dive) |
-| Bug critici (C) fixati | 26+ |
-| Bug medi (B) fixati | 51+ |
-| Gap (G) chiusi | 33+ |
-| Test totali | 400+ (tutti passing, 0 regressioni) |
+| Moduli auditati | 16 (12 iniziali + 4 deep-dive) |
+| Bug critici (C) fixati | 29+ |
+| Bug medi (B) fixati | 59+ |
+| Gap (G) chiusi | 40+ |
+| Test totali | 460+ (tutti passing, 0 regressioni) |
 | Test pass rate | ~100% (1 flaky per LLM rate limit) |
 | TypeScript errors (file modificati) | 0 |
-| Audit report generati | 8 (in `docs/`) |
+| Audit report generati | 9 (in `docs/`) |
 
 ### 13.4 Known issues residui (future work)
 
