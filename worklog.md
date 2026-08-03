@@ -1796,3 +1796,35 @@ Stage Summary:
 - G7: 3 integration test e2e (full pipeline, JSON robusto, sensorium)
 - MODULO CONTEXT MANAGER COMPLETATO (Fasi A+B+C)
 - Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
+
+---
+Task ID: PTA-DOMINATORS-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo PTA Dominators
+
+Work Log:
+- Analizzati 4 file: dominator-tree.ts (383 LOC), api/dominator/route.ts (92),
+  phase7.tsx (389), prisma/schema.prisma (ExecutionTrace+PrefixTreeAutomaton+TraceValidation)
+- Verificati consumer runtime: NESSUNO (captureTrace/validateTrace non chiamati da executor)
+- Verificata coverage test: ZERO test
+- Compilato report in docs/PTA-DOMINATORS-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: API POST /api/dominator usa requireAuth invece di requireAdmin (viewer inquina PTA)
+  * C2: validateTrace ha break che contraddice commento "Non interrompere" (coverage sottostimato)
+  * C3: captureTrace non valida input (states vuoto, workflowId vuoto)
+- 6 bug medi (B1-B6):
+  * B1: phase7.tsx refresh/capture senza try/catch
+  * B2: buildPTA JSON.parse senza try/catch su statesJson
+  * B3: validateTrace JSON.parse senza try/catch su 4 campi
+  * B4: No size cap su statesJson/actionsJson
+  * B5: dominatorStats carica 100 record invece di aggregate
+  * B6: computeDominators no cap iterazioni
+- 4 gap funzionali (G1-G4):
+  * G1: zero test
+  * G2: phase7.tsx nessun a11y
+  * G3: captureTrace non integrato nell'executor (cosmetico)
+  * G4: validateTrace con 0 dominators → coverage=1.0 (sempre accept)
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: valutare chiusura ciclo di audit/hardening
