@@ -1592,3 +1592,45 @@ Stage Summary:
 - G3+G4+G7: test coverage completa per Red Lines custom + falsi positivi + e2e
 - MODULO ERL RED LINES COMPLETATO (Fasi A+B+C)
 - Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
+
+---
+Task ID: CONTEXT-MANAGER-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Context Manager
+
+Work Log:
+- Analizzati 6 file: context-engineering.ts (299 LOC), curator.ts (105),
+  api/context/route.ts (81), phase6.tsx (346), context-panel.tsx (109),
+  prisma/schema.prisma (ToolCallEntry+ContextSummary+PruningPolicy+SensoriumSnapshot)
+- Verificati consumer runtime: executor NON chiama recordToolCall/assembleWorkingContext
+- Verificata coverage test: ZERO test per context-engineering.ts e curator.ts
+- Compilato report in docs/CONTEXT-MANAGER-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: recordToolCall non integrato nell'executor (cosmetico a runtime)
+  * C2: curator.ts cycleCounter module-level + metriche simulate (non reali)
+  * C3: assembleWorkingContext JSON.parse senza try/catch (crash su dati corrotti)
+- 8 bug medi (B1-B8):
+  * B1: searchContextHistory ricalcola 50 embedding per query
+  * B2: summarizeAndEvict narrativa cresce indefinitamente (no size cap)
+  * B3: updatePolicy non valida input (windowSize=0, threshold negativa)
+  * B4: API POST /api/context usa requireAuth invece di requireAdmin per mutative
+  * B5: curator cycleId collision risk (generateTimeSortableId)
+  * B6: phase6.tsx fetch senza try/catch (unhandled rejection)
+  * B7: recordToolCall no size cap su payload (DB bloat)
+  * B8: searchContextHistory usa dot product invece di cosine similarity
+- 7 gap funzionali (G1-G7):
+  * G1: zero test per context-engineering.ts e curator.ts
+  * G2: assembleWorkingContext non integrato nel ReAct loop
+  * G3: curator metriche simulate, non reali (queueDepth, activeThreads, systemLoad)
+  * G4: phase6.tsx nessun a11y
+  * G5: searchContextHistory non persiste embedding dei summary
+  * G6: context-panel.tsx no adaptive polling
+  * G7: nessun integration test end-to-end
+- Piano di intervento in 3 fasi:
+  * Fase A (C1+C2+C3+B4+B5) effettività + sicurezza — 1.5 gg — CRITICA
+  * Fase B (B1+B2+B3+B7+B8) robustezza — 1 gg — ALTA
+  * Fase C (B6+G1+G4+G6+G7) UX & completamento — 1 gg — MEDIA
+- Totale stimato: 3.5 giornate
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
