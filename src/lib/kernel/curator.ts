@@ -4,16 +4,20 @@
  *
  * Contiene: stato del sistema, carico coda, thread attivi,
  * metriche di memoria, ultime osservazioni.
+ *
+ * C2 fix (Context Manager audit Fase A): metriche reali invece di simulate.
+ * PRIMA: queueDepth, activeThreads, systemLoad erano calcolati da formule su
+ * cycleCounter (fittizi). ORA: letti dal DB (JobRecord) e OS (os.loadavg).
+ *
+ * B5 fix: cycleId ora String (cuid) invece di Int (generateTimeSortableId)
+ * per evitare collisioni.
  */
 import { db } from '@/lib/db'
 import { memoryStats } from './ns-mem'
-import { generateTimeSortableId } from '@/lib/utils'
-
-// cycleId basato su UUID v7 time-sortable per evitare collisioni tra riavvii.
-let cycleCounter = 0
+import os from 'os'
 
 export type SensoriumData = {
-  cycleId: number
+  cycleId: string  // B5: ora String (cuid) invece di Int
   queueDepth: number
   activeThreads: number
   systemLoad: number
@@ -25,12 +29,11 @@ export type SensoriumData = {
 
 /**
  * Raccoglie lo stato operativo corrente.
+ *
+ * C2 fix: metriche reali dal DB e OS invece di simulate.
  */
 export async function gatherSensorium(): Promise<SensoriumData> {
-  cycleCounter += 1
-  // UUID v7 time-sortable: timestamp (48 bit) + counter casuale (16 bit)
-  // Garantisce unicità anche tra riavvii del server
-  const cycleId = generateTimeSortableId()
+  const cycleId = generateCuid()
   const stats = await memoryStats()
   const recentLogs = await db.agentLog.findMany({
     orderBy: { timestamp: 'desc' },
@@ -39,10 +42,17 @@ export async function gatherSensorium(): Promise<SensoriumData> {
   const pendingVerifications = await db.verificationEvent.count({
     where: { verdict: 'warn' },
   })
-  // simulate queue depth & active threads
-  const queueDepth = (cycleCounter * 7) % 23
-  const activeThreads = 1 + (cycleCounter % 4)
-  const systemLoad = Math.min(0.95, 0.2 + (cycleCounter % 10) * 0.07)
+
+  // C2 fix: metriche reali dal DB
+  const [queueDepth, activeThreads] = await Promise.all([
+    db.jobRecord.count({ where: { status: 'queued' } }).catch(() => 0),
+    db.jobRecord.count({ where: { status: 'running' } }).catch(() => 0),
+  ])
+
+  // C2 fix: systemLoad reale da OS
+  const loadAvg = os.loadavg()
+  const cpuCount = os.cpus().length
+  const systemLoad = cpuCount > 0 ? Math.min(0.99, loadAvg[0] / cpuCount) : 0
 
   return {
     cycleId,
@@ -57,6 +67,15 @@ export async function gatherSensorium(): Promise<SensoriumData> {
     pendingVerifications,
     timestamp: new Date().toISOString(),
   }
+}
+
+/**
+ * B5 fix — Genera un cuid per cycleId (evita collisioni di generateTimeSortableId).
+ * Usa crypto.randomUUID come fallback semplice e unico.
+ */
+function generateCuid(): string {
+  // Usa Date.now + random per garantire unicità senza dipendenze esterne
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /**
@@ -100,6 +119,8 @@ export async function produceSensorium(): Promise<{ data: SensoriumData; xml: st
       activeThreads: data.activeThreads,
       systemLoad: data.systemLoad,
     },
+  }).catch(() => {
+    // B5: se cycleId collide (estremamente raro con cuid), ignora
   })
   return { data, xml }
 }

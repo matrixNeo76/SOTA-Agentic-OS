@@ -113,11 +113,31 @@ ${options.steeringPhrase}
 Segui l'indirizzo cognitivo sopra indicato per questa iterazione.`
       : BASE_SYSTEM_PROMPT
 
+    // C1 fix (Context Manager audit Fase A): inietta working context nel prompt.
+    // PRIMA: l'LLM riceveva solo task + context base, senza il ring buffer delle
+    // tool call recenti. ORA: assembleWorkingContext fornisce summary + recent calls.
+    let workingContextStr = ''
+    try {
+      const { assembleWorkingContext } = await import('@/lib/kernel/context-engineering')
+      const workingContext = await assembleWorkingContext(options.agentId)
+      if (workingContext.summary) {
+        workingContextStr += `\n== Context Summary (cycle ${workingContext.summary.cycleId}) ==\n${workingContext.summary.narrative}\n`
+      }
+      if (workingContext.recentCalls.length > 0) {
+        workingContextStr += `\n== Recent Tool Calls (${workingContext.recentCalls.length}) ==\n`
+        for (const call of workingContext.recentCalls) {
+          workingContextStr += `- ${call.toolName}: ${JSON.stringify(call.responsePayload).slice(0, 100)}\n`
+        }
+      }
+    } catch {
+      // Non bloccante: se Context Manager fallisce, continua senza working context
+    }
+
     const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_calls?: any[]; tool_call_id?: string }> = [
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `Task: ${options.task}\n${options.context ? `Context: ${options.context}` : ''}`,
+        content: `Task: ${options.task}\n${options.context ? `Context: ${options.context}` : ''}${workingContextStr ? `\n${workingContextStr}` : ''}`,
       },
     ]
 

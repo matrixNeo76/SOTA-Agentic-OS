@@ -104,19 +104,34 @@ export async function assembleWorkingContext(agentId: string): Promise<{
           narrative: latestSummary.narrative,
           cycleId: latestSummary.cycleId,
           coveredCount: latestSummary.coveredCallIds
-            ? JSON.parse(latestSummary.coveredCallIds).length
+            ? safeJsonParse(latestSummary.coveredCallIds, []).length
             : 0,
         }
       : null,
+    // C3 fix: try/catch su JSON.parse per payload corrotti.
+    // PRIMA: JSON.parse throwava su payload non valido → crash di assembleWorkingContext.
+    // ORA: se parse fallisce, ritorna la stringa grezza o null.
     recentCalls: recentCalls.reverse().map((c) => ({
       id: c.id,
       toolName: c.toolName,
-      callPayload: JSON.parse(c.callPayload),
-      responsePayload: JSON.parse(c.responsePayload),
+      callPayload: safeJsonParse(c.callPayload, c.callPayload),
+      responsePayload: safeJsonParse(c.responsePayload, c.responsePayload),
       tokenCost: c.tokenCost,
       createdAt: c.createdAt,
     })),
     totalTokenCost,
+  }
+}
+
+/**
+ * C3 fix — Helper per JSON.parse sicuro con fallback.
+ * Se parse fallisce, ritorna il fallback invece di throware.
+ */
+function safeJsonParse<T>(str: string, fallback: T): T {
+  try {
+    return JSON.parse(str)
+  } catch {
+    return fallback
   }
 }
 

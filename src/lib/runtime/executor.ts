@@ -381,6 +381,24 @@ export async function executeTask(params: {
       // Non bloccante: se taint fallisce, continua senza tracking
     }
 
+    // C1 fix (Context Manager audit Fase A): integra Context Manager nell'executor.
+    // PRIMA: recordToolCall non era chiamato da nessuna parte → ring buffer sempre vuoto.
+    // ORA: dopo ogni task, registra il tool call nel Context Manager.
+    // Non bloccante (fail-open): se Context Manager fallisce, continua.
+    try {
+      const { recordToolCall } = await import('@/lib/kernel/context-engineering')
+      // Registra il task come "tool call" nel ring buffer del Context Manager
+      await recordToolCall(
+        taskDef.agentId,
+        'task_execution',
+        { taskId: taskDef.taskId, description: taskDef.description },
+        { planId, goal: planGoal },
+        0, // tokenCost sarà aggiornato dopo l'esecuzione
+      )
+    } catch {
+      // Non bloccante: se Context Manager fallisce, continua
+    }
+
     const { executeReActLoop } = await import('./react-loop')
     const reactResult = await executeReActLoop({
       agentId: taskDef.agentId,

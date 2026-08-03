@@ -76,7 +76,9 @@ model GlobalState {
 // Sensorium: snapshot dei cicli cognitivi
 model SensoriumSnapshot {
   id         String   @id @default(cuid())
-  cycleId    Int      @unique
+  // B5 fix (Context Manager audit Fase A): cycleId ora String (cuid) invece di Int
+  // per evitare collisioni di generateTimeSortableId (~1% per chiamate nello stesso minuto)
+  cycleId    String   @unique
   xmlContent String   // blocco XML compilato dal Curator
   queueDepth Int
   activeThreads Int

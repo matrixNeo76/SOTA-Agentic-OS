@@ -10,6 +10,7 @@ import {
 } from '@/lib/kernel/context-engineering'
 import { publishAgentEvent } from '@/lib/ws-publish'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -43,9 +44,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req)
-  if (!auth.ok) return auth.response
-  const body = await req.json()
+  // B4 fix: azioni mutative richiedono requireAdmin
+  // PRIMA: requireAuth su tutto il POST → viewer poteva registrare tool call,
+  // cambiare policy, forzare summarization.
+  // ORA: requireAdmin per record_tool_call, update_policy, summarize_now.
+  const admin = await requireAdmin(req)
+  if (!admin.ok) return admin.response
+  const actor = admin.email
+
+  let body
+  try {
+    body = await req.json()
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON body', detail: err.message }, { status: 400 })
+  }
   const { action } = body
 
   if (action === 'record_tool_call') {
@@ -54,7 +66,7 @@ export async function POST(req: NextRequest) {
     await publishAgentEvent({
       agentId, phase: '6',
       event: 'tool_call_recorded',
-      payload: { toolName, evicted: result.evicted, summaryId: result.summaryId },
+      payload: { toolName, evicted: result.evicted, summaryId: result.summaryId, actor },
     })
     return NextResponse.json({ ok: true, ...result })
   }
@@ -62,6 +74,12 @@ export async function POST(req: NextRequest) {
   if (action === 'update_policy') {
     const { agentId, windowSize, summarizeThreshold, autoSummarize } = body
     const policy = await updatePolicy(agentId, { windowSize, summarizeThreshold, autoSummarize })
+    await publishAgentEvent({
+      agentId, phase: '6',
+      event: 'policy_updated',
+      level: 'info',
+      payload: { agentId, windowSize, summarizeThreshold, autoSummarize, actor },
+    })
     return NextResponse.json({ ok: true, policy })
   }
 
@@ -72,7 +90,7 @@ export async function POST(req: NextRequest) {
     await publishAgentEvent({
       agentId, phase: '6',
       event: 'context_summarized',
-      payload: { evictedCount: result.evictedCount, tokenSaved: result.tokenSaved },
+      payload: { evictedCount: result.evictedCount, tokenSaved: result.tokenSaved, actor },
     })
     return NextResponse.json({ ok: true, ...result })
   }

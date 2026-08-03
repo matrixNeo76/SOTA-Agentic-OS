@@ -28,7 +28,7 @@ type ToolCall = {
 }
 
 type Context = {
- summary: { narrative: string; cycleId: number; coveredCount: number } | null
+ summary: { narrative: string; cycleId: string; coveredCount: number } | null
  recentCalls: ToolCall[]
  totalTokenCost: number
 }

@@ -24,7 +24,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { io, type Socket } from 'socket.io-client'
 
 export type SensoriumLive = {
-  cycleId: number
+  cycleId: string  // B5: ora String (cuid) invece di Int
   xml: string
   queueDepth: number
   activeThreads: number

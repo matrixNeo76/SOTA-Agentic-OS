@@ -1634,3 +1634,57 @@ Stage Summary:
   * Fase C (B6+G1+G4+G6+G7) UX & completamento — 1 gg — MEDIA
 - Totale stimato: 3.5 giornate
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: CONTEXT-MANAGER-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B4+B5 (effettività + sicurezza)
+
+Work Log:
+- C1+G2: Integrato recordToolCall nell'executor + assembleWorkingContext nel ReAct loop:
+  * executor.ts: dopo taintInput, chiama recordToolCall per registrare il task nel ring buffer
+  * react-loop.ts: prima del LLM call, chiama assembleWorkingContext e inietta
+    summary + recent calls nel prompt come "Context Summary" + "Recent Tool Calls"
+  * Non bloccante (fail-open): se Context Manager fallisce, continua
+- C2+G3: Sostituito metriche simulate con reali in curator.ts:
+  * queueDepth: db.jobRecord.count({ where: { status: 'queued' } })
+  * activeThreads: db.jobRecord.count({ where: { status: 'running' } })
+  * systemLoad: os.loadavg()[0] / os.cpus().length (capped at 0.99)
+  * Rimosso cycleCounter module-level (stato in-memory perso su restart)
+  * Rimosso formule simulate ((cycleCounter * 7) % 23, etc.)
+- C3: assembleWorkingContext try/catch su JSON.parse:
+  * Aggiunto safeJsonParse<T>(str, fallback) helper
+  * callPayload/responsePayload: se parse fallisce, ritorna stringa grezza
+  * coveredCallIds: se parse fallisce, ritorna [] (coveredCount=0)
+  * Non crasha più l'intera funzione per un entry corrotto
+- B4: API POST /api/context usa requireAdmin per mutative:
+  * PRIMA: requireAuth su tutto il POST → viewer poteva registrare tool call,
+    cambiare policy, forzare summarization
+  * ORA: requireAdmin per record_tool_call, update_policy, summarize_now
+  * Aggiunto try/catch su body parsing con 400 per JSON invalido
+  * Actor email loggato in publishAgentEvent payload
+- B5: cycleId String (cuid) invece di Int (generateTimeSortableId):
+  * curator.ts: generateCuid() helper (Date.now + random base36)
+  * prisma/schema.prisma: SensoriumSnapshot.cycleId da Int a String
+  * cockpit/types.ts: CycleSnapshot.cycleId e Narrative.cycleId aggiornati a string
+  * use-sensorium-live.ts: SensoriumLive.cycleId aggiornato a string
+  * phase6.tsx: Context.summary.cycleId aggiornato a string
+  * produceSensorium: catch su create per gestire collisioni estreme
+- Test: 19 nuovi test integration in tests/integration/context-manager-faseA.test.ts:
+  * C3 JSON.parse robusto: 3 test (corrupt payload, valid payload, corrupt coveredCallIds)
+  * B5 cycleId String: 3 test (string type, DB type, 20 univoci no collision)
+  * C2 metriche reali: 4 test (queueDepth, activeThreads, systemLoad, no cycleCounter)
+  * B4 requireAdmin: 4 test (401 no session, 403 viewer, 200 admin, 400 invalid JSON)
+  * C1 executor integration: 3 test (recordToolCall import, assembleWorkingContext import, working context injection)
+  * Smoke: 2 test (recordToolCall + assembleWorkingContext + JSON.parse robusto, produceSensorium + metriche reali + cycleId univoco)
+
+Stage Summary:
+- 6 file modificati (context-engineering.ts, curator.ts, api/context/route.ts, executor.ts, react-loop.ts, schema.prisma) + 4 type updates + 1 nuovo test file
+- 19 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- C1: Context Manager non più cosmetico (recordToolCall + assembleWorkingContext integrati)
+- C2: Sensorium con metriche reali (DB + OS invece di formule)
+- C3: JSON.parse robusto (no crash su dati corrotti)
+- B4: requireAdmin su mutative (viewer non può più inquinare ring buffer)
+- B5: cycleId collision risk eliminato (cuid string)
+- Prossimo: Fase B (B1+B2+B3+B7+B8) robustezza
