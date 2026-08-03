@@ -62,6 +62,11 @@ export interface ReActOptions {
   // Se presente, viene prependuta al system prompt per indirizzare il
   // comportamento dell'LLM verso la strategia corrente (PLAN/EXECUTE/CHECK/REFLECT/HALT).
   steeringPhrase?: string
+  // G2 (LTL audit Fase B) — Taint ID per propagare il tainted tracking.
+  // Se presente, ogni iterazione del ReAct loop propaga il taint
+  // (registra che il dato tainted è fluito in questo step).
+  // Il taintId viene anche passato a dispatchTool per checkSink.
+  taintId?: string
 }
 
 const MAX_ITERATIONS = 10
@@ -182,6 +187,20 @@ Segui l'indirizzo cognitivo sopra indicato per questa iterazione.`
 
       const toolResults: Array<{ name: string; arguments: Record<string, unknown>; result: string; success: boolean; durationMs: number }> = []
 
+      // G2 (LTL audit Fase B) — Propaga il taint ad ogni iterazione del ReAct loop.
+      // Registra che il dato tainted è fluito in questo step di reasoning.
+      if (options.taintId) {
+        try {
+          const { propagateTaint } = await import('@/lib/kernel/taint')
+          await propagateTaint(
+            options.taintId,
+            `react_iter_${i + 1}:${toolCalls.map((tc: any) => tc.function.name).join(',')}`,
+          )
+        } catch {
+          // Non bloccante: se propagateTaint fallisce, continua
+        }
+      }
+
       for (const tc of toolCalls) {
         if (options.signal?.aborted) break
 
@@ -195,6 +214,7 @@ Segui l'indirizzo cognitivo sopra indicato per questa iterazione.`
           planId: options.planId,
           taskId: options.taskId,
           allowedScopes,
+          taintIds: options.taintId ? [options.taintId] : undefined, // G2: passa per checkSink
         })
 
         totalToolCalls++

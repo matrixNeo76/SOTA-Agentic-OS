@@ -310,6 +310,50 @@ export async function executeTask(params: {
     // WS1.4 — Execute via ReAct loop (pensa → chiama tool → osserva → ripeti)
     // C1 fix: inietta la steering phrase dell'ACTS Controller nel system prompt.
     // Senza questo, le steering phrases erano calcolate ma mai inviate all'LLM.
+    //
+    // G3 fix (LTL audit Fase B): evaluateIntent prima del ReAct loop.
+    // PRIMA: Normative gate era cosmetico (non chiamato da executor).
+    // ORA: valuta l'intenzione del task contro gli assiomi normativi.
+    // Se BLOCK → skip ReAct loop, marca task come blocked.
+    try {
+      const { evaluateIntent } = await import('@/lib/kernel/normative')
+      const normativeVerdict = await evaluateIntent({
+        agentId: taskDef.agentId,
+        action: taskDef.description,
+        rationale: `Task execution for plan ${planGoal}`,
+        affectedAxioms: [], // G3: in futuro, mappare taskDef → assiomi impattati
+        claimedPriority: 2, // default operational; in futuro da AgentPolicy
+      })
+      if (!normativeVerdict.allowed) {
+        step.status = 'blocked'
+        step.error = `Normative block: ${normativeVerdict.blockingAxiom} (priority ${normativeVerdict.blockingPriority})`
+        step.completedAt = new Date().toISOString()
+        step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
+        await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
+        await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+        onEvent?.('task_complete', { step })
+        return step
+      }
+    } catch {
+      // Non bloccante: se normative fallisce, continua comunque
+    }
+
+    // G2 fix (LTL audit Fase B): taintInput su task description (potenziale input utente).
+    // PRIMA: Taint tracking era cosmetico (non chiamato da executor).
+    // ORA: marca il task description come tainted e propaga attraverso il ReAct loop.
+    // Il taintId viene passato al ReAct loop che propaga ad ogni iterazione,
+    // e al tool-dispatcher che chiama checkSink prima di tool sensibili.
+    let taintId: string | undefined
+    try {
+      const { taintInput } = await import('@/lib/kernel/taint')
+      taintId = await taintInput(
+        `task:${planId}/${taskDef.taskId}`,
+        taskDef.description,
+      )
+    } catch {
+      // Non bloccante: se taint fallisce, continua senza tracking
+    }
+
     const { executeReActLoop } = await import('./react-loop')
     const reactResult = await executeReActLoop({
       agentId: taskDef.agentId,
@@ -319,6 +363,7 @@ export async function executeTask(params: {
       context: `obiettivo globale = ${planGoal}`,
       signal,
       steeringPhrase: steeringResult.phrase,
+      taintId, // G2: passa taintId per propagateTaint nel ReAct loop
       onIteration: (iter) => {
         onEvent?.('task_iteration', {
           taskId: taskDef.taskId,

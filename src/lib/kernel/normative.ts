@@ -64,8 +64,16 @@ export type NormativeVerdict = {
  * B2 fix (LTL audit Fase A) — Valida claimedPriority range (1-3).
  * PRIMA: claimedPriority=0 o 999 bypassavano tutti gli assiomi (ax.priority < 0
  * è sempre falso; < 999 è sempre vero). ORA: throw se fuori range.
+ *
+ * B5 fix (LTL audit Fase B) — Persiste verdict su agentLog per audit trail.
+ * PRIMA: evaluateIntent ritornava verdict ma NON lo persisteva (solo l'API
+ * route faceva logging). I consumer interni (es. executor) perdevano il trail.
+ * ORA: opzione auditLog (default true) crea agentLog entry.
  */
-export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> {
+export async function evaluateIntent(
+  intent: Intent,
+  options?: { auditLog?: boolean }
+): Promise<NormativeVerdict> {
   // B2 fix — Valida claimedPriority
   if (![1, 2, 3].includes(intent.claimedPriority)) {
     throw new InvalidPriorityError(intent.claimedPriority)
@@ -92,20 +100,54 @@ export async function evaluateIntent(intent: Intent): Promise<NormativeVerdict> 
     // di priority 3 (es. "ottimizza token usage" vs "ottimizza token quando possibile").
     if (ax.priority < intent.claimedPriority) {
       // La regola violata ha priorità superiore all'intenzione → BLOCK
-      return {
+      const verdict: NormativeVerdict = {
         allowed: false,
         blockingAxiom: ax.axiom,
         blockingPriority: ax.priority,
         auditTrace: auditLines.join('\n'),
       }
+      // B5 fix — Persisti verdict su agentLog (se auditLog !== false)
+      if (options?.auditLog !== false) {
+        await persistNormativeVerdict(intent, verdict).catch(() => {})
+      }
+      return verdict
     }
   }
 
   auditLines.push('Nessuna violazione bloccante.')
-  return {
+  const verdict: NormativeVerdict = {
     allowed: true,
     auditTrace: auditLines.join('\n'),
   }
+  // B5 fix — Persisti verdict su agentLog anche per ALLOW (per audit completo)
+  if (options?.auditLog !== false) {
+    await persistNormativeVerdict(intent, verdict).catch(() => {})
+  }
+  return verdict
+}
+
+/**
+ * B5 fix — Helper per persistere il verdict normativo su agentLog.
+ * Non bloccante: errori di persistenza non interrompono la valutazione.
+ */
+async function persistNormativeVerdict(intent: Intent, verdict: NormativeVerdict): Promise<void> {
+  await db.agentLog.create({
+    data: {
+      agentId: intent.agentId,
+      phase: '4',
+      event: 'normative_evaluation',
+      payload: JSON.stringify({
+        action: intent.action,
+        rationale: intent.rationale,
+        claimedPriority: intent.claimedPriority,
+        allowed: verdict.allowed,
+        blockingAxiom: verdict.blockingAxiom || null,
+        blockingPriority: verdict.blockingPriority || null,
+        auditTrace: verdict.auditTrace,
+      }),
+      level: verdict.allowed ? 'info' : 'warn',
+    },
+  })
 }
 
 /**

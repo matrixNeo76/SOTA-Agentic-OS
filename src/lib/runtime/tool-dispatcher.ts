@@ -39,6 +39,10 @@ export interface DispatchOptions {
   timeout?: number
   allowedScopes?: string[] // scope concessi all'agente (per builtin tools)
   requiredScopes?: string[] // scope richiesti dal tool registrato (default: ['tool:exec'])
+  // G2 (LTL audit Fase B) — Taint IDs per checkSink prima di tool sensibili.
+  // Se presente, dispatchTool chiama checkSink('tool_call:'+name, taintIds)
+  // prima di eseguire il tool. Se checkSink blocca, il tool non viene eseguito.
+  taintIds?: string[]
 }
 
 // === Main dispatcher =================================================
@@ -57,6 +61,34 @@ export async function dispatchTool(
 ): Promise<ToolCallResult> {
   const startTime = Date.now()
   const timeout = options.timeout || 10_000
+
+  // G2 (LTL audit Fase B) — Taint check: prima di eseguire qualsiasi tool,
+  // verifica se ci sono taintIds attivi e se il tool è un sink sensibile.
+  // Se checkSink blocca, il tool non viene eseguito.
+  if (options.taintIds && options.taintIds.length > 0) {
+    try {
+      const { checkSink } = await import('@/lib/kernel/taint')
+      const sinkName = `tool_call:${call.name}`
+      const taintResult = await checkSink(sinkName, options.taintIds)
+      if (!taintResult.allowed) {
+        // Taint blocca il tool: ritorna errore senza eseguire
+        await auditToolCall(call.name, options, {
+          success: false,
+          output: '',
+          error: `Taint block: ${taintResult.reason}`,
+        }, Date.now() - startTime)
+        return {
+          toolName: call.name,
+          success: false,
+          output: '',
+          error: `Blocked by Taint Tracking: ${taintResult.reason}. Flussi tainted hanno raggiunto il sink ${sinkName}.`,
+          durationMs: Date.now() - startTime,
+        }
+      }
+    } catch {
+      // Non bloccante: se checkSink fallisce, continua (fail-open)
+    }
+  }
 
   // 1. Cerca builtin tool
   const builtin = getBuiltinTool(call.name)

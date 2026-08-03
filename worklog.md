@@ -1278,3 +1278,50 @@ Stage Summary:
 - B4: verifyEvent robusto (size cap payload)
 - B6: evalEvent registra tutte le violazioni (no mascheramento)
 - Prossimo: Fase B (G2+G3+B5) integrazione runtime Taint+Normative in executor
+
+---
+Task ID: LTL-TAINT-NORMATIVE-FASE-B
+Agent: main
+Task: Fase B — G2+G3+B5 (integrazione runtime Taint+Normative in executor)
+
+Work Log:
+- G2: Integrato Taint in executor + react-loop + tool-dispatcher:
+  * executor.ts: taintInput su task description (source='task:planId/taskId')
+  * executor.ts: passa taintId a executeReActLoop
+  * react-loop.ts: ReActOptions.taintId opzionale
+  * react-loop.ts: propagateTaint ad ogni iterazione (registra flow trace)
+  * react-loop.ts: passa taintIds a dispatchTool
+  * tool-dispatcher.ts: DispatchOptions.taintIds opzionale
+  * tool-dispatcher.ts: checkSink('tool_call:'+name, taintIds) prima di eseguire
+  * tool-dispatcher.ts: se checkSink blocca → ritorna Taint block error, no esecuzione
+  * Non bloccante: se taint/checkSink fallisce, continua (fail-open)
+- G3: Integrato Normative in executor:
+  * executor.ts: evaluateIntent prima del ReAct loop
+  * Intent costruito da taskDef: agentId, action=description, claimedPriority=2
+  * Se !allowed → step.status='blocked', skip ReAct loop, persisti stato
+  * Non bloccante: se evaluateIntent fallisce, continua comunque
+- B5: evaluateIntent persiste verdict su agentLog:
+  * Aggiunto options.auditLog (default true)
+  * persistNormativeVerdict helper: crea agentLog con payload completo
+  * level=info per allowed, level=warn per blocked
+  * Persiste sia ALLOW che BLOCK per audit completo
+  * auditLog=false disabilita (per test o performance)
+- Test: 20 nuovi test integration in tests/integration/ltl-taint-normative-faseB.test.ts:
+  * B5 persistenza: 4 test (auditLog=true/false, BLOCK level=warn, invalid priority no log)
+  * G2 dispatchTool checkSink: 5 test (blocca sensibile, non-sensibile ok, senza taintIds,
+    taintId scaduto, type-level)
+  * G2 react-loop propagateTaint: 3 test (taintId opzionale, import dinamico, passa taintIds)
+  * G2 executor taintInput: 2 test (import dinamico, passa taintId)
+  * G3 executor evaluateIntent: 3 test (import dinamico, blocca task, claimedPriority=2)
+  * Smoke: 3 test (Taint flow, Normative flow, dispatchTool errore descrittivo)
+
+Stage Summary:
+- 4 file modificati (normative.ts, executor.ts, react-loop.ts, tool-dispatcher.ts) + 1 nuovo test file
+- 20 nuovi test integration (tutti passing)
+- 128/128 test totali LTL+Taint+Normative passing (0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- G2: Taint tracking non più cosmetico — fluisce da executor → react-loop → tool-dispatcher
+- G3: Normative gate non più cosmetico — evaluateIntent prima del ReAct loop, blocca se viola
+- B5: evaluateIntent persiste verdict su agentLog per audit trail completo
+- Modulo LTL Taint Normative ora EFFETTIVO a runtime (come ACTS dopo Fase A)
+- Prossimo: Fase C (B3+B7+B8+G4+G5+G6+G7) UX & completamento
