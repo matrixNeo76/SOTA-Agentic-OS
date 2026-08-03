@@ -55,12 +55,17 @@ export function Phase6() {
  const [searchResults, setSearchResults] = useState<any[]>([])
 
  const refresh = async () => {
+ // B6 fix: try/catch su fetch per evitare unhandled rejection
+ try {
  const [ctxR, statsR] = await Promise.all([
  fetch(`/api/context?action=assemble&agentId=${agentId}`).then((r) => r.json()),
  fetch('/api/context?action=stats').then((r) => r.json()),
  ])
  setContext(ctxR)
  setStats(statsR)
+ } catch (e: any) {
+ toast.error(`Caricamento contesto fallito: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -77,6 +82,8 @@ export function Phase6() {
  let callP: unknown, respP: unknown
  try { callP = JSON.parse(callPayload) } catch { toast.error('callPayload non è JSON valido'); return }
  try { respP = JSON.parse(responsePayload) } catch { toast.error('responsePayload non è JSON valido'); return }
+ // B6 fix: try/catch su fetch
+ try {
  const r = await fetch('/api/context', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -93,10 +100,15 @@ export function Phase6() {
  toast.success('Tool call registrato')
  }
  refresh()
- } else toast.error(d.error)
+ } else toast.error(d.error || `Registrazione fallita (HTTP ${r.status})`)
+ } catch (e: any) {
+ toast.error(`Registrazione fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const forceSummarize = async () => {
+ // B6 fix: try/catch su fetch
+ try {
  const r = await fetch('/api/context', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -106,10 +118,15 @@ export function Phase6() {
  if (d.ok) {
  toast.success(`Summarization: ${d.evictedCount} evicted, ${d.tokenSaved} token salvati`)
  refresh()
+ } else toast.error(d.error || `Summarization fallita (HTTP ${r.status})`)
+ } catch (e: any) {
+ toast.error(`Summarization fallita: ${e?.message || 'errore di rete'}`)
  }
  }
 
- const updatePolicy = async () => {
+ const updatePolicyAction = async () => {
+ // B6 fix: try/catch su fetch
+ try {
  const r = await fetch('/api/context', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -120,20 +137,29 @@ export function Phase6() {
  })
  const d = await r.json()
  if (d.ok) toast.success('Policy aggiornata')
+ else toast.error(d.error || `Aggiornamento policy fallito (HTTP ${r.status})`)
+ } catch (e: any) {
+ toast.error(`Aggiornamento policy fallito: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const searchHistory = async () => {
+ // B6 fix: try/catch su fetch
+ try {
  const r = await fetch(`/api/context?action=search&agentId=${agentId}&q=${encodeURIComponent(searchQuery)}`)
  const d = await r.json()
  setSearchResults(d.results || [])
+ } catch (e: any) {
+ toast.error(`Ricerca fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase6" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase6" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna contesto e statistiche"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-4 gap-3" role="status" aria-live="polite" aria-label="Statistiche context engineering">
  <StatCard label="Active calls" value={stats.activeCalls} />
  <StatCard label="Evicted calls" value={stats.evictedCalls} />
  <StatCard label="Summaries" value={stats.summaries} />
@@ -210,7 +236,7 @@ export function Phase6() {
  </CardContent>
  </Card>
 
- <Button size="sm" variant="outline" onClick={forceSummarize}>
+ <Button size="sm" variant="outline" onClick={forceSummarize} aria-label="Forza summarization del ring buffer">
  <Scissors className="size-3.5 mr-1.5" /> Forza Summarization ora
  </Button>
  </TabsContent>
@@ -247,7 +273,7 @@ export function Phase6() {
  <Label className="text-xs">Token cost</Label>
  <Input type="number" value={tokenCost} onChange={(e) => setTokenCost(Number(e.target.value))} className="w-32" />
  </div>
- <Button size="sm" onClick={recordCall}>
+ <Button size="sm" onClick={recordCall} aria-label="Registra il tool call nel ring buffer">
  <Plus className="size-3.5 mr-1.5" /> Registra
  </Button>
  </div>
@@ -271,13 +297,13 @@ export function Phase6() {
  <Input type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} min={1} />
  </div>
  <div className="flex items-center gap-3">
- <Switch checked={autoSummarize} onCheckedChange={setAutoSummarize} />
+ <Switch checked={autoSummarize} onCheckedChange={setAutoSummarize} aria-label="Attiva o disattiva auto-summarize" />
  <div>
  <div className="text-sm font-medium">Auto-summarize</div>
  <div className="text-xs text-muted-foreground">Genera automaticamente un riassunto quando si supera la threshold</div>
  </div>
  </div>
- <Button size="sm" onClick={updatePolicy}>
+ <Button size="sm" onClick={updatePolicyAction} aria-label="Salva la policy di pruning">
  Salva Policy per {agentId}
  </Button>
  </CardContent>
@@ -298,7 +324,7 @@ export function Phase6() {
  placeholder="Es: search_api risultati query"
  onKeyDown={(e) => e.key === 'Enter' && searchHistory()}
  />
- <Button size="sm" onClick={searchHistory}>
+ <Button size="sm" onClick={searchHistory} aria-label="Cerca nel contesto storico">
  <Search className="size-3.5 mr-1.5" /> Cerca
  </Button>
  </div>

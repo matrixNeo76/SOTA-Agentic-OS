@@ -1744,3 +1744,55 @@ Stage Summary:
 - B8: cosine similarity normalizzato (no bias magnitudo)
 - Fix pruneOnly logic: summarization ora triggera correttamente
 - Prossimo: Fase C (B6+G1+G4+G6+G7) UX & completamento
+
+---
+Task ID: CONTEXT-MANAGER-FASE-C
+Agent: main
+Task: Fase C — B6+G1+G4+G6+G7 (UX & completamento)
+
+Work Log:
+- B6: phase6.tsx try/catch su tutte le 5 funzioni fetch:
+  * refresh: try/catch con toast.error "Caricamento contesto fallito"
+  * recordCall: try/catch con toast.error "Registrazione fallita"
+  * forceSummarize: try/catch con toast.error "Summarization fallita"
+  * updatePolicyAction (rinominato da updatePolicy per conflict): try/catch con toast.error
+  * searchHistory: try/catch con toast.error "Ricerca fallita"
+  * PRIMA: unhandled promise rejection su network error
+  * ORA: toast.error descrittivo per ogni funzione
+- G4: a11y in phase6.tsx:
+  * aria-label su 6 button (Aggiorna, Forza Summarization, Registra, Salva Policy, Cerca)
+  * aria-label su Switch autoSummarize
+  * role="status" + aria-live="polite" su stats grid
+  * aria-label="Statistiche context engineering" su stats container
+- G6: Adaptive polling (già presente):
+  * phase6.tsx già ha setInterval 30s + Page Visibility API (line 70-73)
+  * QuickStats (context-panel) già usa startGlobalRefresh/stopGlobalRefresh
+  * Verificato con test che entrambi i meccanismi esistono nel codice
+- G1: Unit test per context-engineering.ts e curator.ts:
+  * context-engineering: 6 test (recordToolCall, assembleWorkingContext, summarizeAndEvict,
+    contextStats, updatePolicy create, updatePolicy update)
+  * curator: 3 test (gatherSensorium structure, compileSensoriumXML, produceSensorium persist)
+- G7: Integration test end-to-end (3 test):
+  * E2E: record → ring buffer → threshold → summarize → assemble → search (full pipeline)
+  * E2E: JSON.parse robusto su payload corrotto (C3 + G1)
+  * E2E: produceSensorium → real metrics → XML → persist (C2 + B5)
+- Test: 26 nuovi test integration in tests/integration/context-manager-faseC.test.ts:
+  * B6 try/catch: 5 test (refresh, recordCall, forceSummarize, updatePolicyAction, searchHistory)
+  * G4 a11y: 7 test (6 aria-label + 1 role=status)
+  * G6 adaptive polling: 2 test (phase6 Page Visibility, QuickStats globalRefresh)
+  * G1 unit context-engineering: 6 test
+  * G1 unit curator: 3 test
+  * G7 e2e: 3 test
+
+Stage Summary:
+- 2 file modificati (phase6.tsx) + 1 nuovo test file
+- 26 nuovi test integration (tutti passing)
+- 64/64 test totali Context Manager passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- B6: phase6.tsx robusto (try/catch su tutte le fetch)
+- G4: phase6.tsx accessibile (aria-label, role=status, aria-live)
+- G6: adaptive polling già presente (verificato)
+- G1: unit test coverage per context-engineering.ts e curator.ts (0 → 9 test)
+- G7: 3 integration test e2e (full pipeline, JSON robusto, sensorium)
+- MODULO CONTEXT MANAGER COMPLETATO (Fasi A+B+C)
+- Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
