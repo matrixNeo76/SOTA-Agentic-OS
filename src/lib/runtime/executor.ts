@@ -338,6 +338,33 @@ export async function executeTask(params: {
       // Non bloccante: se normative fallisce, continua comunque
     }
 
+    // C3 fix (ERL audit Fase A): preExecuteGate per Red Lines + Taint + LTL composite.
+    // PRIMA: governance-hooks era cosmetico (non chiamato da executor).
+    // ORA: chiama preExecuteGate che combina G6 (taint) + G7 (LTL) + G8 (red lines).
+    // Se blocca → skip ReAct loop, marca task come blocked.
+    // Non bloccante (fail-open): se il gate fallisce per errori tecnici, continua.
+    try {
+      const { preExecuteGate } = await import('@/lib/runtime/governance-hooks')
+      const gateResult = await preExecuteGate({
+        agentId: taskDef.agentId,
+        action: taskDef.description,
+        // toolName e stateLabel non specificati qui: verranno checkati
+        // più fine-grained nel ReAct loop / tool-dispatcher
+      })
+      if (!gateResult.allowed) {
+        step.status = 'blocked'
+        step.error = `Governance gate block: ${gateResult.reasons.join('; ')}`
+        step.completedAt = new Date().toISOString()
+        step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
+        await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
+        await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+        onEvent?.('task_complete', { step })
+        return step
+      }
+    } catch {
+      // Non bloccante: se governance-hooks fallisce, continua comunque
+    }
+
     // G2 fix (LTL audit Fase B): taintInput su task description (potenziale input utente).
     // PRIMA: Taint tracking era cosmetico (non chiamato da executor).
     // ORA: marca il task description come tainted e propaga attraverso il ReAct loop.

@@ -139,35 +139,89 @@ function extractHeuristicRuleBased(input: ReflectionInput): ExtractedHeuristic {
  * AutoSOTA Supervisore: valuta l'euristica contro le Red Lines.
  * Controlla sia l'euristica estratta SIA gli step dell'operazione
  * (per intercettare operazioni che hanno bypassato policy).
+ *
+ * C1 fix (ERL audit Fase A): ORA usa Red Lines caricate dal DB per il matching,
+ * non solo regex hardcoded. Le Red Lines custom aggiunte via admin API sono
+ * valutate via keyword matching (tutti i keyword >4 char devono essere presenti).
+ * Le 3 regex hardcoded restano come safety net per i pattern più comuni.
+ *
+ * B4 fix: ritorna blockingRedLine strutturato { id, description, severity }
+ * per permettere audit trail e UI display.
  */
 async function supervisorReview(
   heuristic: ExtractedHeuristic,
   input: ReflectionInput
-): Promise<{ approved: boolean; reason: string }> {
+): Promise<{ approved: boolean; reason: string; blockingRedLine?: { id: string; description: string; severity: string } }> {
   const redLines = await db.redLine.findMany({ where: { active: true } })
   const lines = redLines.length
-    ? redLines.map((r) => ({ description: r.description, severity: r.severity }))
-    : DEFAULT_RED_LINES
+    ? redLines.map((r) => ({ id: r.id, description: r.description, severity: r.severity }))
+    : DEFAULT_RED_LINES.map((r, i) => ({ id: `default-${i}`, description: r.description, severity: r.severity }))
 
   // Regola 1: euristica da caso anomalo (1 solo step o context vuoto)
   if (input.steps.length < 2) {
-    return { approved: false, reason: `Red Line: "Non estrarre euristiche da singoli casi anomali"` }
+    const rl = lines.find((l) => /singoli casi|anomali/i.test(l.description))
+    return {
+      approved: false,
+      reason: `Red Line: "${rl?.description || 'Non estrarre euristiche da singoli casi anomali'}"`,
+      blockingRedLine: rl || { id: 'builtin', description: 'Non estrarre euristiche da singoli casi anomali', severity: 'strong' },
+    }
   }
 
   // Combina testi: euristica + step + razionali per controllare Red Lines
   const stepText = input.steps.map((s) => `${s.action} ${s.result}`).join(' ')
   const combinedText = `${heuristic.trigger} ${heuristic.action} ${stepText}`.toLowerCase()
 
-  // Regola 2: bypass di sicurezza
+  // Regola 2: bypass di sicurezza (hardcoded safety pattern — kept as safety net)
   const safetyBypass = /bypass|disable.*security|disable.*safe|skip.*(policy|security|safe|check)|ignore.*(policy|security|safe)/i.test(combinedText)
   if (safetyBypass) {
-    return { approved: false, reason: `Red Line: "Non bypassare policy di sicurezza per efficienza"` }
+    const rl = lines.find((l) => /bypass.*sicurezza|bypass.*policy/i.test(l.description))
+    return {
+      approved: false,
+      reason: `Red Line: "${rl?.description || 'Non bypassare policy di sicurezza per efficienza'}"`,
+      blockingRedLine: rl || { id: 'builtin', description: 'Non bypassare policy di sicurezza per efficienza', severity: 'absolute' },
+    }
   }
 
-  // Regola 3: ignora limiti dei dataset
+  // Regola 3: ignora limiti dei dataset (hardcoded safety pattern — kept as safety net)
   const dataIgnore = /assume.*(all|infinite|unlimited).*data|ignor.*dataset|ignor.*limit/i.test(combinedText)
   if (dataIgnore) {
-    return { approved: false, reason: `Red Line: "Non ignorare i limiti dei dataset di input"` }
+    const rl = lines.find((l) => /dataset|limiti.*dati/i.test(l.description))
+    return {
+      approved: false,
+      reason: `Red Line: "${rl?.description || 'Non ignorare i limiti dei dataset di input'}"`,
+      blockingRedLine: rl || { id: 'builtin', description: 'Non ignorare i limiti dei dataset di input', severity: 'absolute' },
+    }
+  }
+
+  // C1 fix: check DB Red Lines (including custom ones) via keyword matching.
+  // Per ogni Red Line NON già coperta dalle regex hardcoded sopra, estrae keyword
+  // significative (>4 char, escludendo stop-words IT/EN) e verifica se almeno
+  // 2 keyword (o >=50% se ce ne sono meno di 4) sono presenti nel combined text.
+  // Questo bilancia conservativismo (no falsi positivi) con effettività (catcha violazioni reali).
+  const STOP_WORDS = new Set(['non', 'dei', 'del', 'della', 'per', 'che', 'sono', 'quando',
+    'the', 'from', 'with', 'that', 'this', 'they', 'have', 'will', 'shall', 'never', 'senza'])
+  const DEFAULT_PATTERNS = /bypass.*sicurezza|bypass.*policy|dataset|limiti.*dati|singoli casi|anomali/i
+
+  for (const rl of lines) {
+    // Skip Red Lines già coperte dai pattern hardcoded sopra
+    if (DEFAULT_PATTERNS.test(rl.description)) continue
+
+    const keywords = rl.description.toLowerCase()
+      .split(/[\s\-_,.;:]+/)
+      .filter(w => w.length > 4 && !STOP_WORDS.has(w))
+
+    if (keywords.length > 0) {
+      const matchedCount = keywords.filter(kw => combinedText.includes(kw)).length
+      // Richiedi almeno 2 keyword matchate, oppure tutte se ce ne sono < 2
+      const threshold = keywords.length <= 2 ? keywords.length : Math.max(2, Math.ceil(keywords.length * 0.5))
+      if (matchedCount >= threshold) {
+        return {
+          approved: false,
+          reason: `Red Line: "${rl.description}"`,
+          blockingRedLine: rl,
+        }
+      }
+    }
   }
 
   return { approved: true, reason: 'Superato controllo Red Line' }
@@ -181,6 +235,7 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
   approved: boolean
   reviewReason: string
   stored: boolean
+  blockingRedLine?: { id: string; description: string; severity: string }
 }> {
   const heuristic = await extractHeuristic(input)
   const review = await supervisorReview(heuristic, input)
@@ -219,6 +274,7 @@ export async function reflectAndLearn(input: ReflectionInput): Promise<{
     approved: review.approved,
     reviewReason: review.reason,
     stored,
+    blockingRedLine: review.blockingRedLine,
   }
 }
 
@@ -256,14 +312,27 @@ export async function feedbackHeuristic(id: string, success: boolean) {
   })
 }
 
+/**
+ * B6 fix (ERL audit Fase A): se DB vuoto, seeda DEFAULT_RED_LINES nel DB
+ * invece di ritornare ID finti (default-0, default-1). Questo permette
+ * all'admin di toggle/delete le Red Lines default normalmente via API.
+ */
 export async function listRedLines() {
   const rows = await db.redLine.findMany({ where: { active: true } })
-  return rows.length ? rows : DEFAULT_RED_LINES.map((r, i) => ({
-    id: `default-${i}`,
-    description: r.description,
-    rationale: r.rationale,
-    severity: r.severity,
-    active: true,
-    createdAt: new Date(),
-  }))
+  if (rows.length > 0) return rows
+
+  // DB vuoto → seeda le Red Lines default
+  const seeded = await Promise.all(
+    DEFAULT_RED_LINES.map((r) =>
+      db.redLine.create({
+        data: {
+          description: r.description,
+          rationale: r.rationale,
+          severity: r.severity,
+          active: true,
+        },
+      }),
+    ),
+  )
+  return seeded
 }

@@ -1437,3 +1437,54 @@ Stage Summary:
   * Fase C (G3+G4+G5+G6+G7) UX & completamento — 1 gg — MEDIA
 - Totale stimato: 4 giornate
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: ERL-RED-LINES-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B4+B6 (effettività + sicurezza)
+
+Work Log:
+- C1+G2: Riscritto supervisorReview per usare Red Lines dal DB:
+  * Mantiene 3 regex hardcoded come safety net (bypass, dataset, casi anomali)
+  * Aggiunto loop su tutte le Red Lines DB (incluse custom) con keyword matching
+  * Keyword >4 char, escluse stop-words IT/EN (non, dei, per, never, senza, etc.)
+  * Threshold: almeno 2 keyword matchate o >=50% se ce ne sono < 4
+  * Skip Red Lines già coperte da pattern hardcoded (no duplicazione)
+- B4: supervisorReview ritorna blockingRedLine strutturato:
+  * Return type: { approved, reason, blockingRedLine?: { id, description, severity } }
+  * reflectAndLearn propaga blockingRedLine nel result
+  * Ogni blocco ritorna la Red Line specifica che ha matchato (non più solo reason text)
+- B6: listRedLines seeda DEFAULT_RED_LINES nel DB se vuoto:
+  * PRIMA: ritornava ID finti (default-0, default-1) → toggle/delete falliva con 404
+  * ORA: crea record nel DB con db.redLine.create al primo GET
+  * Admin può poi toggle/delete normalmente via API
+- C2: evaluateRedLinesForAction matching meno aggressivo:
+  * PRIMA: keywordOverlap con qualsiasi token >4 char → falsi positivi
+    (es. "non ignorare dataset" bloccava "leggi dataset")
+  * ORA: solo substring match bidirezionale (actionContainsDesc o descContainsAction)
+  * Conservativo: blocca solo se match esatto come substring
+- C3+G1: preExecuteGate integrato in executor.ts:
+  * Chiamato dopo normative check, prima di taintInput + ReAct loop
+  * Se !allowed → step.status='blocked', skip esecuzione
+  * Non bloccante (fail-open): se governance-hooks fallisce, continua
+  * Combina G6 (taint) + G7 (LTL) + G8 (red lines) in un singolo gate
+- Test: 18 nuovi test integration in tests/integration/erl-red-lines-faseA.test.ts:
+  * B6 listRedLines seed: 3 test (DB vuoto seeda 4 default, description match, no re-seed)
+  * C1+G2+B4 supervisorReview: 5 test (custom Red Line blocca, no violazione approve,
+    steps<2 blocca, bypass blocca, blockingRedLine structure)
+  * C2 no falsi positivi: 5 test (dataset+leggi ALLOW, sicurezza+aggiorna ALLOW,
+    delete all users BLOCK, deploy prod vs staging ALLOW, DB vuoto ALLOW)
+  * C3 preExecuteGate integration: 3 test (import check, block check, fail-open check)
+  * Smoke: 2 test (custom Red Line → reflectAndLearn blocca, match esatto vs partial)
+
+Stage Summary:
+- 3 file modificati (erl.ts, governance-hooks.ts, executor.ts) + 1 nuovo test file
+- 18 nuovi test integration (tutti passing)
+- 38/38 test totali ERL passing (0 regressioni)
+- 0 TypeScript errors nei file Fase A
+- C1: supervisorReview non più cosmetico per Red Lines custom
+- C2: evaluateRedLinesForAction non più produce falsi positivi
+- C3: governance-hooks non più cosmetico a runtime (integrato in executor)
+- B4: blockingRedLine strutturato per audit trail
+- B6: listRedLines non più ID finti (seeda DB)
+- Prossimo: Fase B (B1+B2+B3+B5+B7+B8) robustezza

@@ -162,10 +162,11 @@ export async function publishStateChangeToLTL(
  * A differenza di ERL (che valuta le red lines su euristiche proposte),
  * questo hook valuta le red lines su AZIONI in corso di esecuzione.
  *
- * Semantica: se l'azione matcha la descrizione di una Red Line attiva
- * (substring match case-insensitive), viene bloccata.
- *
- * Esempio: Red Line "never delete user data" blocca action "delete user record"
+ * C2 fix (ERL audit Fase A): matching meno aggressivo.
+ * PRIMA: keywordOverlap con qualsiasi token >4 char come substring → falsi positivi
+ * (es. Red Line "non ignorare dataset" bloccava "leggi dataset").
+ * ORA: usa solo substring match esatto (actionContainsDesc o descContainsAction).
+ * Per matching più fine, l'admin può usare Red Line description specifiche.
  *
  * @param action Descrizione dell'azione (es. "delete user record", "deploy to prod")
  * @param agentId Agente che richiede l'azione
@@ -185,16 +186,15 @@ export async function evaluateRedLinesForAction(
     const blocking: { id: string; description: string; severity: string }[] = []
 
     for (const rl of redLines) {
-      // Match: l'azione contiene la descrizione della Red Line (o viceversa),
-      // OPPURE c'è overlap significativo su token >4 caratteri.
-      // Split su spazi E trattini per gestire descrizioni come "TEST-RL-delete".
       const rlDescLower = rl.description.toLowerCase()
+
+      // C2 fix: usa solo substring match bidirezionale (esatto, non keyword overlap).
+      // Questo è conservativo: blocca solo se l'azione contiene la descrizione
+      // della Red Line (o viceversa) come substring esatta.
       const actionContainsDesc = actionLower.includes(rlDescLower)
       const descContainsAction = rlDescLower.includes(actionLower)
-      const rlTokens = rlDescLower.split(/[\s\-_]+/).filter(w => w.length > 4)
-      const keywordOverlap = rlTokens.some(token => actionLower.includes(token))
 
-      if (actionContainsDesc || descContainsAction || keywordOverlap) {
+      if (actionContainsDesc || descContainsAction) {
         blocking.push({ id: rl.id, description: rl.description, severity: rl.severity })
       }
     }
