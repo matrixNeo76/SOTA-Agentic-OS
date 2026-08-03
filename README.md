@@ -525,7 +525,7 @@ docker compose up -d
 
 ## Audit & Hardening Cycle
 
-Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **12 moduli** organizzati in 4 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
+Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **15 moduli** organizzati in 7 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
 
 ### Moduli auditati
 
@@ -536,13 +536,16 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 | Plan | Phase 7 (Dominator PTA), Plan Domain, Quorum | `docs/PLAN-DOMAIN-FASE1-AUDIT.md` | Fasi 1-3 |
 | Learn | Phase 5 (ERL), Phase 9 (Retainer), Phase 11 (Affect), Phase 14 (Router) | `docs/LEARN-DOMAIN-FASE1-AUDIT.md` | Fasi 1-3 |
 | Phase 3 + Tools | ACTS Controller + Tool Manager (Phase 18) | `docs/PHASE3-TOOLMANAGER-FASE1-AUDIT.md` | Fasi 1-3 |
+| ACTS Controller (deep) | ACTS steering + cross-module integrations | `docs/ACTS-CONTROLLER-FASE2-AUDIT.md` | Fasi A+B+C+G2 |
+| LTL Taint Normative (deep) | LTL monitor + Taint tracking + Normative gate | `docs/LTL-TAINT-NORMATIVE-AUDIT.md` | Fasi A+B+C |
+| ERL Red Lines (deep) | ERL heuristic extraction + Red Lines + governance-hooks | `docs/ERL-RED-LINES-AUDIT.md` | Fasi A+B+C |
 
 ### Risultati complessivi
 
-- **Bug critici (C) fixati**: 20+ (auth bypass, RCE, SSRF, info leak, key confusion)
-- **Bug medi (B) fixati**: 35+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query)
-- **Gap funzionali (G) chiusi**: 20+ (zero test coverage → 100+ nuovi test, a11y, adaptive polling)
-- **Test totali**: 268+ (217 integration + 51+ unit, tutti passing)
+- **Bug critici (C) fixati**: 26+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime)
+- **Bug medi (B) fixati**: 51+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close)
+- **Gap funzionali (G) chiusi**: 33+ (zero test coverage → 300+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds)
+- **Test totali**: 400+ (tutti passing, 0 regressioni)
 - **TypeScript**: 0 errori nei file modificati
 
 ### Sicurezza
@@ -554,6 +557,12 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 - ✅ Tool permission key consistency (`tool.id` cuid ovunque)
 - ✅ Scope-based permission check (non existence-based)
 - ✅ LLM error non più persistito nel DB (info leak)
+- ✅ LTL monitor stato FSM persistito su DB (non più cosmetico in produzione)
+- ✅ Taint tracking integrato nell'executor (input → propagate → checkSink)
+- ✅ Normative gate integrato nell'executor (evaluateIntent prima del ReAct loop)
+- ✅ Red Lines custom valutate dal supervisorReview (non più regex hardcoded)
+- ✅ Governance hooks (preExecuteGate) integrati nell'executor (G6+G7+G8 composite)
+- ✅ Fail-close opzione configurabile via SystemSetting per ambienti critici
 
 ### Known issues residui (future work)
 
