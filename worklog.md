@@ -1392,3 +1392,48 @@ Stage Summary:
 - G7: 4 integration test e2e verificano pipeline completa
 - MODULO LTL TAINT NORMATIVE COMPLETATO (Fasi A+B+C)
 - Tutti i 18 item dell'audit risolti (3 C + 8 B + 7 G)
+
+---
+Task ID: ERL-RED-LINES-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo ERL Red Lines
+
+Work Log:
+- Analizzati 7 file: erl.ts (269 LOC), governance-hooks.ts (279), api/reflect/route.ts (81),
+  api/admin/governance/route.ts (Red Line section ~190), governance-view.tsx (RedLinesTab ~170),
+  tests/unit/erl.test.ts (250), prisma/schema.prisma (Heuristic+RedLine+ReflectionLog)
+- Verificati consumer runtime: executor NON chiama preExecuteGate/evaluateRedLinesForAction
+- Verificata coverage test: 17 unit test + integration governance-hooks
+- Compilato report in docs/ERL-RED-LINES-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: supervisorReview usa regex hardcoded, ignora Red Lines custom del DB
+    (carica lines ma non le usa per matching — gate cosmetico per admin)
+  * C2: evaluateRedLinesForAction keywordOverlap troppo aggressivo
+    (token >4 char come substring → falsi positivi su azioni legittime)
+  * C3: governance-hooks non integrato nell'executor (cosmetico a runtime,
+    come G2/G3 del modulo LTL Taint Normative prima di Fase B)
+- 8 bug medi (B1-B8):
+  * B1: LLM parse regex single-language (solo "when/quando + i should/devo")
+  * B2: feedbackHeuristic silent no-op se ID non esiste
+  * B3: retrieveHeuristics carica TUTTE le euristiche in memoria (no scale)
+  * B4: supervisorReview non ritorna blockingRedLine strutturato
+  * B5: evaluateRedLinesForAction non distingue severity (absolute/strong/soft)
+  * B6: listRedLines finge ID finti per DEFAULT_RED_LINES (default-0, default-1)
+  * B7: reflectAndLearn non idempotente su operationId duplicati
+  * B8: governance-hooks fail-open su tutti gli errori (no fail-close option)
+- 7 gap funzionali (G1-G7):
+  * G1: preExecuteGate non integrato in executor
+  * G2: supervisorReview non usa Red Lines caricate per matching
+  * G3: nessun test per supervisorReview con Red Lines custom
+  * G4: nessun test per falsi positivi in evaluateRedLinesForAction
+  * G5: TOOL_SINK_MAP duplica SENSITIVE_SINKS (non sincronizzati)
+  * G6: reflectAndLearn non gestisce fallimento embed()
+  * G7: nessun integration test end-to-end ERL→Red Line→Heuristic storage
+- Piano di intervento in 3 fasi:
+  * Fase A (C1+C2+C3+B4+B6) effettività + sicurezza — 1.5 gg — CRITICA
+  * Fase B (B1+B2+B3+B5+B7+B8) robustezza — 1.5 gg — ALTA
+  * Fase C (G3+G4+G5+G6+G7) UX & completamento — 1 gg — MEDIA
+- Totale stimato: 4 giornate
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
