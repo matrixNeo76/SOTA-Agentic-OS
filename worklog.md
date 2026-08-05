@@ -1876,3 +1876,44 @@ Stage Summary:
 - B2: buildPTA robusto (skip tracce corrotte)
 - B3: validateTrace robusto (no crash su PTA corrotto)
 - Prossimo: Fase B (B1+B4+B5+B6) robustezza
+
+---
+Task ID: PTA-DOMINATORS-FASE-B
+Agent: main
+Task: Fase B — B1+B4+B5+B6 (robustezza)
+
+Work Log:
+- B1: phase7.tsx try/catch su refresh, capture, validate:
+  * refresh: try/catch con toast.error "Caricamento dominator fallito"
+  * capture: try/catch con toast.error "Cattura fallita"
+  * validate: try/catch con toast.error "Validazione fallita"
+  * buildPta aveva già try/catch (preesistente)
+- B4: Size cap su statesJson/actionsJson (50KB):
+  * MAX_PAYLOAD_SIZE = 50_000
+  * Tronca con marker [truncated] se supera
+  * PRIMA: DB bloat con payload enormi
+- B5: dominatorStats usa Prisma aggregate:
+  * PRIMA: findMany take:100 + reduce in JS (O(100) transfer)
+  * ORA: aggregate _avg + count (O(1) transfer)
+  * Rimossa variabile recentValidations
+- B6: computeDominators cap iterazioni (max 1000):
+  * MAX_ITERATIONS = 1000 nel while loop
+  * PRIMA: poteva loopare indefinitamente su grafi con cicli
+  * ORA: converge entro 1000 iterazioni o si ferma
+- Test: 15 nuovi test integration in tests/integration/pta-dominators-faseB.test.ts:
+  * B4 size cap: 3 test (sotto 50KB, sopra 50KB truncated, actionsJson truncated)
+  * B5 aggregate: 3 test (structure, no findMany, avgCoverage corretto)
+  * B6 cap iterazioni: 3 test (MAX_ITERATIONS exists, converge normale, converge grande)
+  * B1 try/catch: 4 test (refresh, capture, validate, buildPta preesistente)
+  * Smoke: 2 test (full pipeline, payload enorme troncato)
+
+Stage Summary:
+- 2 file modificati (dominator-tree.ts, phase7.tsx) + 1 nuovo test file
+- 15 nuovi test integration (tutti passing)
+- 33/33 test totali PTA Dominators passing (0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B1: phase7.tsx robusto (try/catch su tutte le fetch)
+- B4: payload capped a 50KB (no DB bloat)
+- B5: stats O(1) query invece di O(100) transfer
+- B6: computeDominators con cap (no loop infinito)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento

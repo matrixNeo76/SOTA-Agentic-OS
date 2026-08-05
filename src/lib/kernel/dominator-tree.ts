@@ -16,6 +16,9 @@
  */
 import { db } from '@/lib/db'
 
+// B4 fix: size cap su statesJson e actionsJson (50KB ciascuno)
+const MAX_PAYLOAD_SIZE = 50_000
+
 export type DiscreteState = string
 export type Trace = {
   states: DiscreteState[]
@@ -64,12 +67,22 @@ export async function captureTrace(
     throw new Error('traceLabel is required and cannot be empty')
   }
 
+  // B4 fix: size cap su statesJson e actionsJson (50KB ciascuno)
+  let statesStr = JSON.stringify(states)
+  let actionsStr = JSON.stringify(actions || [])
+  if (statesStr.length > MAX_PAYLOAD_SIZE) {
+    statesStr = statesStr.slice(0, MAX_PAYLOAD_SIZE) + '...[truncated]'
+  }
+  if (actionsStr.length > MAX_PAYLOAD_SIZE) {
+    actionsStr = actionsStr.slice(0, MAX_PAYLOAD_SIZE) + '...[truncated]'
+  }
+
   const trace = await db.executionTrace.create({
     data: {
       workflowId,
       traceLabel,
-      statesJson: JSON.stringify(states),
-      actionsJson: JSON.stringify(actions || []),
+      statesJson: statesStr,
+      actionsJson: actionsStr,
       outcome,
     },
   })
@@ -208,9 +221,13 @@ function computeDominators(graph: PTAGraph): string[] {
   }
 
   // Iterative dataflow algorithm (classico)
+  // B6 fix: cap iterazioni per prevenire loop infinito su grafi con cicli
   let changed = true
-  while (changed) {
+  let iterations = 0
+  const MAX_ITERATIONS = 1000
+  while (changed && iterations < MAX_ITERATIONS) {
     changed = false
+    iterations++
     for (const id of allNodeIds) {
       if (id === graph.startNodeId) continue
       const preds = parents[id]
@@ -372,24 +389,27 @@ export async function validateTrace(
 
 /**
  * Statistiche per dashboard.
+ *
+ * B5 fix: usa Prisma aggregate invece di caricare 100 record in memoria.
+ * PRIMA: findMany take:100 + reduce in JS → O(100) transfer + O(100) CPU.
+ * ORA: _avg + _count nel DB → O(1) transfer.
  */
 export async function dominatorStats() {
-  const [traces, ptas, validations] = await Promise.all([
+  const [traces, ptas, validations, avgResult, acceptResult] = await Promise.all([
     db.executionTrace.count(),
     db.prefixTreeAutomaton.count(),
     db.traceValidation.count(),
+    // B5: aggregate per avg coverage (O(1) query invece di 100 record)
+    db.traceValidation.aggregate({
+      _avg: { dominatorCoverage: true },
+    }),
+    // B5: count per accept rate
+    db.traceValidation.count({
+      where: { verdict: 'accept' },
+    }),
   ])
-  const recentValidations = await db.traceValidation.findMany({
-    orderBy: { timestamp: 'desc' },
-    take: 100,
-    select: { verdict: true, dominatorCoverage: true },
-  })
-  const avgCoverage = recentValidations.length
-    ? recentValidations.reduce((s, v) => s + v.dominatorCoverage, 0) / recentValidations.length
-    : 0
-  const acceptRate = recentValidations.length
-    ? recentValidations.filter((v) => v.verdict === 'accept').length / recentValidations.length
-    : 0
+  const avgCoverage = avgResult._avg.dominatorCoverage || 0
+  const acceptRate = validations > 0 ? acceptResult / validations : 0
   return {
     traces,
     ptas,

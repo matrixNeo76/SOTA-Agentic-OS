@@ -54,6 +54,8 @@ export function Phase7() {
  const [lastValidation, setLastValidation] = useState<any>(null)
 
  const refresh = async () => {
+ // B1 fix: try/catch su fetch per evitare unhandled rejection
+ try {
  const [tracesR, ptaR, statsR] = await Promise.all([
  fetch(`/api/dominator?action=traces&workflowId=${workflowId}`).then((r) => r.json()),
  fetch(`/api/dominator?action=pta&workflowId=${workflowId}`).then((r) => r.json()),
@@ -62,6 +64,9 @@ export function Phase7() {
  setTraces(tracesR.traces || [])
  setPta(ptaR.pta || null)
  setStats(statsR)
+ } catch (e: any) {
+ toast.error(`Caricamento dominator fallito: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,6 +86,8 @@ export function Phase7() {
  toast.error('Inserisci almeno uno stato')
  return
  }
+ // B1 fix: try/catch su fetch
+ try {
  const r = await fetch('/api/dominator', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -93,7 +100,10 @@ export function Phase7() {
  if (d.ok) {
  toast.success(`Traccia catturata: ${states.length} stati`)
  refresh()
- } else toast.error(d.error)
+ } else toast.error(d.error || `Cattura fallita (HTTP ${r.status})`)
+ } catch (e: any) {
+ toast.error(`Cattura fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  const buildPta = async () => {
@@ -115,6 +125,8 @@ export function Phase7() {
 
  const validate = async () => {
  const states = validateStates.split(',').map((s) => s.trim()).filter(Boolean)
+ // B1 fix: try/catch su fetch
+ try {
  const r = await fetch('/api/dominator', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -125,6 +137,9 @@ export function Phase7() {
  if (d.verdict === 'accept') toast.success(`Trace ACCEPT · coverage ${d.dominatorCoverage.toFixed(2)}`)
  else if (d.verdict === 'warn') toast.warning(`Trace WARN · coverage ${d.dominatorCoverage.toFixed(2)}`)
  else toast.error(`Trace REJECT · coverage ${d.dominatorCoverage.toFixed(2)}`)
+ } catch (e: any) {
+ toast.error(`Validazione fallita: ${e?.message || 'errore di rete'}`)
+ }
  }
 
  return (
