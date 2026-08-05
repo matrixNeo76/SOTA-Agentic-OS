@@ -1917,3 +1917,49 @@ Stage Summary:
 - B5: stats O(1) query invece di O(100) transfer
 - B6: computeDominators con cap (no loop infinito)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: PTA-DOMINATORS-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G4: validateTrace con 0 dominators → warn invece di accept:
+  * PRIMA: dominators.length===0 → coverage=1.0 → sempre accept (semantica errata)
+  * ORA: coverage=0, verdict=warn con reason "PTA has 0 essential dominators"
+- G3: captureTrace integrato nell'executor:
+  * Dopo ogni task completato, cattura traccia con states=[strategy, ltlVerdict, 'done']
+  * workflowId = 'plan:planId'
+  * Non bloccante (fail-open): se captureTrace fallisce, continua
+- G2: a11y in phase7.tsx:
+  * aria-label su 4 button (Aggiorna, Cattura, Costruisci PTA, Valida)
+  * role=status + aria-live=polite su stats grid
+  * aria-label="Statistiche PTA Dominators"
+- G1: Unit test per buildPTA, computeDominators, validateTrace:
+  * buildPTA con 2 tracce divergenti → dominatori > 0
+  * buildPTA con 1 traccia diretta (root→accept) → 0 dominatori
+  * buildPTA con 3 tracce e 3 branch → dominatori significativi
+  * validateTrace con traccia valida → accept, coverage=1.0
+  * validateTrace con deviazione → pathValid=false
+  * validateTrace persiste TraceValidation su DB
+  * getPTA ritorna grafo persistito
+  * listTraces ritorna tracce per workflow
+  * dominatorStats ritorna tutte le metriche
+- Test: 22 nuovi test integration in tests/integration/pta-dominators-faseC.test.ts:
+  * G4 0 dominators → warn: 3 test
+  * G3 executor integration: 3 test
+  * G2 a11y: 5 test
+  * G1 unit test: 9 test
+  * Smoke: 2 test
+
+Stage Summary:
+- 3 file modificati (dominator-tree.ts, executor.ts, phase7.tsx) + 1 nuovo test file
+- 22 nuovi test integration (tutti passing)
+- 55/55 test totali PTA Dominators passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G4: 0 dominators → warn (non più accept errato)
+- G3: captureTrace integrato in executor (PTA non più cosmetico)
+- G2: phase7.tsx accessibile (aria-label, role=status)
+- G1: 9 unit test per dominator-tree.ts (0 → 9 test coverage)
+- MODULO PTA DOMINATORS COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)

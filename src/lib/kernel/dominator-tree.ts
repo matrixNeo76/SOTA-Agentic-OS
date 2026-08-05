@@ -348,14 +348,21 @@ export async function validateTrace(
 
   // Calcola dominatori raggiunti
   const passedDominatorIds = dominators.filter((d) => visitedNodeIds.includes(d))
+  // G4 fix: se 0 dominatori, coverage=0 e verdict=warn (non accept)
+  // PRIMA: dominators.length===0 → coverage=1.0 → sempre accept (semantica errata)
+  // ORA: 0 dominatori significa PTA senza checkpoint obbligatori → warn
   const dominatorCoverage = dominators.length > 0
     ? passedDominatorIds.length / dominators.length
-    : 1.0
+    : 0
 
   // Verdict
   let verdict: 'accept' | 'reject' | 'warn'
   let reason: string
-  if (dominatorCoverage >= 1.0 && pathValid) {
+  if (dominators.length === 0) {
+    // G4: PTA senza dominatori → warn (non può validare affidabilmente)
+    verdict = 'warn'
+    reason = `PTA has 0 essential dominators — cannot validate reliably. Path valid: ${pathValid}.`
+  } else if (dominatorCoverage >= 1.0 && pathValid) {
     verdict = 'accept'
     reason = `Tutti i ${dominators.length} dominatori raggiunti, path valido`
   } else if (dominatorCoverage >= threshold) {

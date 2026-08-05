@@ -144,10 +144,10 @@ export function Phase7() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase7" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase7" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna tracce e statistiche"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-4 gap-3" role="status" aria-live="polite" aria-label="Statistiche PTA Dominators">
  <StatCard label="Tracce catturate" value={stats.traces} />
  <StatCard label="PTA costruiti" value={stats.ptas} />
  <StatCard label="Validazioni" value={stats.validations} />
@@ -208,7 +208,7 @@ export function Phase7() {
  ))}
  </div>
  </div>
- <Button size="sm" onClick={capture}>
+ <Button size="sm" onClick={capture} aria-label="Cattura la traccia di esecuzione">
  <Plus className="size-3.5 mr-1.5" /> Cattura Traccia
  </Button>
  </CardContent>
@@ -225,7 +225,7 @@ export function Phase7() {
  Fonde le tracce positive in un grafo ed estrae gli stati essenziali (dominatori)
  </CardDescription>
  </div>
- <Button size="sm" onClick={buildPta}>
+ <Button size="sm" onClick={buildPta} aria-label="Costruisci il PTA dalle tracce catturate">
  <GitFork className="size-3.5 mr-1.5" /> Costruisci PTA
  </Button>
  </div>
@@ -316,7 +316,7 @@ export function Phase7() {
  Prova a saltare uno stato (es. ometti &ldquo;loading&rdquo;) per vedere il verdict cambiare
  </p>
  </div>
- <Button size="sm" onClick={validate}>
+ <Button size="sm" onClick={validate} aria-label="Valida la traccia contro il PTA">
  <Target className="size-3.5 mr-1.5" /> Valida
  </Button>
 

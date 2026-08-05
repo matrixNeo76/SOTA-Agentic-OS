@@ -437,6 +437,30 @@ export async function executeTask(params: {
     // WS1.3 — Event journal: registra output non-deterministic per replay
     await journalExecution(planId, taskDef.taskId, result, step.durationMs)
 
+    // G3 fix (PTA Dominators audit Fase C): cattura traccia di esecuzione.
+    // PRIMA: captureTrace non era chiamato da nessuna parte → PTA sempre vuoto.
+    // ORA: dopo ogni task completato, cattura la sequenza di stati (steering strategies)
+    // come traccia per il Dominator Tree del workflow.
+    // Non bloccante (fail-open): se captureTrace fallisce, continua.
+    try {
+      const { captureTrace } = await import('@/lib/kernel/dominator-tree')
+      // Costruisci states dalla sequenza di steering strategies + outcome
+      const traceStates = [
+        step.strategy || 'execute',
+        ...(step.ltlVerdict ? [`ltl:${step.ltlVerdict}`] : []),
+        'done',
+      ]
+      await captureTrace(
+        `plan:${planId}`,
+        `task:${taskDef.taskId}`,
+        traceStates,
+        [taskDef.description],
+        step.status === 'done' ? 'success' : 'partial',
+      )
+    } catch {
+      // Non bloccante: se PTA capture fallisce, continua
+    }
+
     // Publish TaskCompleted event
     await publishTaskCompleted(
       `task://${planId}/${taskDef.taskId}`,
