@@ -525,7 +525,7 @@ docker compose up -d
 
 ## Audit & Hardening Cycle
 
-Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **16 moduli** organizzati in 8 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
+Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **17 moduli** organizzati in 9 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
 
 ### Moduli auditati
 
@@ -540,13 +540,14 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 | LTL Taint Normative (deep) | LTL monitor + Taint tracking + Normative gate | `docs/LTL-TAINT-NORMATIVE-AUDIT.md` | Fasi A+B+C |
 | ERL Red Lines (deep) | ERL heuristic extraction + Red Lines + governance-hooks | `docs/ERL-RED-LINES-AUDIT.md` | Fasi A+B+C |
 | Context Manager (deep) | Context engineering + Curator + Sensorium | `docs/CONTEXT-MANAGER-AUDIT.md` | Fasi A+B+C |
+| PTA Dominators (deep) | Dominator tree + PTA + trace validation | `docs/PTA-DOMINATORS-AUDIT.md` | Fasi A+B+C |
 
 ### Risultati complessivi
 
-- **Bug critici (C) fixati**: 29+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime, metriche simulate)
-- **Bug medi (B) fixati**: 59+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close, size cap, embedding persistence)
-- **Gap funzionali (G) chiusi**: 40+ (zero test coverage → 460+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds, real metrics)
-- **Test totali**: 460+ (tutti passing, 0 regressioni)
+- **Bug critici (C) fixati**: 32+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime, metriche simulate, coverage errato)
+- **Bug medi (B) fixati**: 65+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close, size cap, embedding persistence, aggregate stats, cap iterazioni)
+- **Gap funzionali (G) chiusi**: 44+ (zero test coverage → 500+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds, real metrics, executor integration)
+- **Test totali**: 500+ (tutti passing, 0 regressioni)
 - **TypeScript**: 0 errori nei file modificati
 
 ### Sicurezza
@@ -569,6 +570,9 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 - ✅ JSON.parse robusto su payload corrotti (safeJsonParse helper)
 - ✅ Payload size cap 50KB + narrative size cap 5KB (no DB bloat)
 - ✅ Embedding persistito per RAG searchContextHistory (no ricalcolo per query)
+- ✅ PTA Dominators integrato nell'executor (captureTrace dopo ogni task)
+- ✅ validateTrace coverage accurato (no break su deviazione, 0 dominators → warn)
+- ✅ computeDominators con cap iterazioni (no loop infinito su grafi ciclici)
 
 ### Known issues residui (future work)
 
