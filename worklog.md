@@ -1963,3 +1963,35 @@ Stage Summary:
 - G1: 9 unit test per dominator-tree.ts (0 → 9 test coverage)
 - MODULO PTA DOMINATORS COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: LEAN4-LEANEVOLVE-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Lean4 LeanEvolve
+
+Work Log:
+- Analizzati 4 file: lean4-agent.ts (424 LOC), api/lean/route.ts (99),
+  phase8.tsx (464), prisma/schema.prisma (FormalContract+LeanEvolveEvent+VerifiedWorkflow)
+- Verificati consumer runtime: NESSUNO (verifyWorkflow/leanEvolve non chiamati da executor)
+- Verificata coverage test: 16 test in verify-domain-core (non specifici per leanEvolve)
+- Verificati fix preesistenti dal Verify Domain audit: B3, B4, B8, C2, C5 già applicati
+- Compilato report in docs/LEAN4-LEANEVOLVE-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: leanEvolve JSON.parse(plan.planJson) senza try/catch (crash su corrotto)
+  * C2: verifyWorkflow/leanEvolve non integrati nell'executor (cosmetico)
+  * C3: verifyWorkflow crea VerifiedWorkflow duplicato (version:1 hardcoded, no upsert)
+- 5 bug medi (B1-B5):
+  * B1: leanEvolve no size cap su rewrittenInstruction/failureReason
+  * B2: leanStats 6 query separate (3 sequenziali invece di Promise.all)
+  * B3: phase8.tsx refresh() senza try/catch
+  * B4: verifyWorkflow N+1 su formalContract.update
+  * B5: autoGenerateContracts non valida planId vuoto
+- 4 gap funzionali (G1-G4):
+  * G1: zero test specifici per leanEvolve/leanStats/listVerifiedWorkflows
+  * G2: phase8.tsx nessun a11y
+  * G3: verifyWorkflow no version incrementale
+  * G4: leanEvolve no cap cicli (loop infinito potenziale)
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
