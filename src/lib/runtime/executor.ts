@@ -337,47 +337,60 @@ export async function executeTask(params: {
     // ORA: se il piano ha contratti formali, verifica il workflow prima del ReAct loop.
     // Se verifica fallisce (contratti violati), marca task come blocked.
     // Non bloccante (fail-open): se verifyWorkflow fallisce per errori tecnici, continua.
+    //
+    // HOTFIX (post-Delegation HITL Fase A): skip della verifica se il piano NON ha
+    // formal contracts. PRIMA, verifyWorkflow veniva chiamato su ogni piano, anche
+    // quelli senza contracts → ritornava "Task X senza contratto formale" per ogni
+    // task → tutti i task venivano bloccati. Questo era silent prima del Delegation
+    // HITL Fase A (registerBlockedAction non integrato), ma ora ogni blocco appare
+    // nel sovereign-view → l'app sembra "costantemente bloccata".
+    // ORA: se non ci sono formal contracts, skip completo (verifica formale è
+    // opzionale — si attiva solo quando l'admin chiama autoGenerateContracts).
     try {
-      const { verifyWorkflow } = await import('@/lib/kernel/lean4-agent')
-      const leanResult = await verifyWorkflow(planId)
-      if (!leanResult.verified) {
-        // Cerca errori relativi al task corrente
-        const taskErrors = leanResult.results.filter(
-          (r: any) => r.taskId === taskDef.taskId && r.errors.length > 0,
-        )
-        if (taskErrors.length > 0) {
-          step.status = 'blocked'
-          step.error = `Formal verification failed: ${taskErrors[0].errors.join('; ')}`
-          step.completedAt = new Date().toISOString()
-          step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
-          await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
-          await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+      const contractCount = await db.formalContract.count({ where: { planId } })
+      if (contractCount > 0) {
+        const { verifyWorkflow } = await import('@/lib/kernel/lean4-agent')
+        const leanResult = await verifyWorkflow(planId)
+        if (!leanResult.verified) {
+          // Cerca errori relativi al task corrente
+          const taskErrors = leanResult.results.filter(
+            (r: any) => r.taskId === taskDef.taskId && r.errors.length > 0,
+          )
+          if (taskErrors.length > 0) {
+            step.status = 'blocked'
+            step.error = `Formal verification failed: ${taskErrors[0].errors.join('; ')}`
+            step.completedAt = new Date().toISOString()
+            step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
+            await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
+            await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
 
-          // C2 fix (Delegation HITL audit Fase A): registra formal verification block nella coda HITL.
-          try {
-            const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
-            await registerBlockedAction({
-              agentId: taskDef.agentId,
-              action: `task:${taskDef.taskId} - ${taskDef.description}`,
-              source: 'ltl', // Lean4 formal verification = safety property (LTL-family)
-              axiomTrail: [
-                { step: '1_verify_workflow', rule: 'Lean4 formal verification', result: `verified: ${leanResult.verified}` },
-                ...taskErrors[0].errors.map((e: string, i: number) => ({
-                  step: `2_error_${i + 1}`,
-                  rule: 'formal_contract_violation',
-                  result: e,
-                })),
-                { step: '3_block', rule: 'Formal verification failed → task blocked', result: step.error },
-              ],
-            })
-          } catch {
-            // Non bloccante
+            // C2 fix (Delegation HITL audit Fase A): registra formal verification block nella coda HITL.
+            try {
+              const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
+              await registerBlockedAction({
+                agentId: taskDef.agentId,
+                action: `task:${taskDef.taskId} - ${taskDef.description}`,
+                source: 'ltl', // Lean4 formal verification = safety property (LTL-family)
+                axiomTrail: [
+                  { step: '1_verify_workflow', rule: 'Lean4 formal verification', result: `verified: ${leanResult.verified}` },
+                  ...taskErrors[0].errors.map((e: string, i: number) => ({
+                    step: `2_error_${i + 1}`,
+                    rule: 'formal_contract_violation',
+                    result: e,
+                  })),
+                  { step: '3_block', rule: 'Formal verification failed → task blocked', result: step.error },
+                ],
+              })
+            } catch {
+              // Non bloccante
+            }
+
+            onEvent?.('task_complete', { step })
+            return step
           }
-
-          onEvent?.('task_complete', { step })
-          return step
         }
       }
+      // contractCount === 0 → skip verifica formale (piano senza contracts espliciti)
     } catch {
       // Non bloccante: se verifyWorkflow fallisce, continua senza verifica formale
     }
