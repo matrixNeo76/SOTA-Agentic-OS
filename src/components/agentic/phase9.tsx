@@ -185,10 +185,10 @@ export function Phase9() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase9" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase9" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Artificial Retainer"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-5 gap-3" role="status" aria-live="polite" aria-label="Statistiche Artificial Retainer">
  <StatCard label="Deleghe attive" value={stats.activeDelegations} />
  <StatCard label="Gates pending" value={stats.pendingGates} highlight={stats.pendingGates > 0} />
  <StatCard label="Gates approvati" value={stats.approvedGates} />
@@ -232,7 +232,7 @@ export function Phase9() {
  <Input value={delGrantedBy} onChange={(e) => setDelGrantedBy(e.target.value)} />
  </div>
  </div>
- <Button size="sm" onClick={grantDelegation}>
+ <Button size="sm" onClick={grantDelegation} aria-label="Concedi delega all'agente selezionato">
  <Plus className="size-3.5 mr-1.5" /> Concedi
  </Button>
  </CardContent>
@@ -308,7 +308,7 @@ export function Phase9() {
  <Label className="text-xs">Motivo (perché richiede HITL)</Label>
  <Input value={gateReason} onChange={(e) => setGateReason(e.target.value)} />
  </div>
- <Button size="sm" onClick={requestApproval}>
+ <Button size="sm" onClick={requestApproval} aria-label="Crea gate di approvazione HITL">
  <Shield className="size-3.5 mr-1.5" /> Crea Gate
  </Button>
  </CardContent>
@@ -333,10 +333,10 @@ export function Phase9() {
  </div>
  <div className="text-[10px] text-muted-foreground mb-2">{g.reason}</div>
  <div className="flex gap-2">
- <Button size="sm" variant="default" className="h-6 text-[10px] bg-status-ok hover:bg-status-ok/90" onClick={() => resolveGate(g.id, 'approved')}>
+ <Button size="sm" variant="default" className="h-6 text-[10px] bg-status-ok hover:bg-status-ok/90" onClick={() => resolveGate(g.id, 'approved')} aria-label={`Approva gate ${g.id.slice(-8)}`}>
  <CheckCircle2 className="size-3 mr-1" /> Approva
  </Button>
- <Button size="sm" variant="destructive" className="h-6 text-[10px]" onClick={() => resolveGate(g.id, 'rejected')}>
+ <Button size="sm" variant="destructive" className="h-6 text-[10px]" onClick={() => resolveGate(g.id, 'rejected')} aria-label={`Rifiuta gate ${g.id.slice(-8)}`}>
  <XCircle className="size-3 mr-1" /> Rifiuta
  </Button>
  </div>
@@ -409,7 +409,7 @@ export function Phase9() {
  </Select>
  </div>
  </div>
- <Button size="sm" onClick={resolveNormative}>
+ <Button size="sm" onClick={resolveNormative} aria-label="Risolvi conflitto normativo">
  <Scale className="size-3.5 mr-1.5" /> Risolvi Conflitto
  </Button>
 
@@ -556,9 +556,9 @@ export function Phase9() {
 function StatCard({ label, value, highlight }: { label: string; value: number | string; highlight?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-warn')}>{value}</div>
+ <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )

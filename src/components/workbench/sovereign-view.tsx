@@ -61,7 +61,8 @@ export function SovereignView() {
 
  useEffect(() => {
    startGlobalRefresh()
-   fetchBlocked()
+   // G3 — fetchBlocked iniziale protetto da catch silente (il data-store gestisce retry globalmente)
+   fetchBlocked().catch(() => {})
    return () => stopGlobalRefresh()
  }, [fetchBlocked, startGlobalRefresh, stopGlobalRefresh])
 
@@ -112,14 +113,28 @@ export function SovereignView() {
  choice,
  resolvedBy: 'admin',
  resolutionDetails: { note: resolutionNote },
- }),
  })
- const d = await r.json()
+ })
+ // G3 fix (Delegation HITL audit Fase C): try/catch su r.json().
+ // PRIMA: se la risposta non era JSON valido (es. 500 con body HTML, 502 gateway),
+ // r.json() throwava e il catch esterno mostrava solo "Unexpected token <".
+ // ORA: parse-safe con fallback a text() per logging migliore.
+ let d: any
+ try {
+ d = await r.json()
+ } catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[sovereign-view] resolve: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (d.ok) {
  toast.success(`Azione ${choice}`)
  setResolutionNote('')
  setSelectedId(null)
- await fetchBlocked(true)
+ // G3 — fetchBlocked può lanciare su network error, catch silente (data-store gestisce retry)
+ await fetchBlocked(true).catch(() => {})
  } else {
  toast.error(d.error || 'Errore risoluzione')
  }
@@ -152,7 +167,16 @@ export function SovereignView() {
  resolutionDetails: { note: 'Batch approve from Sovereign View', batch: true },
  }),
  })
- const d = await r.json()
+ // G3 — parse-safe come in resolve()
+ let d: any
+ try {
+ d = await r.json()
+ } catch {
+ // eslint-disable-next-line no-console
+ console.error('[sovereign-view] batchApproveAll: response not JSON for', a.id, r.status)
+ failed++
+ continue
+ }
  if (d.ok) success++
  else failed++
  } catch {
@@ -162,7 +186,8 @@ export function SovereignView() {
  setBatchRunning(false)
  setBatchConfirm(false)
  toast.success(`${success} approvate${failed > 0 ? `, ${failed} fallite` : ''}`)
- await fetchBlocked(true)
+ // G3 — fetchBlocked può lanciare, catch silente
+ await fetchBlocked(true).catch(() => {})
  }
 
  return (
