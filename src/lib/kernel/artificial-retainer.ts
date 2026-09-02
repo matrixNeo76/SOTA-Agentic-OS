@@ -32,6 +32,11 @@ export type DelegationScope = {
 
 /**
  * Concede una delega a un agente.
+ *
+ * B4 fix (Delegation HITL audit Fase A): validazione esplicita di `scope`.
+ * PRIMA: scope='' o whitespace-only veniva persistito come delega vuota
+ * (nessun significato, ma occupava una riga nel DB e confondeva checkAuthority).
+ * ORA: throw esplicito "scope is required and cannot be empty".
  */
 export async function grantDelegation(
   agentId: string,
@@ -40,6 +45,11 @@ export async function grantDelegation(
   grantedBy: string,
   expiresAt?: Date
 ): Promise<string> {
+  // B4 — Valida scope non vuoto (stringa o whitespace-only)
+  if (!scope || typeof scope !== 'string' || scope.trim() === '') {
+    throw new Error('scope is required and cannot be empty')
+  }
+
   const delegation = await db.delegationContract.create({
     data: {
       agentId,
@@ -210,6 +220,32 @@ export async function listDelegations(agentId?: string) {
 // =====================================================
 
 /**
+ * C3 fix (Delegation HITL audit Fase A): size cap su payload/reason/axiomTrail.
+ *
+ * PRIMA: requestApproval e resolveApproval persistevano payload/reason/axiomTrail
+ * senza size cap. Un caller malevolo o buggy poteva passare payload enormi
+ * (es. intero documento, base64 image) → DB bloat risk.
+ *
+ * ORA: costanti di size cap con troncamento esplicito + marker [truncated].
+ * - payload: 50KB (azione context)
+ * - reason: 5KB (motivazione testuale)
+ * - axiomTrail: 10KB (catena logica JSON-serializzata)
+ */
+const MAX_PAYLOAD_SIZE = 50_000
+const MAX_REASON_SIZE = 5_000
+const MAX_AXIOM_TRAIL_SIZE = 10_000
+
+function truncateWithMarker(value: string, maxSize: number): string {
+  if (value.length <= maxSize) return value
+  return value.slice(0, maxSize) + '...[truncated]'
+}
+
+function safeStringify(value: unknown, maxSize: number): string {
+  const json = JSON.stringify(value)
+  return truncateWithMarker(json, maxSize)
+}
+
+/**
  * Crea un gate di approvazione umana.
  * Chiamato quando un'azione è irreversibile, viola policy LTL,
  * o supera soglie di spesa.
@@ -225,8 +261,10 @@ export async function requestApproval(
     data: {
       agentId,
       action,
-      payload: JSON.stringify(payload),
-      reason,
+      // C3 — Size cap: payload JSON-stringified + troncato a 50KB
+      payload: safeStringify(payload, MAX_PAYLOAD_SIZE),
+      // C3 — Size cap: reason troncato a 5KB
+      reason: truncateWithMarker(reason || '', MAX_REASON_SIZE),
       status: 'pending',
       expiresAt: expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000), // default 24h
     },
@@ -253,7 +291,8 @@ export async function resolveApproval(
       status: decision,
       decidedBy,
       decidedAt: new Date(),
-      axiomTrail: axiomTrail ? JSON.stringify(axiomTrail) : null,
+      // C3 — Size cap: axiomTrail JSON-stringified + troncato a 10KB
+      axiomTrail: axiomTrail ? safeStringify(axiomTrail, MAX_AXIOM_TRAIL_SIZE) : null,
     },
   })
 

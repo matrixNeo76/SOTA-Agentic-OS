@@ -43,7 +43,20 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
-  const body = await req.json()
+
+  // B5 fix (Delegation HITL audit Fase A): try/catch su req.json().
+  // PRIMA: body non JSON (es. plain text, empty, malformed) faceva throw
+  // unhandled di req.json() → 500 generico senza contesto.
+  // ORA: ritorna 400 Bad Request con messaggio chiaro.
+  let body: any
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: 'Invalid JSON body' },
+      { status: 400 },
+    )
+  }
   const { action } = body
 
   if (action === 'register') {

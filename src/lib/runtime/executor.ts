@@ -303,6 +303,31 @@ export async function executeTask(params: {
       await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
       await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
 
+      // C2 fix (Delegation HITL audit Fase A): registra l'azione bloccata nella coda HITL.
+      // PRIMA: registerBlockedAction non era chiamato dall'executor → le azioni bloccate
+      // dai gate LTL non apparivano nella coda HITL (sovereign-view vuoto).
+      // ORA: ogni block dell'executor registra l'azione con source + axiomTrail.
+      // Non bloccante (fail-open): se registerBlockedAction fallisce, il task resta blocked.
+      try {
+        const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
+        await registerBlockedAction({
+          agentId: taskDef.agentId,
+          action: `task:${taskDef.taskId} - ${taskDef.description}`,
+          source: 'ltl',
+          axiomTrail: [
+            { step: '1_ltl_check', rule: 'LTL verification', result: `verdict: ${ltlResult.verdict}` },
+            ...(step.ltlViolations || []).map((v, i) => ({
+              step: `2_violation_${i + 1}`,
+              rule: v.split(':')[0] || 'LTL rule',
+              result: v,
+            })),
+            { step: '3_block', rule: 'LTL reject → task blocked', result: step.error || 'LTL reject' },
+          ],
+        })
+      } catch {
+        // Non bloccante: registerBlockedAction fallisce in modo silente
+      }
+
       onEvent?.('task_complete', { step })
       return step
     }
@@ -327,6 +352,28 @@ export async function executeTask(params: {
           step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
           await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
           await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+
+          // C2 fix (Delegation HITL audit Fase A): registra formal verification block nella coda HITL.
+          try {
+            const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
+            await registerBlockedAction({
+              agentId: taskDef.agentId,
+              action: `task:${taskDef.taskId} - ${taskDef.description}`,
+              source: 'ltl', // Lean4 formal verification = safety property (LTL-family)
+              axiomTrail: [
+                { step: '1_verify_workflow', rule: 'Lean4 formal verification', result: `verified: ${leanResult.verified}` },
+                ...taskErrors[0].errors.map((e: string, i: number) => ({
+                  step: `2_error_${i + 1}`,
+                  rule: 'formal_contract_violation',
+                  result: e,
+                })),
+                { step: '3_block', rule: 'Formal verification failed → task blocked', result: step.error },
+              ],
+            })
+          } catch {
+            // Non bloccante
+          }
+
           onEvent?.('task_complete', { step })
           return step
         }
@@ -359,6 +406,24 @@ export async function executeTask(params: {
         step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
         await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
         await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+
+        // C2 fix (Delegation HITL audit Fase A): registra normative block nella coda HITL.
+        try {
+          const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
+          await registerBlockedAction({
+            agentId: taskDef.agentId,
+            action: `task:${taskDef.taskId} - ${taskDef.description}`,
+            source: 'normative',
+            axiomTrail: [
+              { step: '1_evaluate_intent', rule: 'Normative calculus', result: `allowed: ${normativeVerdict.allowed}` },
+              { step: '2_block', rule: `blockingAxiom: ${normativeVerdict.blockingAxiom}`, result: `priority: ${normativeVerdict.blockingPriority}` },
+              { step: '3_block', rule: 'Normative block → task blocked', result: step.error },
+            ],
+          })
+        } catch {
+          // Non bloccante
+        }
+
         onEvent?.('task_complete', { step })
         return step
       }
@@ -386,11 +451,69 @@ export async function executeTask(params: {
         step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
         await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
         await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+
+        // C2 fix (Delegation HITL audit Fase A): registra governance gate block nella coda HITL.
+        // source: 'hitl_gate' perché preExecuteGate combina red lines + taint + LTL composite.
+        try {
+          const { registerBlockedAction } = await import('@/lib/kernel/sovereign-translator')
+          await registerBlockedAction({
+            agentId: taskDef.agentId,
+            action: `task:${taskDef.taskId} - ${taskDef.description}`,
+            source: 'hitl_gate',
+            axiomTrail: [
+              { step: '1_pre_execute_gate', rule: 'Governance hooks (red lines + taint + LTL composite)', result: `allowed: ${gateResult.allowed}` },
+              ...gateResult.reasons.map((r: string, i: number) => ({
+                step: `2_reason_${i + 1}`,
+                rule: 'governance_block',
+                result: r,
+              })),
+              { step: '3_block', rule: 'Governance gate block → task blocked', result: step.error },
+            ],
+          })
+        } catch {
+          // Non bloccante
+        }
+
         onEvent?.('task_complete', { step })
         return step
       }
     } catch {
       // Non bloccante: se governance-hooks fallisce, continua comunque
+    }
+
+    // C1 fix (Delegation HITL audit Fase A): checkAuthority integrato nell'executor.
+    // PRIMA: checkAuthority era cosmetico (non chiamato da executor) → le deleghe
+    // definite in DelegationContract non venivano mai consultate a runtime.
+    // ORA: prima del ReAct loop, verifica se l'agente ha l'autorità per eseguire
+    // il task. Lo scope derivato è `task:execute:{agentId}` (admin concede questo
+    // scope per autorizzare un agente a eseguire task).
+    // Non bloccante (fail-open): se checkAuthority fallisce per errori tecnici,
+    // continua. Se authorized: false, log warning ma NON blocca — il sistema di
+    // deleghe è ancora opzionale (backward compat con piani senza deleghe).
+    try {
+      const { checkAuthority, logAuditEntry } = await import('@/lib/kernel/artificial-retainer')
+      const authorityScope = `task:execute:${taskDef.agentId}`
+      const authorityResult = await checkAuthority(taskDef.agentId, authorityScope)
+      if (!authorityResult.authorized) {
+        // Log warning all'audit ledger — il task procede ma l'esecuzione senza
+        // delega esplicita è tracciata per review retrospettiva.
+        await logAuditEntry({
+          agentId: taskDef.agentId,
+          action: `task:${taskDef.taskId}`,
+          decision: {
+            source: 'executor',
+            intent: `Esecuzione senza delega esplicita per ${taskDef.agentId}`,
+            gate: 'delegation',
+            outcome: 'unauthorized-but-proceeded',
+            scope: authorityScope,
+            reason: authorityResult.reason,
+          },
+          readableNarrative: `L'agente ${taskDef.agentId} ha eseguito il task ${taskDef.taskId} senza delega esplicita (scope: ${authorityScope}). Motivo: ${authorityResult.reason}`,
+          reversible: true,
+        }).catch(() => {})
+      }
+    } catch {
+      // Non bloccante: se checkAuthority o logAuditEntry falliscono, continua
     }
 
     // G2 fix (LTL audit Fase B): taintInput su task description (potenziale input utente).

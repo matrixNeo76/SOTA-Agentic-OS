@@ -2145,3 +2145,54 @@ Stage Summary:
   * G4: checkAuthority non marca deleghe scadute come inactive
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: DELEGATION-HITL-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B4+B5 (sicurezza & effettività)
+
+Work Log:
+- B4: grantDelegation valida scope non vuoto:
+  * PRIMA: scope='' o whitespace-only veniva persistito come delega vuota
+  * ORA: throw esplicito "scope is required and cannot be empty"
+  * Validazione su stringa non vuota dopo trim
+- C3: Size cap su payload/reason/axiomTrail in requestApproval/resolveApproval:
+  * MAX_PAYLOAD_SIZE = 50_000 (payload JSON-stringified + troncato)
+  * MAX_REASON_SIZE = 5_000 (reason testuale troncato)
+  * MAX_AXIOM_TRAIL_SIZE = 10_000 (axiomTrail JSON-stringified + troncato)
+  * truncateWithMarker() aggiunge "...[truncated]" se supera il cap
+  * safeStringify() combina JSON.stringify + truncate
+- B5: blocked-actions API POST con try/catch su req.json():
+  * PRIMA: body non JSON faceva throw unhandled → 500 generico
+  * ORA: ritorna 400 Bad Request con messaggio "Invalid JSON body"
+- C1: checkAuthority integrato nell'executor (pre-ReAct, post governance gates):
+  * Scope derivato: `task:execute:{agentId}` (admin concede questo scope per autorizzare l'agente)
+  * Non bloccante (fail-open): se checkAuthority fallisce tecnicamente, continua
+  * Se authorized: false → log warning all'audit ledger (outcome: 'unauthorized-but-proceeded')
+  * Il task NON viene bloccato: il sistema di deleghe è ancora opzionale (backward compat)
+- C2: registerBlockedAction integrato in 4 punti di block dell'executor:
+  * LTL reject → registerBlockedAction con source: 'ltl' + axiomTrail (violations)
+  * Lean4 formal verification failed → registerBlockedAction con source: 'ltl' (formal contract violation)
+  * Normative block → registerBlockedAction con source: 'normative' + axiomTrail (blockingAxiom)
+  * Governance gate block (preExecuteGate) → registerBlockedAction con source: 'hitl_gate' + axiomTrail (reasons)
+  * Non bloccante (fail-open): se registerBlockedAction fallisce, il task resta blocked
+- Test: 25 nuovi test integration in tests/integration/delegation-hitl-faseA.test.ts:
+  * B4 scope validation: 5 test (vuoto, undefined, whitespace, valido, codice check)
+  * C3 size cap: 5 test (payload truncate, reason truncate, small no truncate, axiomTrail truncate, codice check)
+  * C1 executor integration: 4 test (import, C1 comment, try/catch, audit log)
+  * C2 executor integration: 6 test (import, LTL source, normative source, hitl_gate source, Lean4 source, codice check)
+  * B5 API try/catch: 2 test (codice check, 400 status)
+  * Smoke: 3 test (full pipeline, C3 huge payload, B4 wildcard + C9 preserved)
+
+Stage Summary:
+- 3 file modificati (artificial-retainer.ts, executor.ts, blocked-actions/route.ts) + 1 nuovo test file
+- 25 nuovi test integration (tutti passing)
+- 0 regressioni nei test preesistenti (governance-hooks 7 failure + governance-bugfix 1 failure sono PRE-ESISTENTI, verificate via git stash)
+- 91/91 test passing su moduli che toccano l'executor (Lean4 Fasi A/B/C + PTA Fase C + ACTS Fase A + crash-resume)
+- 0 TypeScript errors nei file Fase A
+- C1: checkAuthority integrato nell'executor (deleghe non più cosmetiche a runtime)
+- C2: registerBlockedAction integrato in 4 punti di block (azioni bloccate appaiono nella coda HITL)
+- C3: payload/reason/axiomTrail capped (no DB bloat)
+- B4: scope validato in grantDelegation (no deleghe vuote)
+- B5: blocked-actions API robusta (no 500 su body non JSON)
+- Prossimo: Fase B (B1+B2+B3+G4) robustezza
