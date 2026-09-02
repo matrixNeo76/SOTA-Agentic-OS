@@ -22,6 +22,13 @@
  */
 import { db } from '@/lib/db'
 
+// B1 fix: size cap su rewrittenInstruction e failureReason
+const MAX_INSTRUCTION_SIZE = 10_000
+const MAX_FAILURE_REASON_SIZE = 5_000
+
+// G4 fix: cap massimo cicli di leanEvolve
+const MAX_EVOLVE_CYCLES = 10
+
 export type FormalContractSpec = {
   taskId: string
   preconditions: string[]   // es. ["input.status = 'approved'", "context.budget > 0"]
@@ -145,6 +152,8 @@ export async function verifyWorkflow(planId: string): Promise<{
 
   const results: VerificationResult[] = []
   const allErrors: string[] = []
+  // B4 fix: array per batch update dei contratti
+  const contractUpdates: Array<{ id: string; verified: boolean; verificationLog: string }> = []
 
   // Genera pseudo-Lean4 source
   const leanLines: string[] = [
@@ -256,15 +265,25 @@ export async function verifyWorkflow(planId: string): Promise<{
       leanSource: leanBlock,
     })
 
-    // Aggiorna contratto nel DB
-    await db.formalContract.update({
-      where: { id: c.id },
-      data: {
-        verified,
-        verificationLog: JSON.stringify({ errors, warnings }, null, 2),
-      },
+    // B4 fix: raccogli update per batch invece di N+1 sequenziali
+    // PRIMA: await db.formalContract.update nel loop → N query sequenziali
+    // ORA: raccogli in array, poi Promise.all fuori dal loop
+    contractUpdates.push({
+      id: c.id,
+      verified,
+      verificationLog: JSON.stringify({ errors, warnings }, null, 2),
     })
   }
+
+  // B4 fix: batch update tutti i contratti in parallelo
+  await Promise.all(
+    contractUpdates.map((u) =>
+      db.formalContract.update({
+        where: { id: u.id },
+        data: { verified: u.verified, verificationLog: u.verificationLog },
+      }),
+    ),
+  )
 
   const verifiedOverall = allErrors.length === 0
   const leanSource = leanLines.join('\n')
@@ -326,6 +345,18 @@ export async function leanEvolve(
   })
   const cycle = (lastEvolve?.cycle || 0) + 1
 
+  // G4 fix: cap massimo cicli per prevenire loop infinito
+  // PRIMA: cycle cresceva indefinitamente se leanEvolve veniva chiamato ripetitivamente
+  // ORA: throw se supera MAX_EVOLVE_CYCLES (10)
+  if (cycle > MAX_EVOLVE_CYCLES) {
+    throw new Error(`Max evolve cycles (${MAX_EVOLVE_CYCLES}) reached for plan ${planId}. Manual intervention required.`)
+  }
+
+  // B1 fix: size cap su failureReason (5KB)
+  const truncatedFailureReason = failureReason.length > MAX_FAILURE_REASON_SIZE
+    ? failureReason.slice(0, MAX_FAILURE_REASON_SIZE) + '...[truncated]'
+    : failureReason
+
   // Recupera feedback formale
   const contract = await db.formalContract.findFirst({
     where: { planId, taskId: failedTaskId },
@@ -341,7 +372,7 @@ export async function leanEvolve(
   try { planJson = JSON.parse(plan?.planJson || '{}') } catch { planJson = { tasks: [] } }
   const failedTask = (planJson.tasks || []).find((t: any) => t.taskId === failedTaskId)
   const originalDescription = failedTask?.description || ''
-  const deterministicRewrite = `${originalDescription} [LeanEvolve v${cycle}: pre-condizioni verificate, recovery da "${failureReason.slice(0, 50)}"]`
+  const deterministicRewrite = `${originalDescription} [LeanEvolve v${cycle}: pre-condizioni verificate, recovery da "${truncatedFailureReason.slice(0, 50)}"]`
 
   let rewrittenInstruction: string
   try {
@@ -356,6 +387,11 @@ export async function leanEvolve(
     rewrittenInstruction = completion.choices[0]?.message?.content?.trim() || deterministicRewrite
   } catch {
     rewrittenInstruction = deterministicRewrite
+  }
+
+  // B1 fix: size cap su rewrittenInstruction (10KB)
+  if (rewrittenInstruction.length > MAX_INSTRUCTION_SIZE) {
+    rewrittenInstruction = rewrittenInstruction.slice(0, MAX_INSTRUCTION_SIZE) + '...[truncated]'
   }
 
   // C5 FIX: apply rewrittenInstruction back to planJson BEFORE re-verifying.
@@ -383,7 +419,7 @@ export async function leanEvolve(
     data: {
       planId,
       failedTaskId,
-      failureReason,
+      failureReason: truncatedFailureReason, // B1: troncato
       leanFeedback,
       rewrittenInstruction,
       revalidated,
@@ -408,16 +444,20 @@ export async function leanEvolve(
 
 /**
  * Statistiche per dashboard.
+ *
+ * B2 fix: tutte le 6 query in Promise.all (era 3+3 sequenziali).
+ * PRIMA: 3 query in Promise.all + 3 query sequenziali = 4 round-trip DB.
+ * ORA: 6 query in 1 Promise.all = 1 round-trip DB.
  */
 export async function leanStats() {
-  const [contracts, verifiedWorkflows, evolveEvents] = await Promise.all([
+  const [contracts, verifiedWorkflows, evolveEvents, verifiedContracts, deployedWorkflows, successfulEvolve] = await Promise.all([
     db.formalContract.count(),
     db.verifiedWorkflow.count(),
     db.leanEvolveEvent.count(),
+    db.formalContract.count({ where: { verified: true } }),
+    db.verifiedWorkflow.count({ where: { deployed: true } }),
+    db.leanEvolveEvent.count({ where: { revalidated: true } }),
   ])
-  const verifiedContracts = await db.formalContract.count({ where: { verified: true } })
-  const deployedWorkflows = await db.verifiedWorkflow.count({ where: { deployed: true } })
-  const successfulEvolve = await db.leanEvolveEvent.count({ where: { revalidated: true } })
 
   return {
     contracts,

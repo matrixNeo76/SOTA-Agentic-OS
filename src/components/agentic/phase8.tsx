@@ -44,6 +44,8 @@ export function Phase8() {
  const [failureReason, setFailureReason] = useState('timeout su dipendenza esterna')
 
  const refresh = async () => {
+ // B3 fix: try/catch su fetch per evitare unhandled rejection
+ try {
  const [plansR, statsR, wfR, evR] = await Promise.all([
  fetch('/api/plan').then((r) => r.json()),
  fetch('/api/lean?action=stats').then((r) => r.json()),
@@ -56,6 +58,9 @@ export function Phase8() {
  setEvolveEvents(evR.events || [])
  if (!selectedPlan && (plansR.plans || []).length > 0) {
  setSelectedPlan(plansR.plans[0].id)
+ }
+ } catch (e: any) {
+ toast.error(`Caricamento Lean4 fallito: ${e?.message || 'errore di rete'}`)
  }
  }
 

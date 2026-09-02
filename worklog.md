@@ -2032,3 +2032,46 @@ Stage Summary:
 - C3: VerifiedWorkflow con version incrementale (no duplicati)
 - B5: planId validato in autoGenerateContracts e verifyWorkflow
 - Prossimo: Fase B (B1+B2+B3+B4+G4) robustezza
+
+---
+Task ID: LEAN4-LEANEVOLVE-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B4+G4 (robustezza)
+
+Work Log:
+- B1: Size cap su rewrittenInstruction (10KB) e failureReason (5KB):
+  * MAX_INSTRUCTION_SIZE = 10_000, MAX_FAILURE_REASON_SIZE = 5_000
+  * Tronca con marker [truncated] se supera
+  * failureReason troncato prima di essere usato in deterministicRewrite e persistito
+  * rewrittenInstruction troncato dopo LLM/fallback, prima di essere persistito
+- B2: leanStats tutte le 6 query in Promise.all:
+  * PRIMA: 3 query in Promise.all + 3 sequenziali = 4 round-trip DB
+  * ORA: 6 query in 1 Promise.all = 1 round-trip DB
+- B3: phase8.tsx try/catch su refresh():
+  * PRIMA: unhandled rejection su network error
+  * ORA: toast.error "Caricamento Lean4 fallito"
+- B4: verifyWorkflow batch update con Promise.all:
+  * PRIMA: await db.formalContract.update nel loop → N query sequenziali
+  * ORA: raccoglie contractUpdates in array, poi Promise.all fuori dal loop
+- G4: leanEvolve cap cicli (MAX_EVOLVE_CYCLES = 10):
+  * PRIMA: cycle cresceva indefinitamente se chiamato ripetitivamente
+  * ORA: throw se supera 10 cicli ("Manual intervention required")
+- Test: 13 nuovi test integration in tests/integration/lean4-leanevolve-faseB.test.ts:
+  * G4 cap cicli: 3 test (MAX_EVOLVE_CYCLES exists, 11th throws, 10th ok)
+  * B1 size cap: 2 test + 1 codice check (failureReason truncated, rewrittenInstruction truncated, constants exist)
+  * B2 Promise.all: 2 test (codice check, stats structure)
+  * B3 try/catch: 1 test (codice check)
+  * B4 batch update: 2 test + 1 codice check (codice check, 3 contracts updated)
+  * Smoke: 2 test (full pipeline, leanEvolve cap + truncate)
+
+Stage Summary:
+- 2 file modificati (lean4-agent.ts, phase8.tsx) + 1 nuovo test file
+- 13 nuovi test integration (tutti passing)
+- 29/29 test totali Lean4 LeanEvolve passing (0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B1: payload capped (no DB bloat)
+- B2: stats O(1) round-trip invece di O(4)
+- B3: phase8.tsx robusto (try/catch su refresh)
+- B4: verifyWorkflow batch update (no N+1)
+- G4: leanEvolve cap 10 cicli (no loop infinito)
+- Prossimo: Fase C (G1+G2+G3) UX & completamento
