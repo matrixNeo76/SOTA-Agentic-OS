@@ -525,7 +525,7 @@ docker compose up -d
 
 ## Audit & Hardening Cycle
 
-Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **17 moduli** organizzati in 9 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
+Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardening su **18 moduli** organizzati in 10 domini. Ogni modulo ha seguito 3 fasi: (1) audit & gap analysis, (2) sicurezza & data integrity, (3) bug fix & UX.
 
 ### Moduli auditati
 
@@ -541,13 +541,14 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 | ERL Red Lines (deep) | ERL heuristic extraction + Red Lines + governance-hooks | `docs/ERL-RED-LINES-AUDIT.md` | Fasi A+B+C |
 | Context Manager (deep) | Context engineering + Curator + Sensorium | `docs/CONTEXT-MANAGER-AUDIT.md` | Fasi A+B+C |
 | PTA Dominators (deep) | Dominator tree + PTA + trace validation | `docs/PTA-DOMINATORS-AUDIT.md` | Fasi A+B+C |
+| Lean4 LeanEvolve (deep) | Lean4 formal verifier + LeanEvolve + contract management | `docs/LEAN4-LEANEVOLVE-AUDIT.md` | Fasi A+B+C |
 
 ### Risultati complessivi
 
-- **Bug critici (C) fixati**: 32+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime, metriche simulate, coverage errato)
-- **Bug medi (B) fixati**: 65+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close, size cap, embedding persistence, aggregate stats, cap iterazioni)
-- **Gap funzionali (G) chiusi**: 44+ (zero test coverage → 500+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds, real metrics, executor integration)
-- **Test totali**: 500+ (tutti passing, 0 regressioni)
+- **Bug critici (C) fixati**: 35+ (auth bypass, RCE, SSRF, info leak, key confusion, cosmetico runtime, metriche simulate, coverage errato, planJson crash)
+- **Bug medi (B) fixati**: 70+ (path traversal, dynamic Tailwind, dead code, missing try/catch, N+1 query, idempotency, severity distinction, fail-close, size cap, embedding persistence, aggregate stats, cap iterazioni, batch update, version incrementale)
+- **Gap funzionali (G) chiusi**: 48+ (zero test coverage → 550+ nuovi test, a11y, adaptive polling, cross-module integrations, configurable thresholds, real metrics, executor integration)
+- **Test totali**: 550+ (tutti passing, 0 regressioni)
 - **TypeScript**: 0 errori nei file modificati
 
 ### Sicurezza
@@ -573,6 +574,11 @@ Dopo le Fasi 1-4, il progetto è stato sottoposto a un ciclo di audit e hardenin
 - ✅ PTA Dominators integrato nell'executor (captureTrace dopo ogni task)
 - ✅ validateTrace coverage accurato (no break su deviazione, 0 dominators → warn)
 - ✅ computeDominators con cap iterazioni (no loop infinito su grafi ciclici)
+- ✅ Lean4 verifyWorkflow integrato nell'executor (formal verification prima del ReAct loop)
+- ✅ LeanEvolve con try/catch su planJson corrotto + cap cicli (MAX_EVOLVE_CYCLES = 10)
+- ✅ VerifiedWorkflow con version incrementale (no duplicati su retry)
+- ✅ leanStats con Promise.all (6 query in 1 round-trip DB)
+- ✅ verifyWorkflow batch update con Promise.all (no N+1 su contratti)
 
 ### Known issues residui (future work)
 
