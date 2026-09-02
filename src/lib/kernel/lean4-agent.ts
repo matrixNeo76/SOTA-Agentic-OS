@@ -73,6 +73,10 @@ export async function attachContracts(
  *  - variableTypes: inferite dal payload del task (tutte String di default)
  */
 export async function autoGenerateContracts(planId: string): Promise<FormalContractSpec[]> {
+  // B5 fix: valida planId non vuoto
+  if (!planId || !planId.trim()) {
+    throw new Error('planId is required and cannot be empty')
+  }
   const plan = await db.agentPlan.findUnique({
     where: { id: planId },
     include: { tasks: true },
@@ -122,6 +126,10 @@ export async function verifyWorkflow(planId: string): Promise<{
   leanSource: string
   workflowId: string
 }> {
+  // B5 fix: valida planId non vuoto
+  if (!planId || !planId.trim()) {
+    throw new Error('planId is required and cannot be empty')
+  }
   const plan = await db.agentPlan.findUnique({
     where: { id: planId },
     include: { tasks: true },
@@ -262,6 +270,16 @@ export async function verifyWorkflow(planId: string): Promise<{
   const leanSource = leanLines.join('\n')
 
   // Salva snapshot del workflow verificato
+  // C3 fix: usa version incrementale (max+1) invece di hardcoded version:1
+  // PRIMA: ogni verifyWorkflow creava un nuovo record con version:1 → duplicati
+  // ORA: calcola max version esistente per planId e incrementa
+  const existingMaxVersion = await db.verifiedWorkflow.findFirst({
+    where: { planId },
+    orderBy: { version: 'desc' },
+    select: { version: true },
+  })
+  const nextVersion = (existingMaxVersion?.version || 0) + 1
+
   const workflow = await db.verifiedWorkflow.create({
     data: {
       planId,
@@ -269,7 +287,7 @@ export async function verifyWorkflow(planId: string): Promise<{
       leanSource,
       verified: verifiedOverall,
       deployed: false,
-      version: 1,
+      version: nextVersion, // C3: incrementale invece di hardcoded 1
     },
   })
 
@@ -316,7 +334,11 @@ export async function leanEvolve(
 
   // Genera nuova istruzione via LLM con fallback deterministico
   const plan = await db.agentPlan.findUnique({ where: { id: planId } })
-  const planJson = JSON.parse(plan?.planJson || '{}')
+  // C1 fix: try/catch su JSON.parse(plan.planJson) — consistenza con autoGenerateContracts/verifyWorkflow
+  // PRIMA: se planJson corrotto, leanEvolve crashava con errore non gestito
+  // ORA: fallback a { tasks: [] } e continua con deterministicRewrite
+  let planJson: any
+  try { planJson = JSON.parse(plan?.planJson || '{}') } catch { planJson = { tasks: [] } }
   const failedTask = (planJson.tasks || []).find((t: any) => t.taskId === failedTaskId)
   const originalDescription = failedTask?.description || ''
   const deterministicRewrite = `${originalDescription} [LeanEvolve v${cycle}: pre-condizioni verificate, recovery da "${failureReason.slice(0, 50)}"]`

@@ -307,6 +307,34 @@ export async function executeTask(params: {
       return step
     }
 
+    // C2 fix (Lean4 LeanEvolve audit Fase A): verifica formale del workflow.
+    // PRIMA: verifyWorkflow era cosmetico (non chiamato da executor).
+    // ORA: se il piano ha contratti formali, verifica il workflow prima del ReAct loop.
+    // Se verifica fallisce (contratti violati), marca task come blocked.
+    // Non bloccante (fail-open): se verifyWorkflow fallisce per errori tecnici, continua.
+    try {
+      const { verifyWorkflow } = await import('@/lib/kernel/lean4-agent')
+      const leanResult = await verifyWorkflow(planId)
+      if (!leanResult.verified) {
+        // Cerca errori relativi al task corrente
+        const taskErrors = leanResult.results.filter(
+          (r: any) => r.taskId === taskDef.taskId && r.errors.length > 0,
+        )
+        if (taskErrors.length > 0) {
+          step.status = 'blocked'
+          step.error = `Formal verification failed: ${taskErrors[0].errors.join('; ')}`
+          step.completedAt = new Date().toISOString()
+          step.durationMs = Date.now() - new Date(step.startedAt!).getTime()
+          await updateTaskStatus(planId, taskDef.taskId, 'blocked', step.error)
+          await updateTaskResult(planId, taskDef.taskId, step.error, step.durationMs)
+          onEvent?.('task_complete', { step })
+          return step
+        }
+      }
+    } catch {
+      // Non bloccante: se verifyWorkflow fallisce, continua senza verifica formale
+    }
+
     // WS1.4 — Execute via ReAct loop (pensa → chiama tool → osserva → ripeti)
     // C1 fix: inietta la steering phrase dell'ACTS Controller nel system prompt.
     // Senza questo, le steering phrases erano calcolate ma mai inviate all'LLM.

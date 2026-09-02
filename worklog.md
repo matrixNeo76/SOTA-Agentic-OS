@@ -1995,3 +1995,40 @@ Stage Summary:
   * G4: leanEvolve no cap cicli (loop infinito potenziale)
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: LEAN4-LEANEVOLVE-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3+B5 (sicurezza & effettività)
+
+Work Log:
+- C1: leanEvolve try/catch su JSON.parse(plan?.planJson):
+  * PRIMA: se planJson corrotto, leanEvolve crashava (inconsistenza con autoGenerateContracts/verifyWorkflow)
+  * ORA: try/catch con fallback a { tasks: [] } → deterministicRewrite usato
+- C2: verifyWorkflow integrato nell'executor:
+  * Dopo LTL check, prima del ReAct loop
+  * Se verifyWorkflow fallisce per il task corrente → step.status='blocked'
+  * Non bloccante (fail-open): se verifyWorkflow fallisce per errori tecnici, continua
+- C3: verifyWorkflow usa version incrementale:
+  * PRIMA: ogni chiamata creava VerifiedWorkflow con version:1 hardcoded → duplicati
+  * ORA: calcola max(version) esistente per planId, incrementa di 1
+  * Test: 3 verifyWorkflow consecutive → version 1, 2, 3
+- B5: autoGenerateContracts e verifyWorkflow validano planId:
+  * PRIMA: planId='' → findUnique ritorna null → throw "Piano  non trovato"
+  * ORA: throw esplicito "planId is required and cannot be empty"
+- Test: 16 nuovi test integration in tests/integration/lean4-leanevolve-faseA.test.ts:
+  * B5 planId validation: 4 test (vuoto, undefined, whitespace, valido)
+  * C1 leanEvolve try/catch: 3 test (corrupt non crasha, fallback, codice check)
+  * C3 version incrementale: 4 test (prima v1, seconda v2, no duplicati v1, codice check)
+  * C2 executor integration: 3 test (import, block check, fail-open)
+  * Smoke: 2 test (full pipeline version 1→2, leanEvolve corrupt non crasha)
+
+Stage Summary:
+- 2 file modificati (lean4-agent.ts, executor.ts) + 1 nuovo test file
+- 16 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- C1: leanEvolve robusto (no crash su planJson corrotto)
+- C2: verifyWorkflow integrato in executor (non più cosmetico)
+- C3: VerifiedWorkflow con version incrementale (no duplicati)
+- B5: planId validato in autoGenerateContracts e verifyWorkflow
+- Prossimo: Fase B (B1+B2+B3+B4+G4) robustezza
