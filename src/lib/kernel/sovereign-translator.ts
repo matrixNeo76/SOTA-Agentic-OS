@@ -19,6 +19,24 @@ export type BlockedActionInput = {
 export type ResolutionChoice = 'approved' | 'modified' | 'downgraded' | 'rejected'
 
 /**
+ * B3 fix (Delegation HITL audit Fase B): validazione runtime di `choice`.
+ *
+ * PRIMA: `choice: ResolutionChoice` era solo un type union TypeScript, ma a
+ * runtime qualunque stringa veniva persistita come `status` nel DB
+ * (es. choice='unknown' → status='unknown' in BlockedAction).
+ * ORA: validazione esplicita contro l'enum `RESOLUTION_CHOICES`, throw
+ * su valore non ammesso.
+ */
+const RESOLUTION_CHOICES: readonly ResolutionChoice[] = [
+  'approved', 'modified', 'downgraded', 'rejected',
+] as const
+
+function isValidResolutionChoice(value: unknown): value is ResolutionChoice {
+  return typeof value === 'string'
+    && (RESOLUTION_CHOICES as readonly string[]).includes(value)
+}
+
+/**
  * Registra un'azione bloccata in attesa di risoluzione umana.
  */
 export async function registerBlockedAction(input: BlockedActionInput): Promise<{ blockedId: string }> {
@@ -43,6 +61,8 @@ export async function registerBlockedAction(input: BlockedActionInput): Promise<
 
 /**
  * Risolve un'azione bloccata con override umano.
+ *
+ * B3 — choice validato a runtime contro enum esplicita.
  */
 export async function resolveBlockedAction(
   blockedId: string,
@@ -50,6 +70,13 @@ export async function resolveBlockedAction(
   resolvedBy = 'admin',
   resolutionDetails?: Record<string, unknown>
 ): Promise<{ status: ResolutionChoice; blockedId: string }> {
+  // B3 — Validazione runtime: choice deve essere uno dei valori ammessi
+  if (!isValidResolutionChoice(choice)) {
+    throw new Error(
+      `Invalid resolution choice: "${choice}". Allowed values: ${RESOLUTION_CHOICES.join(', ')}`
+    )
+  }
+
   const blocked = await db.blockedAction.findUnique({ where: { id: blockedId } })
   if (!blocked) throw new Error(`Blocked action ${blockedId} non trovata`)
   if (blocked.status !== 'pending') throw new Error(`Blocked action già risolta: ${blocked.status}`)

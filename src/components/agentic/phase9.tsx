@@ -67,6 +67,11 @@ export function Phase9() {
  const [lastResolution, setLastResolution] = useState<any>(null)
 
  const refresh = async () => {
+ // B2 fix (Delegation HITL audit Fase B): try/catch su refresh().
+ // PRIMA: un fetch fallito (network error, server 500) faceva throw unhandled
+ // rejection che rompeva il polling setInterval e lasciava la UI in stato stale.
+ // ORA: catch globale con toast.error user-friendly + logging opzionale.
+ try {
  const [delR, pendR, recR, audR, norR, statsR] = await Promise.all([
  fetch('/api/retainer?action=delegations').then((r) => r.json()),
  fetch('/api/retainer?action=gates_pending').then((r) => r.json()),
@@ -81,6 +86,13 @@ export function Phase9() {
  setAudit(audR.entries || [])
  setResolutions(norR.resolutions || [])
  setStats(statsR)
+ } catch (err) {
+ // B2 — Network error o JSON parse error: mostra toast e lascia lo stato precedente
+ // (non cancella i dati già caricati, evitando UI vuota lampeggiante)
+ toast.error('Caricamento Artificial Retainer fallito')
+ // eslint-disable-next-line no-console
+ console.error('[phase9] refresh failed:', err)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect

@@ -2196,3 +2196,46 @@ Stage Summary:
 - B4: scope validato in grantDelegation (no deleghe vuote)
 - B5: blocked-actions API robusta (no 500 su body non JSON)
 - Prossimo: Fase B (B1+B2+B3+G4) robustezza
+
+---
+Task ID: DELEGATION-HITL-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+G4 (robustezza)
+
+Work Log:
+- B1: retainerStats con tutte le 9 query in un unico Promise.all:
+  * PRIMA: 6 query in Promise.all + 3 query sequenziali (approvedGates, rejectedGates, blockedResolutions) → 4 round-trip DB
+  * ORA: 9 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo)
+  * Verifica con regex: nessun `await db.*.count` fuori dal Promise.all
+- B2: phase9.tsx refresh() con try/catch globale:
+  * PRIMA: un fetch fallito (network error, server 500) faceva throw unhandled rejection, rompeva il polling setInterval e lasciava la UI in stato stale
+  * ORA: catch globale con toast.error user-friendly + console.error per debugging
+  * Il catch NON azzera lo stato (no setDelegations([]) etc.): preserva i dati già caricati, evitando UI vuota lampeggiante
+- B3: resolveBlockedAction valida choice enum a runtime:
+  * PRIMA: choice era solo type union TypeScript, ma a runtime qualunque stringa veniva persistita come status nel DB (es. 'unknown' → status='unknown')
+  * ORA: RESOLUTION_CHOICES const array + isValidResolutionChoice type guard
+  * Throw esplicito "Invalid resolution choice: X. Allowed values: approved, modified, downgraded, rejected" su valore non ammesso
+  * Verifica che lo status nel DB rimane 'pending' quando choice è invalido (no update eseguito)
+- G4: checkAuthority marca deleghe scadute come active: false:
+  * PRIMA: le deleghe scadute venivano skipate in loop (continue) ma rimanevano con active: true nel DB → query future le caricavano inutilmente, UI mostrava deleghe "attive" scadute
+  * ORA: raccoglie expiredDelegationIds durante il loop, poi updateMany in batch (active: false, revokedAt: now, revokeReason: 'auto-expired (expiresAt < now)')
+  * logAuditEntry traccia l'invalidazione automatica (source: 'auto-expire-checkAuthority', outcome: 'expired')
+  * Non bloccante (best-effort): se l'updateMany fallisce, le deleghe rimangono attive e verranno ri-verificate alla prossima chiamata
+- Test: 22 nuovi test integration in tests/integration/delegation-hitl-faseB.test.ts:
+  * B1 retainerStats Promise.all: 3 test (9 metriche, codice check, no query sequenziali)
+  * B3 resolveBlockedAction choice validation: 7 test (approved, modified, downgraded, rejected, unknown throw, empty throw, numeric throw, codice check)
+  * G4 checkAuthority expired invalidation: 6 test (authorized false, active=false DB, non-expired ok, no delegations, batch, audit entry, codice check)
+  * B2 phase9.tsx try/catch: 2 test (codice check + no state clear on error)
+  * Smoke: 2 test (G4+B1 stats coerenti, B3+B1 blocked action lifecycle)
+
+Stage Summary:
+- 3 file modificati (artificial-retainer.ts, sovereign-translator.ts, phase9.tsx) + 1 nuovo test file
+- 22 nuovi test integration (tutti passing)
+- 47/47 test totali Delegation HITL passing (25 Fase A + 22 Fase B, 0 regressioni)
+- 143/143 test passing su tutti i moduli correlati (Delegation HITL + Lean4 + PTA + ACTS + executor + crash-resume)
+- 0 TypeScript errors nei file Fase B
+- B1: stats O(1) round-trip invece di O(4)
+- B2: phase9.tsx robusto (try/catch su refresh, preserva stato)
+- B3: resolveBlockedAction choice validato a runtime (no status arbitrari)
+- G4: deleghe scadute invalidate automaticamente (no DB bloat, no UI stale)
+- Prossimo: Fase C (G1+G2+G3) UX & completamento

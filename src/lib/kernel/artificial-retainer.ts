@@ -125,6 +125,13 @@ export async function revokeDelegation(delegationId: string, revokeReason: strin
  * Non viene più fatto startsWith grezzo: il suffisso deve essere separato
  * da un carattere non alfanumerico (`.`, `:`, `/`, `-`, `_` dopo il
  * prefisso non viene considerato separatore se alfanumerico).
+ *
+ * G4 fix (Delegation HITL audit Fase B): marca deleghe scadute come active: false.
+ * PRIMA: le deleghe scadute venivano skipate in loop (continue) ma rimanevano
+ * con `active: true` nel DB → query future le caricavano inutilmente, e la UI
+ * mostrava deleghe "attive" che in realtà erano scadute.
+ * ORA: quando checkAuthority incontra una delega scaduta, la marca atomicamente
+ * `active: false` + `revokedAt: now` (best-effort, non bloccante su errori DB).
  */
 export async function checkAuthority(
   agentId: string,
@@ -134,10 +141,15 @@ export async function checkAuthority(
     where: { agentId, active: true },
   })
 
+  // G4 — Raccogli gli ID delle delegi scadute per invalidarle in batch
+  const expiredDelegationIds: string[] = []
+
   for (const d of delegations) {
     if (matchesScope(d.scope, scope)) {
       // Check expiration
       if (d.expiresAt && d.expiresAt < new Date()) {
+        // G4 — Segna come scaduta per invalidazione batch
+        expiredDelegationIds.push(d.id)
         continue
       }
       return {
@@ -146,6 +158,37 @@ export async function checkAuthority(
         constraints: JSON.parse(d.constraints),
         reason: `Autorizzato da delega ${d.id} (scope: ${d.scope})`,
       }
+    }
+  }
+
+  // G4 — Invalida in batch le deleghe scadute (best-effort, non bloccante)
+  if (expiredDelegationIds.length > 0) {
+    try {
+      await db.delegationContract.updateMany({
+        where: { id: { in: expiredDelegationIds } },
+        data: {
+          active: false,
+          revokedAt: new Date(),
+          revokeReason: 'auto-expired (expiresAt < now)',
+        },
+      })
+      await logAuditEntry({
+        agentId,
+        action: `auto-expire delegations`,
+        decision: {
+          source: 'auto-expire-checkAuthority',
+          intent: `expire ${expiredDelegationIds.length} over-due delegation(s)`,
+          gate: 'delegation',
+          outcome: 'expired',
+          count: expiredDelegationIds.length,
+          delegationIds: expiredDelegationIds,
+        },
+        readableNarrative: `Sistema: ${expiredDelegationIds.length} delega(he) per l'agente ${agentId} scadute automaticamente (expiresAt < now) e marcate come inactive durante checkAuthority.`,
+        reversible: false,
+      }).catch(() => {})
+    } catch {
+      // Non bloccante: se l'update fallisce, le delegi rimangono attive
+      // e verranno ri-verificate alla prossima chiamata.
     }
   }
 
@@ -577,19 +620,28 @@ export async function listAuditLedger(limit = 50, agentId?: string) {
 
 /**
  * Statistiche per dashboard.
+ *
+ * B1 fix (Delegation HITL audit Fase B): tutte le 9 query in un unico Promise.all.
+ * PRIMA: 6 query in Promise.all + 3 query sequenziali (approvedGates, rejectedGates,
+ * blockedResolutions) → 4 round-trip DB.
+ * ORA: 9 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
  */
 export async function retainerStats() {
-  const [activeDelegations, totalDelegations, pendingGates, resolvedGates, auditEntries, normativeResolutions] = await Promise.all([
+  const [
+    activeDelegations, totalDelegations, pendingGates, resolvedGates,
+    approvedGates, rejectedGates, auditEntries, normativeResolutions,
+    blockedResolutions,
+  ] = await Promise.all([
     db.delegationContract.count({ where: { active: true } }),
     db.delegationContract.count(),
     db.approvalGate.count({ where: { status: 'pending' } }),
     db.approvalGate.count({ where: { status: { in: ['approved', 'rejected'] } } }),
+    db.approvalGate.count({ where: { status: 'approved' } }),
+    db.approvalGate.count({ where: { status: 'rejected' } }),
     db.auditLedgerEntry.count(),
     db.normativeResolution.count(),
+    db.normativeResolution.count({ where: { verdict: 'block' } }),
   ])
-  const approvedGates = await db.approvalGate.count({ where: { status: 'approved' } })
-  const rejectedGates = await db.approvalGate.count({ where: { status: 'rejected' } })
-  const blockedResolutions = await db.normativeResolution.count({ where: { verdict: 'block' } })
 
   return {
     activeDelegations,
