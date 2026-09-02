@@ -2075,3 +2075,40 @@ Stage Summary:
 - B4: verifyWorkflow batch update (no N+1)
 - G4: leanEvolve cap 10 cicli (no loop infinito)
 - Prossimo: Fase C (G1+G2+G3) UX & completamento
+
+---
+Task ID: LEAN4-LEANEVOLVE-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3 (UX & completamento)
+
+Work Log:
+- G2: a11y in phase8.tsx:
+  * aria-label su 4 button (Aggiorna, Auto-genera, Verifica, LeanEvolve)
+  * role=status + aria-live=polite su stats grid
+  * aria-label="Statistiche Lean4 LeanEvolve"
+- G1: Unit test per leanEvolve, leanStats, listVerifiedWorkflows, listEvolveEvents:
+  * leanStats: ritorna tutte le 6 metriche corrette
+  * listVerifiedWorkflows: ritorna array per planId, max 20 senza planId
+  * listEvolveEvents: ritorna array per planId, max 20 senza planId
+  * leanEvolve: ritorna struttura corretta {cycle, rewrittenInstruction, revalidated, revalidationLog}
+  * leanEvolve: persiste LeanEvolveEvent con tutti i campi
+  * autoGenerateContracts: genera preconditions/postconditions corrette (con dipendenze)
+  * verifyWorkflow: genera Lean4 source con structure + theorem + sorry
+- G3: verifyWorkflow version incrementale (assorbito in C3 Fase A, verificato)
+- Test: 16 nuovi test integration in tests/integration/lean4-leanevolve-faseC.test.ts:
+  * G2 a11y: 5 test
+  * G1 unit test: 9 test (leanStats, listVerifiedWorkflows x2, listEvolveEvents x2,
+    leanEvolve structure, leanEvolve persist, autoGenerateContracts, verifyWorkflow lean source)
+  * G3 assorbito: 1 test
+  * Smoke: 1 test (full pipeline autoGenerate → verify → leanEvolve → listEvents → leanStats)
+
+Stage Summary:
+- 2 file modificati (phase8.tsx) + 1 nuovo test file
+- 16 nuovi test integration (tutti passing)
+- 45/45 test totali Lean4 LeanEvolve passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G2: phase8.tsx accessibile (aria-label, role=status)
+- G1: 9 unit test per lean4-agent.ts (0 → 9 test coverage specifici)
+- G3: assorbito in C3 Fase A (verificato)
+- MODULO LEAN4 LEANEVOLVE COMPLETATO (Fasi A+B+C)
+- Tutti i 12 item dell'audit risolti (3 C + 5 B + 4 G)

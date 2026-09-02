@@ -150,10 +150,10 @@ export function Phase8() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase8" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase8" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna contratti e statistiche Lean4"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-4 gap-3" role="status" aria-live="polite" aria-label="Statistiche Lean4 LeanEvolve">
  <StatCard label="Contratti" value={stats.contracts} />
  <StatCard label="Verificati" value={stats.verifiedContracts} highlight />
  <StatCard label="Workflow verificati" value={stats.verifiedWorkflows} />
@@ -215,11 +215,11 @@ export function Phase8() {
  </CardHeader>
  <CardContent className="space-y-3">
  <div className="flex gap-2">
- <Button size="sm" onClick={generateContracts} disabled={generating || !selectedPlan}>
+ <Button size="sm" onClick={generateContracts} disabled={generating || !selectedPlan} aria-label="Genera contratti formali automaticamente">
  {generating ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <FileCode className="size-3.5 mr-1.5" />}
  {generating ? 'Generazione…' : '1. Auto-genera Contratti'}
  </Button>
- <Button size="sm" onClick={verify} disabled={verifying || !selectedPlan}>
+ <Button size="sm" onClick={verify} disabled={verifying || !selectedPlan} aria-label="Verifica formalmente il workflow">
  {verifying ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="size-3.5 mr-1.5" />}
  {verifying ? 'Verifica…' : '2. Verifica Workflow'}
  </Button>
@@ -376,7 +376,7 @@ export function Phase8() {
  <Input value={failureReason} onChange={(e) => setFailureReason(e.target.value)} />
  </div>
  </div>
- <Button size="sm" onClick={evolve} disabled={evolving || !selectedPlan}>
+ <Button size="sm" onClick={evolve} disabled={evolving || !selectedPlan} aria-label="Evolvi l'istruzione del task fallito via LLM">
  {evolving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Sparkles className="size-3.5 mr-1.5" />}
  {evolving ? 'Evoluzione…' : 'Esegui LeanEvolve'}
  </Button>
