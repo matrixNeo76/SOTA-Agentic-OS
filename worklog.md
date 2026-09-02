@@ -2112,3 +2112,36 @@ Stage Summary:
 - G3: assorbito in C3 Fase A (verificato)
 - MODULO LEAN4 LEANEVOLVE COMPLETATO (Fasi A+B+C)
 - Tutti i 12 item dell'audit risolti (3 C + 5 B + 4 G)
+
+---
+Task ID: DELEGATION-HITL-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Delegation HITL Audit
+
+Work Log:
+- Analizzati 6 file: artificial-retainer.ts (566 LOC), sovereign-translator.ts (166),
+  api/retainer/route.ts (144), api/blocked-actions/route.ts (67), phase9.tsx (553),
+  sovereign-view.tsx (550)
+- Verificati consumer runtime: NESSUNO (checkAuthority/registerBlockedAction non chiamati da executor)
+- Verificati fix preesistenti dal Trust & Governance audit: C4, C5, C8, C9, C10, B3 già applicati
+- Verificata coverage test: 118 test in governance suite (non specifici sovereign-translator)
+- Compilato report in docs/DELEGATION-HITL-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: checkAuthority non integrato nell'executor (deleghe cosmetiche)
+  * C2: registerBlockedAction non integrato (azioni bloccate non in coda HITL)
+  * C3: no size cap su payload/reason/axiomTrail in approval gates
+- 5 bug medi (B1-B5):
+  * B1: retainerStats 3 query sequenziali dopo Promise.all
+  * B2: phase9.tsx refresh() senza try/catch
+  * B3: resolveBlockedAction non valida choice enum
+  * B4: grantDelegation non valida scope vuoto
+  * B5: blocked-actions API POST no try/catch su body parsing
+- 4 gap funzionali (G1-G4):
+  * G1: zero test specifici per sovereign-translator.ts
+  * G2: phase9.tsx nessun a11y
+  * G3: sovereign-view.tsx no try/catch su fetch
+  * G4: checkAuthority non marca deleghe scadute come inactive
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
