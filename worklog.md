@@ -2358,3 +2358,57 @@ Stage Summary:
 - C3: POST /api/grounded requireAdmin (no privilege escalation per policy mutation)
 - C1: encapsulatedCall integrato in executor (encapsulation non più cosmetica a runtime)
 - Prossimo: Fase B (B1+B2+B4+B5+B6) robustezza
+
+---
+Task ID: MODEL-ENCAPSULATOR-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B4+B5+B6 (robustezza)
+
+Work Log:
+- B1: Size cap su modelOutput (50KB), sandboxResult JSON (50KB) con marker [truncated]:
+  * MAX_MODEL_OUTPUT_SIZE = 50_000
+  * MAX_SANDBOX_RESULT_SIZE = 50_000
+  * truncateWithMarker() helper generico
+  * parsedScript già capped da C2 (MAX_SCRIPT_SIZE=10KB), no ulteriore troncamento
+  * modelOutput troncato dopo il retry loop, prima di persistere
+  * sandboxResult JSON troncato prima di essere persistito
+- B2: phase10.tsx refresh() con try/catch globale:
+  * PRIMA: un fetch fallito (network error, server 500, body non JSON) faceva throw unhandled rejection, rompeva il polling setInterval e lasciava la UI in stato stale
+  * ORA: catch globale con toast.error "Caricamento Model Encapsulator fallito" + console.error per debug
+  * Il catch NON azzera lo stato (no setSessions([]), no setStats(null)): preserva dati già caricati, evitando UI vuota lampeggiante
+- B4: retry logic in encapsulatedCall (rispetta policy.maxRetries):
+  * PRIMA: retryCount era sempre 0 e maxRetries policy era ignorato (cosmetico)
+  * ORA: loop di retry fino a maxAttempts = max(1, policy.maxRetries + 1)
+  * retryCount aggiornato ad ogni attempt fallito (0 = successo al primo tentativo)
+  * Backoff esponenziale semplice: 100ms * attempt tra tentativi
+  * console.warn ad ogni retry fallito con attempt/N per debug
+  * Se tutti i tentativi falliscono, fallback a simulateLLMOutput (come prima)
+- B5: simulateLLMOutput tronca taskGoal a 1KB prima di interpolare:
+  * PRIMA: taskGoal veniva interpolato senza size cap → DB bloat se caller passava taskGoal enorme
+  * ORA: MAX_TASKGOAL_IN_FALLBACK = 1_000 (1KB)
+  * safeTaskGoal = taskGoal.slice(0, 1000) + '...[truncated]' se length > 1KB
+  * Tutte le interpolazioni usano safeTaskGoal invece di taskGoal raw
+- B6: rimosso dead import runPipeline:
+  * PRIMA: `import { runPipeline } from './compiled-ai'` era presente ma runPipeline non veniva mai chiamato (dead import)
+  * ORA: import rimosso, commento B6 fix spiega il perché (no behavioral change)
+  * vm import mantenuto (usato da executeSandbox)
+- Test: 21 nuovi test integration in tests/integration/model-encapsulator-faseB.test.ts:
+  * B1 size cap: 5 test (costanti, truncateWithMarker su modelOutput, truncateWithMarker su sandboxResult, marker [truncated], output piccolo non troncato)
+  * B2 phase10.tsx try/catch: 2 test (codice check, no state clear on error)
+  * B4 retry logic: 6 test (maxAttempts, retryCount update, backoff esponenziale, console.warn, policy respect, fallback)
+  * B5 simulateLLMOutput: 3 test (MAX_TASKGOAL_IN_FALLBACK, safeTaskGoal uso, check length > cap)
+  * B6 dead import: 3 test (no active import line, B6 comment, vm import preserved)
+  * Smoke: 2 test (lifecycle retry+cap, huge input capped)
+
+Stage Summary:
+- 2 file modificati (grounded-inference.ts, phase10.tsx) + 1 nuovo test file
+- 21 nuovi test integration (tutti passing)
+- 43/43 test totali Model Encapsulator passing (22 Fase A + 21 Fase B, 0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- 0 regressioni su 194/195 test cross-modulo (1 failure transiente 429 rate limit risolta in isolation)
+- B1: payload capped (no DB bloat)
+- B2: phase10.tsx robusto (try/catch su refresh, preserva stato)
+- B4: retry logic effettivo (rispetta policy.maxRetries + backoff)
+- B5: simulateLLMOutput safe (no DB bloat via fallback)
+- B6: dead import rimosso (codebase pulita)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento

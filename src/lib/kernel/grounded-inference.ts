@@ -12,8 +12,33 @@
  *  - Information Pass-Through Limitato: solo i dati strettamente necessari al task
  */
 import { db } from '@/lib/db'
-import { runPipeline } from './compiled-ai' // riusa la sandbox 4-stadi
+// B6 fix (Model Encapsulator audit Fase B): rimosso dead import runPipeline.
+// PRIMA: `import { runPipeline } from './compiled-ai'` era presente ma runPipeline
+// non veniva mai chiamato (dead import). Inoltre il commento "riusa la sandbox
+// 4-stadi" era fuorviante perché il codice usa vm.runInNewContext locale, non
+// la sandbox 4-stadi di compiled-ai.
+// ORA: import rimosso. Nessun behavioral change.
 import * as vm from 'node:vm' // N9 FIX: sandbox isolato per script LLM-generated
+
+/**
+ * B1 fix (Model Encapsulator audit Fase B): size cap su payload persistito.
+ *
+ * PRIMA: modelOutput, parsedScript, sandboxResult venivano persistiti senza
+ * size cap. Un LLM che ritorna 100KB+ di output (es. script generato molto
+ * lungo, error stack trace verbose) veniva salvato interamente nel DB → bloat.
+ *
+ * ORA: costanti di size cap con marker [truncated]:
+ *  - MAX_MODEL_OUTPUT_SIZE: 50KB (output raw LLM)
+ *  - MAX_PARSED_SCRIPT_SIZE_PERSIST: 10KB (script estratto, già capped da C2)
+ *  - MAX_SANDBOX_RESULT_SIZE: 50KB (JSON risultato sandboxed)
+ */
+const MAX_MODEL_OUTPUT_SIZE = 50_000
+const MAX_SANDBOX_RESULT_SIZE = 50_000
+
+function truncateWithMarker(value: string, maxSize: number): string {
+  if (value.length <= maxSize) return value
+  return value.slice(0, maxSize) + '...[truncated]'
+}
 
 export type EncapsulatedCall = {
   agentId: string
@@ -64,21 +89,47 @@ Rules:
 Context (minimal, scoped to this task only):
 ${truncatedContext}`
 
-  // 3) Chiama l'LLM via ZAI SDK
-  let modelOutput: string
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'You are a grounded inference engine in SOTA Agentic OS. Execute tasks using only the provided context. Output plain text or a fenced JS code block for parsing.' },
-        { role: 'user', content: systemPrompt },
-      ],
-    })
-    modelOutput = completion.choices[0]?.message?.content || 'No output from model.'
-  } catch (e: any) {
-    modelOutput = `LLM Error: ${e.message}. Falling back to deterministic output.\n\n${simulateLLMOutput(call.taskGoal, call.contextData)}`
+  // 3) Chiama l'LLM via ZAI SDK con retry logic (B4 fix)
+  // B4: PRIMA retryCount era sempre 0 e maxRetries policy era ignorato.
+  // ORA: loop di retry fino a policy.maxRetries + 1 tentativi (1 + retries).
+  let modelOutput: string = ''
+  let retryCount = 0
+  let lastError: string | null = null
+  const maxAttempts = Math.max(1, policy.maxRetries + 1)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const ZAI = (await import('z-ai-web-dev-sdk')).default
+      const zai = await ZAI.create()
+      const completion = await zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are a grounded inference engine in SOTA Agentic OS. Execute tasks using only the provided context. Output plain text or a fenced JS code block for parsing.' },
+          { role: 'user', content: systemPrompt },
+        ],
+      })
+      modelOutput = completion.choices[0]?.message?.content || 'No output from model.'
+      lastError = null
+      break // success, exit retry loop
+    } catch (e: any) {
+      lastError = e.message
+      retryCount = attempt
+      // Se non è l'ultimo tentativo, logga e riprova
+      if (attempt < maxAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[grounded-inference] LLM attempt ${attempt}/${maxAttempts} failed: ${lastError}. Retrying...`)
+        // Backoff esponenziale semplice: 100ms * attempt
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+      }
+    }
   }
+
+  // Dopo il loop: se lastError è ancora settato, tutti i tentativi sono falliti
+  if (lastError !== null) {
+    modelOutput = `LLM Error: ${lastError}. Falling back to deterministic output.\n\n${simulateLLMOutput(call.taskGoal, call.contextData)}`
+  }
+
+  // B1 — Size cap su modelOutput prima di persistere (50KB + marker)
+  modelOutput = truncateWithMarker(modelOutput, MAX_MODEL_OUTPUT_SIZE)
 
   // 4) Estrai eventuale script di parsing dal output
   // C2 fix: extractScript ora può throware se script è oversized o contiene blocked keyword.
@@ -92,15 +143,18 @@ ${truncatedContext}`
   }
 
   // 5) Crea sessione
+  // B1 — parsedScript già capped da C2 (MAX_SCRIPT_SIZE=10KB), no ulteriore troncamento
   const session = await db.encapsulatedSession.create({
     data: {
       agentId: call.agentId,
       taskGoal: call.taskGoal,
       contextInjected: truncatedContext,
+      // B1 — modelOutput già troncato sopra
       modelOutput,
       parsedScript: parsedScript ?? undefined,
       sandboxOk: false,
-      retryCount: 0,
+      // B4 — retryCount ora riflette i tentativi effettivi (0 = successo al primo tentativo)
+      retryCount,
       // C2 — se extractionError, marca come 'sandbox_blocked' (script non sicuro)
       status: extractionError ? 'sandbox_blocked' : (parsedScript ? 'pending' : 'executed'),
     },
@@ -117,17 +171,22 @@ ${truncatedContext}`
       parsedScript: undefined,
       sandboxResult: { error: extractionError },
       sandboxOk: false,
-      retryCount: 0,
+      retryCount,
     }
   }
 
   // 6) Se c'è uno script e la sandbox è abilitata, eseguilo
   if (parsedScript && policy.sandboxEnabled) {
     const sandboxResult = await executeSandbox(parsedScript, call.contextData)
+    // B1 — Size cap su sandboxResult JSON (50KB + marker)
+    const sandboxResultJson = truncateWithMarker(
+      JSON.stringify(sandboxResult.result),
+      MAX_SANDBOX_RESULT_SIZE,
+    )
     await db.encapsulatedSession.update({
       where: { id: session.id },
       data: {
-        sandboxResult: JSON.stringify(sandboxResult.result),
+        sandboxResult: sandboxResultJson,
         sandboxOk: sandboxResult.ok,
         status: sandboxResult.ok ? 'executed' : 'sandbox_blocked',
       },
@@ -139,7 +198,7 @@ ${truncatedContext}`
       parsedScript: parsedScript ?? undefined,
       sandboxResult: sandboxResult.result,
       sandboxOk: sandboxResult.ok,
-      retryCount: 0,
+      retryCount,
     }
   }
 
@@ -149,7 +208,7 @@ ${truncatedContext}`
     modelOutput,
     parsedScript: parsedScript ?? undefined,
     sandboxOk: false,
-    retryCount: 0,
+    retryCount,
   }
 }
 
@@ -258,15 +317,28 @@ function extractScript(output: string): string | null {
 /**
  * Simula un output LLM che contiene uno script di parsing.
  * In produzione: sostituire con ZAI.create().chat.completions.create(...)
+ *
+ * B5 fix (Model Encapsulator audit Fase B): tronca taskGoal a 1KB prima di interpolare.
+ * PRIMA: taskGoal veniva interpolato senza size cap. Se un caller passava taskGoal
+ * di 100KB, l'output simulato (e poi persistito come modelOutput) conteneva tutto
+ * il taskGoal → DB bloat.
+ * ORA: taskGoal viene troncato a 1KB con marker [truncated] prima di essere interpolato.
  */
+const MAX_TASKGOAL_IN_FALLBACK = 1_000
+
 function simulateLLMOutput(taskGoal: string, context: Record<string, unknown>): string {
+  // B5 — tronca taskGoal a 1KB prima di interpolare (no DB bloat via fallback)
+  const safeTaskGoal = taskGoal.length > MAX_TASKGOAL_IN_FALLBACK
+    ? taskGoal.slice(0, MAX_TASKGOAL_IN_FALLBACK) + '...[truncated]'
+    : taskGoal
+
   const inputKeys = Object.keys(context)
   // Se il contesto ha un array, genera uno script che lo filtra/mappa
   if (inputKeys.length > 0) {
     const firstKey = inputKeys[0]
     const val = context[firstKey]
     if (Array.isArray(val)) {
-      return `Ecco la trasformazione richiesta per "${taskGoal}":
+      return `Ecco la trasformazione richiesta per "${safeTaskGoal}":
 
 \`\`\`js
 return input.${firstKey}.filter(x => x != null).map(x => typeof x === 'object' ? JSON.stringify(x) : String(x))
@@ -275,7 +347,7 @@ return input.${firstKey}.filter(x => x != null).map(x => typeof x === 'object' ?
 Questo script filtra i valori nulli e serializza gli oggetti.`
     }
     if (typeof val === 'object' && val !== null) {
-      return `Ecco la trasformazione richiesta per "${taskGoal}":
+      return `Ecco la trasformazione richiesta per "${safeTaskGoal}":
 
 \`\`\`js
 return Object.entries(input.${firstKey}).map(([k, v]) => k + ': ' + v)
@@ -285,7 +357,7 @@ Questo script converte l'oggetto in un array di stringhe "key: value".`
     }
   }
   // Default: risposta testuale senza script
-  return `Analisi completata per "${taskGoal}". Il contesto contiene ${inputKeys.length} campi.`
+  return `Analisi completata per "${safeTaskGoal}". Il contesto contiene ${inputKeys.length} campi.`
 }
 
 /**

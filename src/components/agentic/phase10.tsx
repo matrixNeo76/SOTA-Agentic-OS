@@ -32,12 +32,25 @@ export function Phase10() {
  const [contextData, setContextData] = useState('{"results":[{"id":1,"name":"test"},null,{"id":2,"name":"foo"}]}')
 
  const refresh = async () => {
+ // B2 fix (Model Encapsulator audit Fase B): try/catch su refresh().
+ // PRIMA: un fetch fallito (network error, server 500, body non JSON) faceva
+ // throw unhandled rejection che rompeva il polling setInterval e lasciava
+ // la UI in stato stale.
+ // ORA: catch globale con toast.error user-friendly, preserva stato precedente
+ // (non cancella i dati già caricati, evitando UI vuota lampeggiante).
+ try {
  const [sessR, statsR] = await Promise.all([
  fetch('/api/grounded?action=sessions').then((r) => r.json()),
  fetch('/api/grounded?action=stats').then((r) => r.json()),
  ])
  setSessions(sessR.sessions || [])
  setStats(statsR)
+ } catch (err) {
+ // B2 — Network error o JSON parse error: mostra toast e lascia lo stato precedente
+ toast.error('Caricamento Model Encapsulator fallito')
+ // eslint-disable-next-line no-console
+ console.error('[phase10] refresh failed:', err)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
