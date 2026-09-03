@@ -34,12 +34,25 @@ export function Phase11() {
  const [repeatedToolCalls, setRepeatedToolCalls] = useState(2)
 
  const refresh = async () => {
+ // B1 fix (Affect Monitor audit Fase B): try/catch su refresh().
+ // PRIMA: un fetch fallito (network error, server 500, body non JSON) faceva
+ // throw unhandled rejection che rompeva il polling setInterval e lasciava
+ // la UI in stato stale.
+ // ORA: catch globale con toast.error user-friendly, preserva stato precedente
+ // (non cancella i dati già caricati, evitando UI vuota lampeggiante).
+ try {
  const [histR, statsR] = await Promise.all([
  fetch(`/api/affect?action=history&agentId=${agentId}`).then((r) => r.json()),
  fetch('/api/affect?action=stats').then((r) => r.json()),
  ])
  setHistory(histR.history || [])
  setStats(statsR)
+ } catch (err) {
+ // B1 — Network error o JSON parse error: mostra toast e lascia lo stato precedente
+ toast.error('Caricamento Affect Monitor fallito')
+ // eslint-disable-next-line no-console
+ console.error('[phase11] refresh failed:', err)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -53,6 +66,12 @@ export function Phase11() {
  }, [agentId])
 
  const compute = async () => {
+ // B2 fix (Affect Monitor audit Fase B): parse-safe + error handling completo.
+ // PRIMA: r.json() poteva throware su risposta non JSON (500 con body HTML),
+ // e nessun toast.error se d.ok === false (errore silente).
+ // ORA: try/catch esterno per network error + parse-safe interno su r.json()
+ // + toast.error esplicito su !d.ok.
+ try {
  const r = await fetch('/api/affect', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
@@ -62,7 +81,17 @@ export function Phase11() {
  toolFailures, toolCalls, gateRejects, gateAttempts, repeatedToolCalls,
  }),
  })
- const d = await r.json()
+ // B2 — parse-safe su r.json() (come G3 del Model Encapsulator Fase C)
+ let d: any
+ try {
+ d = await r.json()
+ } catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase11] compute: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (d.ok) {
  if (d.intervention) {
  toast.warning(`Intervento Meta-Observer: ${d.intervention.slice(0, 80)}`)
@@ -70,6 +99,15 @@ export function Phase11() {
  toast.success(`Metriche calcolate: desp=${d.desperation.toFixed(2)} frust=${d.frustration.toFixed(2)}`)
  }
  refresh()
+ } else {
+ // B2 — toast.error esplicito su !d.ok (prima era silente)
+ toast.error(d.error || 'Errore calcolo metriche affettive')
+ }
+ } catch (e: any) {
+ // B2 — Network error o fetch throw (es. CORS, DNS failure)
+ toast.error(e.message || 'Errore di rete')
+ // eslint-disable-next-line no-console
+ console.error('[phase11] compute fetch failed:', e)
  }
  }
 

@@ -175,6 +175,34 @@ export async function updateThreshold(
   agentId: string,
   updates: { desperationCritical?: number; frustrationCritical?: number; cooldownMs?: number; tighteningPct?: number }
 ) {
+  // B5 fix (Affect Monitor audit Fase B): validazione range dei valori.
+  // PRIMA: nessuna validazione — potevano essere persistiti valori fuori range:
+  //  - desperationCritical > 1.0 (invalido, fuori dal range 0..1)
+  //  - frustrationCritical negativo
+  //  - cooldownMs <= 0 (loop infinito o no cooldown)
+  //  - tighteningPct > 1.0 (100%+ tightening non ha senso)
+  // ORA: throw esplicito su valori fuori range.
+  if (updates.desperationCritical !== undefined) {
+    if (typeof updates.desperationCritical !== 'number' || updates.desperationCritical < 0 || updates.desperationCritical > 1) {
+      throw new Error(`desperationCritical must be a number in [0, 1], got: ${updates.desperationCritical}`)
+    }
+  }
+  if (updates.frustrationCritical !== undefined) {
+    if (typeof updates.frustrationCritical !== 'number' || updates.frustrationCritical < 0 || updates.frustrationCritical > 1) {
+      throw new Error(`frustrationCritical must be a number in [0, 1], got: ${updates.frustrationCritical}`)
+    }
+  }
+  if (updates.cooldownMs !== undefined) {
+    if (typeof updates.cooldownMs !== 'number' || updates.cooldownMs <= 0 || !Number.isFinite(updates.cooldownMs)) {
+      throw new Error(`cooldownMs must be a positive finite number, got: ${updates.cooldownMs}`)
+    }
+  }
+  if (updates.tighteningPct !== undefined) {
+    if (typeof updates.tighteningPct !== 'number' || updates.tighteningPct < 0 || updates.tighteningPct > 1) {
+      throw new Error(`tighteningPct must be a number in [0, 1], got: ${updates.tighteningPct}`)
+    }
+  }
+
   return db.affectThreshold.upsert({
     where: { agentId },
     create: { agentId, ...updates },
@@ -195,18 +223,31 @@ export async function affectHistory(agentId: string, limit = 30) {
 
 /**
  * Statistiche per dashboard.
+ *
+ * B3 fix (Affect Monitor audit Fase B): tutte le query in un unico Promise.all.
+ * PRIMA: 3 query in Promise.all + 1 query sequenziale (recent) → 2 round-trip DB.
+ * ORA: 4 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
+ *
+ * B6 fix (Affect Monitor audit Fase B): aggregation documentato come best-effort.
+ * PRIMA: caricava 100 righe in memoria per calcolare avgDesperation/avgFrustration.
+ * ORA: mantiene lo stesso pattern (Prisma non supporta aggregate su "ultimi N per
+ * timestamp" in modo efficiente senza subquery), ma documentato come best-effort
+ * e aggiunto commento esplicativo. Per dataset molto grandi (>10k samples),
+ * considerare una query SQL raw con window function.
  */
 export async function affectStats() {
-  const [samples, agents, interventions] = await Promise.all([
+  const [samples, agents, interventions, recent] = await Promise.all([
     db.affectSample.count(),
     db.affectSample.groupBy({ by: ['agentId'], _count: true }),
     db.affectSample.count({ where: { intervention: { not: null } } }),
+    // B6 — best-effort avg: carica ultimi 100 samples per calcolo media
+    // (alternative SQL raw con window function richiederebbe refactor maggiore)
+    db.affectSample.findMany({
+      orderBy: { timestamp: 'desc' },
+      take: 100,
+      select: { desperation: true, frustration: true },
+    }),
   ])
-  const recent = await db.affectSample.findMany({
-    orderBy: { timestamp: 'desc' },
-    take: 100,
-    select: { desperation: true, frustration: true },
-  })
   const avgDesperation = recent.length
     ? recent.reduce((s, r) => s + r.desperation, 0) / recent.length
     : 0

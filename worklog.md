@@ -2538,3 +2538,55 @@ Stage Summary:
 - C3: intervention capped (no DB bloat su stringhe lunghe)
 - C1: computeAffect integrato in executor (death spiral prevention non più cosmetica)
 - Prossimo: Fase B (B1+B2+B3+B5+B6) robustezza
+
+---
+Task ID: AFFECT-MONITOR-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B5+B6 (robustezza)
+
+Work Log:
+- B1: phase11.tsx refresh() con try/catch globale:
+  * PRIMA: un fetch fallito (network error, server 500, body non JSON) faceva throw unhandled rejection, rompeva il polling setInterval e lasciava la UI in stato stale
+  * ORA: catch globale con toast.error "Caricamento Affect Monitor fallito" + console.error per debug
+  * Il catch NON azzera lo stato (no setHistory([]), no setStats(null)): preserva dati già caricati
+- B2: phase11.tsx compute() con parse-safe + error handling completo:
+  * PRIMA: r.json() poteva throware su risposta non JSON (500 con body HTML), e nessun toast.error se d.ok === false (errore silente)
+  * ORA: try/catch esterno per network error + parse-safe interno su r.json() con fallback a r.text() per logging
+  * toast.error esplicito su !d.ok (prima era silente): "Errore calcolo metriche affettive"
+  * toast.error su risposta non JSON: "Risposta non valida dal server (status N)"
+  * catch esterno per network error: "Errore di rete"
+- B3: affectStats con tutte le 4 query in Promise.all:
+  * PRIMA: 3 query in Promise.all + 1 query sequenziale (recent) → 2 round-trip DB
+  * ORA: 4 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo)
+  * Verifica: nessun await db.* dopo il Promise.all
+- B5: updateThreshold valida range dei valori:
+  * PRIMA: nessuna validazione — potevano essere persistiti valori fuori range (desperationCritical > 1.0, cooldownMs <= 0, tighteningPct > 1.0)
+  * ORA: throw esplicito su valori fuori range:
+    - desperationCritical/frustrationCritical: deve essere number in [0, 1]
+    - cooldownMs: deve essere number positivo finito (> 0, non Infinity)
+    - tighteningPct: deve essere number in [0, 1]
+  * Boundary values (0 e 1 per critical/pct, 1 per cooldownMs) sono ammessi
+- B6: affectStats aggregation documentato come best-effort:
+  * PRIMA: caricava 100 righe in memoria per calcolare avgDesperation/avgFrustration senza documentazione
+  * ORA: mantiene lo stesso pattern (Prisma non supporta aggregate su "ultimi N per timestamp" in modo efficiente senza subquery), ma documentato come best-effort con commento esplicativo
+  * Per dataset molto grandi (>10k samples), considerare SQL raw con window function
+- Test: 29 nuovi test integration in tests/integration/affect-monitor-faseB.test.ts:
+  * B1 phase11.tsx try/catch: 2 test (codice check, no state clear on error)
+  * B2 phase11.tsx parse-safe: 6 test (B2 comment, try/catch interno, fallback text, toast.error non JSON, toast.error !d.ok, catch esterno network)
+  * B3 affectStats Promise.all: 4 test (5 metriche, B3 comment, no query sequenziali, riflette nuovi samples)
+  * B5 updateThreshold range validation: 11 test (desperation >1, desperation <0, frustration >1, cooldownMs =0, cooldownMs <0, cooldownMs Infinity, tighteningPct >1, tighteningPct <0, valori validi, boundary 0/1, B5 comment)
+  * B6 affectStats aggregation: 3 test (B6 comment, take:100 best-effort, avg coerente)
+  * Smoke: 3 test (B3+B6 stats, B5 validation+compute, B1+B2 codice check)
+
+Stage Summary:
+- 2 file modificati (affect-subsystem.ts, phase11.tsx) + 1 nuovo test file
+- 29 nuovi test integration (tutti passing)
+- 46/46 test totali Affect Monitor passing (17 Fase A + 29 Fase B, 0 regressioni)
+- 266/270 test cross-modulo passing (3 failure preesistenti in affect-steering verificate via git stash, 1 transiente 429 risolta in isolation)
+- 0 TypeScript errors nei file Fase B
+- B1: phase11.tsx refresh robusto (try/catch, preserva stato)
+- B2: phase11.tsx compute robusto (parse-safe + toast.error su !d.ok + catch esterno)
+- B3: affectStats O(1) round-trip invece di O(2)
+- B5: updateThreshold valida range (no valori invalidi persistiti)
+- B6: affectStats aggregation documentato (best-effort avg esplicito)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
