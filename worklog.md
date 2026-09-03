@@ -2315,3 +2315,46 @@ Stage Summary:
   * G4: groundingStats manca failed/pending/sandboxOk metriche
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: MODEL-ENCAPSULATOR-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & effettività)
+
+Work Log:
+- C2: extractScript sanitizzazione completa:
+  * MAX_SCRIPT_SIZE = 10_000 (10KB cap su script estratto)
+  * BLOCKED_KEYWORDS = ['process', 'require', 'fetch', 'global', 'constructor', '__proto__']
+  * Throw esplicito "script too large" se size > cap (DoS protection)
+  * Throw esplicito "blocked keyword X found" se keyword match (RCE protection)
+  * Regex `return` resa non greedy + size limit 5KB (no regex backtracking)
+  * encapsulatedCall ora catcha extractionError → status 'sandbox_blocked' (no crash)
+- C3: POST /api/grounded con requireAdmin (prima era requireAuth):
+  * GET (sessions/stats) resta requireAuth (lettura permessa)
+  * POST (encapsulated_call/update_policy) ora requireAdmin (mutative richiede admin)
+  * Motivo: encapsulated_call esegue LLM call + sandbox (potenziale RCE se N9 fallisce)
+  * Motivo: update_policy modifica EncapsulationPolicy (sandboxEnabled, forbidDirectMutation)
+- C1: encapsulatedCall integrato in executor (non bloccante, fail-open):
+  * Posizione: dopo Context Manager recordToolCall, prima di executeReActLoop
+  * Crea sessione incapsulata stateless con contextData minimale (planId, planGoal, taskId, agentId, description)
+  * Se sandboxOk → inietta sandboxResult come "Grounded inference result" nel ReAct context
+  * Se modelOutput valido → inietta come "Grounded inference hint" (max 500 char)
+  * Se extractionError → status 'sandbox_blocked' (logged ma non blocca)
+  * try/catch globale: se encapsulatedCall fallisce, ReAct loop procede senza context incapsulato (backward compat)
+  * onEvent 'task_encapsulated' emesso con sessionId, status per UI tracking
+- Test: 22 nuovi test integration in tests/integration/model-encapsulator-faseA.test.ts:
+  * C2 extractScript: 8 test (size cap codice check, 6 keyword blocklist, encapsulatedCall no crash)
+  * C3 requireAdmin: 4 test (import, POST vs GET, codice check)
+  * C1 executor integration: 6 test (import, C1 comment, try/catch, task_encapsulated event, context injection, backward compat)
+  * Smoke: 3 test (encapsulatedCall lifecycle, C2 protection, C3 route policy)
+
+Stage Summary:
+- 3 file modificati (grounded-inference.ts, grounded/route.ts, executor.ts) + 1 nuovo test file
+- 22 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 24/24 test Memory Domain (N9 sandbox + memory-domain-core) passanti
+- 0 regressioni: 220/220 test cross-modulo passanti (3 failure transienti 429 rate limit risolte in isolation)
+- C2: extractScript sanitizzato (no RCE/DoS via LLM-generated script)
+- C3: POST /api/grounded requireAdmin (no privilege escalation per policy mutation)
+- C1: encapsulatedCall integrato in executor (encapsulation non più cosmetica a runtime)
+- Prossimo: Fase B (B1+B2+B4+B5+B6) robustezza

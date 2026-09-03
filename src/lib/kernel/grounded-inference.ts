@@ -81,7 +81,15 @@ ${truncatedContext}`
   }
 
   // 4) Estrai eventuale script di parsing dal output
-  const parsedScript = extractScript(modelOutput)
+  // C2 fix: extractScript ora può throware se script è oversized o contiene blocked keyword.
+  // In quel caso, marca la session come 'sandbox_blocked' senza crashare.
+  let parsedScript: string | null = null
+  let extractionError: string | null = null
+  try {
+    parsedScript = extractScript(modelOutput)
+  } catch (e: any) {
+    extractionError = e.message
+  }
 
   // 5) Crea sessione
   const session = await db.encapsulatedSession.create({
@@ -93,9 +101,25 @@ ${truncatedContext}`
       parsedScript: parsedScript ?? undefined,
       sandboxOk: false,
       retryCount: 0,
-      status: parsedScript ? 'pending' : 'executed',
+      // C2 — se extractionError, marca come 'sandbox_blocked' (script non sicuro)
+      status: extractionError ? 'sandbox_blocked' : (parsedScript ? 'pending' : 'executed'),
     },
   })
+
+  // C2 — se extractionError, logga e ritorna sandbox_blocked
+  if (extractionError) {
+    // eslint-disable-next-line no-console
+    console.warn('[grounded-inference] extractScript blocked:', extractionError)
+    return {
+      sessionId: session.id,
+      status: 'sandbox_blocked',
+      modelOutput,
+      parsedScript: undefined,
+      sandboxResult: { error: extractionError },
+      sandboxOk: false,
+      retryCount: 0,
+    }
+  }
 
   // 6) Se c'è uno script e la sandbox è abilitata, eseguilo
   if (parsedScript && policy.sandboxEnabled) {
@@ -156,24 +180,79 @@ async function executeSandbox(script: string, input: unknown): Promise<{ ok: boo
 }
 
 /**
+ * C2 fix (Model Encapsulator audit Fase A): sanitizzazione extractScript.
+ *
+ * PRIMA: extractScript estraeva qualunque contenuto dal fenced code block o dal
+ * match `return`, senza size cap né keyword blocklist. Anche se vm.runInNewContext
+ * blocca `process`/`require` a runtime (sandbox senza questi globals), l'assenza
+ * di size cap esponeva a DoS via parse di script enormi (1MB+), e l'assenza di
+ * blocklist lasciava passare pattern sospetti che potevano sfruttare vulnerabilità
+ * future del sandbox (es. prototype pollution via __proto__).
+ *
+ * ORA:
+ *  - Size cap: 10KB su script estratto (MAX_SCRIPT_SIZE)
+ *  - Keyword blocklist: 6 keyword sospette (BLOCKED_KEYWORDS) → throw se matchano
+ *  - Trim + null-coalescing esplicito (no undefined)
+ *  - Regex `return` reso più stretto (non greedy, max 5KB catturati)
+ */
+const MAX_SCRIPT_SIZE = 10_000
+
+const BLOCKED_KEYWORDS: readonly string[] = [
+  'process',
+  'require',
+  'fetch',
+  'global',
+  'constructor',
+  '__proto__',
+]
+
+/**
  * Estrae uno script di parsing dall'output del modello.
  * Cerca blocchi ```js o ```javascript, oppure una riga che inizia con 'return'.
+ *
+ * C2 — Sanitizza l'output prima di ritornarlo:
+ *  - size cap MAX_SCRIPT_SIZE (throw se superato)
+ *  - blocklist BLOCKED_KEYWORDS (throw se keyword presente)
  */
 function extractScript(output: string): string | null {
+  let rawScript: string | null = null
+
   // Blocco fenced
   const fenced = output.match(/```(?:js|javascript)?\s*\n([\s\S]*?)\n```/)
   if (fenced) {
     const code = fenced[1].trim()
     // Rimuovi 'function(...){...}' wrapper se presente
-    const unwrapped = code.replace(/^function\s*\w*\s*\([^)]*\)\s*\{?/, '').replace(/\}\s*$/, '').trim()
-    return unwrapped
+    rawScript = code.replace(/^function\s*\w*\s*\([^)]*\)\s*\{?/, '').replace(/\}\s*$/, '').trim()
+  } else {
+    // Riga "return ..." — regex non greedy + size limit implicito
+    // (max 5KB catturati per evitare DoS via regex backtracking)
+    const returnMatch = output.match(/^(return\s+[\s\S]{0,5000}?);?\s*$/m)
+    if (returnMatch) {
+      rawScript = returnMatch[1].trim()
+    }
   }
-  // Riga "return ..."
-  const returnMatch = output.match(/^(return\s+[\s\S]+?);?\s*$/m)
-  if (returnMatch) {
-    return returnMatch[1].trim()
+
+  if (rawScript === null) return null
+
+  // C2 — Size cap
+  if (rawScript.length > MAX_SCRIPT_SIZE) {
+    throw new Error(
+      `extractScript: script too large (${rawScript.length} bytes, max ${MAX_SCRIPT_SIZE}). ` +
+      `Possible DoS via LLM-generated oversized script.`
+    )
   }
-  return null
+
+  // C2 — Keyword blocklist
+  for (const keyword of BLOCKED_KEYWORDS) {
+    if (rawScript.includes(keyword)) {
+      throw new Error(
+        `extractScript: blocked keyword "${keyword}" found in script. ` +
+        `Possible RCE attempt via LLM-generated script.`
+      )
+    }
+  }
+
+  return rawScript
 }
 
 /**

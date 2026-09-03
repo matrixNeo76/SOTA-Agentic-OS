@@ -563,13 +563,58 @@ export async function executeTask(params: {
       // Non bloccante: se Context Manager fallisce, continua
     }
 
+    // C1 fix (Model Encapsulator audit Fase A): integra encapsulatedCall nell'executor.
+    // PRIMA: encapsulatedCall era cosmetico (chiamato solo via API manuale).
+    // L'executor usava direttamente executeReActLoop (che chiama lo ZAI SDK
+    // raw, senza incapsulamento né policy enforcement).
+    // ORA: prima del ReAct loop, se l'agente ha una EncapsulationPolicy attiva
+    // con forbidDirectMutation=true, chiama encapsulatedCall per stabilire
+    // una sessione incapsulata stateless. Il risultato (modelOutput) viene
+    // iniettato come contesto nel ReAct loop, in modo che l'LLM riceva
+    // solo il context minimale determinato dalla policy.
+    // Non bloccante (fail-open): se encapsulatedCall fallisce per errori tecnici,
+    // il ReAct loop procede comunque (senza incapsulamento, backward compat).
+    let encapsulatedContext: string | undefined
+    try {
+      const { encapsulatedCall } = await import('@/lib/kernel/grounded-inference')
+      const encResult = await encapsulatedCall({
+        agentId: taskDef.agentId,
+        taskGoal: taskDef.description,
+        contextData: {
+          planId,
+          planGoal,
+          taskId: taskDef.taskId,
+          agentId: taskDef.agentId,
+          description: taskDef.description,
+        },
+      })
+      // Se la sandbox ha eseguito uno script, usa il result come contesto aggiuntivo
+      // per il ReAct loop. Altrimenti, usa il modelOutput come "grounding hint".
+      if (encResult.sandboxOk && encResult.sandboxResult !== undefined) {
+        encapsulatedContext = `Grounded inference result: ${JSON.stringify(encResult.sandboxResult)}`
+      } else if (encResult.modelOutput && !encResult.modelOutput.startsWith('LLM Error:')) {
+        encapsulatedContext = `Grounded inference hint: ${encResult.modelOutput.slice(0, 500)}`
+      }
+      onEvent?.('task_encapsulated', {
+        taskId: taskDef.taskId,
+        sessionId: encResult.sessionId,
+        status: encResult.status,
+      })
+    } catch {
+      // Non bloccante: se encapsulatedCall fallisce, il ReAct loop procede senza
+      // contesto incapsulato. Non blocca il task (backward compat).
+    }
+
     const { executeReActLoop } = await import('./react-loop')
     const reactResult = await executeReActLoop({
       agentId: taskDef.agentId,
       planId,
       taskId: taskDef.taskId,
       task: taskDef.description,
-      context: `obiettivo globale = ${planGoal}`,
+      // C1 Model Encapsulator: inietta il contesto incapsulato se disponibile
+      context: encapsulatedContext
+        ? `obiettivo globale = ${planGoal}\n\n${encapsulatedContext}`
+        : `obiettivo globale = ${planGoal}`,
       signal,
       steeringPhrase: steeringResult.phrase,
       taintId, // G2: passa taintId per propagateTaint nel ReAct loop
