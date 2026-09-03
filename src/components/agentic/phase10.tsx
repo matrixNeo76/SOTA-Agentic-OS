@@ -66,29 +66,53 @@ export function Phase10() {
  const runCall = async () => {
  let ctx: unknown
  try { ctx = JSON.parse(contextData) } catch { toast.error('Context data non è JSON valido'); return }
+ try {
  const r = await fetch('/api/grounded', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'encapsulated_call', agentId, taskGoal, contextData: ctx }),
  })
- const d = await r.json()
+ // G3 fix (Model Encapsulator audit Fase C): parse-safe su r.json().
+ // PRIMA: se la risposta non era JSON valido (es. 500 con body HTML, 502 gateway),
+ // r.json() throwava e il catch esterno mostrava solo "Unexpected token <".
+ // ORA: parse-safe con fallback a text() per logging migliore.
+ let d: any
+ try {
+ d = await r.json()
+ } catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase10] runCall: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (d.ok) {
  if (d.status === 'sandbox_blocked') toast.warning('Sandbox ha bloccato lo script')
  else if (d.parsedScript) toast.success('Script generato e eseguito in sandbox ✓')
  else toast.success('Chiamata incapsulata completata (no script)')
  refresh()
  } else toast.error(d.error)
+ } catch (e: any) {
+ // G3 — Network error o fetch throw (es. CORS, DNS failure)
+ toast.error(e.message || 'Errore di rete')
+ // eslint-disable-next-line no-console
+ console.error('[phase10] runCall fetch failed:', e)
+ }
  }
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase10" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase10" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Model Encapsulator"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-7 gap-3" role="status" aria-live="polite" aria-label="Statistiche Model Encapsulator">
  <StatCard label="Sessioni" value={stats.sessions} />
  <StatCard label="Eseguite" value={stats.executed} highlight />
- <StatCard label="Sandbox block" value={stats.sandboxBlocked} warn={stats.sandboxBlocked > 0} />
+ <StatCard label="Sandbox block" value={stats.sandboxBlocked} warn={(stats.sandboxBlocked ?? 0) > 0} />
+ {/* G4 — nuove stat card con metriche aggiuntive */}
+ <StatCard label="Fallite" value={stats.failed ?? 0} warn={(stats.failed ?? 0) > 0} />
+ <StatCard label="Pending" value={stats.pending ?? 0} warn={(stats.pending ?? 0) > 0} />
+ <StatCard label="Sandbox OK" value={stats.sandboxOk ?? 0} highlight />
  <StatCard label="Policy" value={stats.policies} />
  </div>
  )}
@@ -126,7 +150,7 @@ export function Phase10() {
  Il contesto viene troncato al budget di token configurato (default 2000).
  </p>
  </div>
- <Button size="sm" onClick={runCall}>
+ <Button size="sm" onClick={runCall} aria-label="Esegui chiamata incapsulata LLM">
  <Play className="size-3.5 mr-1.5" /> Esegui Encapsulated Call
  </Button>
  </CardContent>
@@ -185,9 +209,9 @@ export function Phase10() {
 function StatCard({ label, value, highlight, warn }: { label: string; value: number | string; highlight?: boolean; warn?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')}>{value}</div>
+ <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )

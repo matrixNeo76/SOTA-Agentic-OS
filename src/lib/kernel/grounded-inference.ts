@@ -398,12 +398,31 @@ export async function listSessions(agentId?: string, limit = 30) {
   })
 }
 
+/**
+ * G4 fix (Model Encapsulator audit Fase C): groundingStats con metriche aggiuntive.
+ *
+ * PRIMA: ritornava solo 4 metriche (sessions, executed, sandboxBlocked, policies).
+ * Mancavano: failed, pending, sandboxOk — metriche essenziali per capire se ci
+ * sono sessioni non completate o script che falliscono la sandbox.
+ *
+ * ORA: tutte le 7 metriche in un unico Promise.all (1 round-trip DB):
+ *  - sessions (totali)
+ *  - executed (status='executed')
+ *  - sandboxBlocked (status='sandbox_blocked')
+ *  - failed (status='failed')
+ *  - pending (status='pending')
+ *  - sandboxOk (sandboxOk=true)
+ *  - policies (EncapsulationPolicy count)
+ */
 export async function groundingStats() {
-  const [sessions, executed, sandboxBlocked, policies] = await Promise.all([
+  const [sessions, executed, sandboxBlocked, failed, pending, sandboxOk, policies] = await Promise.all([
     db.encapsulatedSession.count(),
     db.encapsulatedSession.count({ where: { status: 'executed' } }),
     db.encapsulatedSession.count({ where: { status: 'sandbox_blocked' } }),
+    db.encapsulatedSession.count({ where: { status: 'failed' } }),
+    db.encapsulatedSession.count({ where: { status: 'pending' } }),
+    db.encapsulatedSession.count({ where: { sandboxOk: true } }),
     db.encapsulationPolicy.count(),
   ])
-  return { sessions, executed, sandboxBlocked, policies }
+  return { sessions, executed, sandboxBlocked, failed, pending, sandboxOk, policies }
 }

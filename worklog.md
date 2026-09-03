@@ -2412,3 +2412,53 @@ Stage Summary:
 - B5: simulateLLMOutput safe (no DB bloat via fallback)
 - B6: dead import rimosso (codebase pulita)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: MODEL-ENCAPSULATOR-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G4: groundingStats con 3 metriche aggiuntive (failed, pending, sandboxOk):
+  * PRIMA: solo 4 metriche (sessions, executed, sandboxBlocked, policies)
+  * ORA: 7 metriche in un unico Promise.all (1 round-trip DB)
+  * failed (status='failed') → sessioni che non sono state completate
+  * pending (status='pending') → sessioni in attesa di sandbox execution
+  * sandboxOk (sandboxOk=true) → script eseguiti con successo nella sandbox
+- G3: phase10.tsx runCall parse-safe:
+  * PRIMA: r.json() poteva throware su risposta non JSON (500 con body HTML, 502 gateway)
+  * ORA: try/catch interno su r.json() + fallback a r.text() per logging
+  * toast.error "Risposta non valida dal server (status N)" user-friendly
+  * console.error con status code e body snippet per debug
+  * catch esterno per network error (fetch throw: CORS, DNS failure)
+- G2: phase10.tsx a11y:
+  * aria-label su 2 button: Aggiorna, Esegui Encapsulated Call
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Model Encapsulator")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value "{label}: {value}"
+  * Stats grid aggiornata da 4 a 7 card (G4: aggiunte Fallite, Pending, Sandbox OK)
+- G1: Unit test per extractScript/getOrCreatePolicy/updatePolicy/groundingStats in isolamento:
+  * extractScript: estrazione da fenced code block, da riga return, no script → null, size cap, BLOCKED_KEYWORDS
+  * getOrCreatePolicy: crea policy con default values (maxRetries=3, contextBudget=2000, sandboxEnabled=true), riusa policy esistente (no duplicati)
+  * updatePolicy: upsert crea se non esiste, aggiorna se esiste, non sovrascrive campi non specificati
+  * groundingStats: ritorna tutte le 7 metriche, riflette nuove sessioni, usa Promise.all (7 query in 1 round-trip)
+- Test: 31 nuovi test integration in tests/integration/model-encapsulator-faseC.test.ts:
+  * G1 extractScript: 5 test (fenced, return, no script, size cap, blocked keywords)
+  * G1 getOrCreatePolicy/updatePolicy: 5 test (default values, riuso, upsert create, upsert update, partial update)
+  * G1+G4 groundingStats: 3 test (7 metriche, riflette sessioni, Promise.all single round-trip)
+  * G4 metriche aggiuntive: 5 test (G4 comment, failed, pending, sandboxOk, query where)
+  * G2 phase10.tsx a11y: 5 test (Aggiorna aria-label, role=status, Esegui aria-label, StatCard role=group, 7 stat card)
+  * G3 phase10.tsx parse-safe: 5 test (G3 comment, try/catch interno, fallback text, toast.error, catch esterno)
+  * Smoke: 3 test (lifecycle stats 7 metriche, a11y+parse-safe completi, 7 metriche coerenti)
+
+Stage Summary:
+- 2 file modificati (grounded-inference.ts, phase10.tsx) + 1 nuovo test file
+- 31 nuovi test integration (tutti passing)
+- 84/84 test totali Model Encapsulator passing (22 Fase A + 21 Fase B + 31 Fase C, 0 regressioni)
+- 226/226 test cross-modulo passing (0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G4: groundingStats con 7 metriche (failed, pending, sandboxOk aggiunte)
+- G3: phase10.tsx runCall parse-safe (try/catch interno + catch esterno)
+- G2: phase10.tsx accessibile (aria-label su button, role=status su stats grid, 7 stat card)
+- G1: 13 unit test per extractScript/getOrCreatePolicy/updatePolicy/groundingStats (coverage specifica)
+- MODULO MODEL ENCAPSULATOR COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
