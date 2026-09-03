@@ -2462,3 +2462,36 @@ Stage Summary:
 - G1: 13 unit test per extractScript/getOrCreatePolicy/updatePolicy/groundingStats (coverage specifica)
 - MODULO MODEL ENCAPSULATOR COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: AFFECT-MONITOR-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Affect Monitor (F11)
+
+Work Log:
+- Analizzati 3 file: affect-subsystem.ts (211 LOC), api/affect/route.ts (95), phase11.tsx (209)
+- Verificati consumer runtime: NESSUNO (computeAffect non chiamato da executor/react-loop; dashboard usa solo affectStats)
+- Verificata coverage test: 12 test (8 affect-steering.test su decideStrategy in acts.ts, 4 learn-domain-core smoke su computeAffect)
+- Verificati fix preesistenti dal Learn Domain Fase 1 audit: N2 (requireAdmin su update_threshold), N6 (DB-backed cycleId), N10 (adaptive polling)
+- Verificato race condition cycleId N6 fix: 2 computeAffect simultanee leggono sampleCount=N prima del persist → stessa cycleId
+- Compilato report in docs/AFFECT-MONITOR-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: computeAffect non integrato nell'executor (death spiral prevention cosmetica)
+  * C2: cycleId N6 fix ha race condition (collisioni multi-istanza su computeAffect simultanee)
+  * C3: intervention string persistita senza size cap (DB bloat risk)
+- 6 bug medi (B1-B6):
+  * B1: phase11.tsx refresh() senza try/catch su fetch
+  * B2: phase11.tsx compute() senza error handling (r.json throw + no toast.error su !d.ok)
+  * B3: affectStats 4 query (3 in Promise.all + 1 sequenziale) invece di 4 in Promise.all
+  * B4: decideIntervention produce stringa cosmetica (nessun consumer esegue tightening/cooldown)
+  * B5: updateThreshold non valida range (desperationCritical > 1.0, cooldownMs <= 0)
+  * B6: affectStats recent aggregation inefficiente (100 righe in memoria vs SQL aggregate)
+- 4 gap funzionali (G1-G4):
+  * G1: zero unit test per decideIntervention/getOrCreateThreshold/updateThreshold/affectStats in isolamento
+  * G2: phase11.tsx nessun a11y (aria-label, role=status)
+  * G3: phase11.tsx compute non ha parse-safe su r.json()
+  * G4: affectStats manca interventionRate/peak/agentsInCriticalState
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
