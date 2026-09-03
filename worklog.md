@@ -2282,3 +2282,36 @@ Stage Summary:
 - G1: 21 unit test per sovereign-translator.ts (0 → 21 test coverage specifici)
 - MODULO DELEGATION HITL AUDIT COMPLETATO (Fasi A+B+C)
 - Tutti i 12 item dell'audit risolti (3 C + 5 B + 4 G)
+
+---
+Task ID: MODEL-ENCAPSULATOR-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Model Encapsulator (F10)
+
+Work Log:
+- Analizzati 3 file: grounded-inference.ts (258 LOC), api/grounded/route.ts (54), phase10.tsx (181)
+- Verificati consumer runtime: NESSUNO (encapsulatedCall non chiamato da executor/react-loop)
+- Verificata coverage test: 10 test (6 unit memory-domain-core + 4 integration learn-domain-fase2 N9)
+- Verificati fix preesistenti dal Memory Domain Fase 1/2 audit: C1/N9 (vm.runInNewContext), B7 (adaptive polling)
+- Verificato extractScript con input malevoli: RCE patterns non sanitizzati (process/constructor pass-through)
+- Compilato report in docs/MODEL-ENCAPSULATOR-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: encapsulatedCall non integrato nell'executor (cosmetico a runtime)
+  * C2: extractScript non ha sanitizzazione (size cap + keyword blocklist)
+  * C3: POST /api/grounded usa requireAuth invece di requireAdmin (privilege escalation)
+- 6 bug medi (B1-B6):
+  * B1: modelOutput/parsedScript/sandboxResult senza size cap (DB bloat)
+  * B2: phase10.tsx refresh() senza try/catch su fetch
+  * B3: parsedScript ?? undefined (TypeScript null vs undefined, minor)
+  * B4: encapsulatedCall ignora policy.maxRetries (retry logic cosmetica)
+  * B5: simulateLLMOutput non tronca taskGoal (DB bloat via fallback)
+  * B6: runPipeline importato ma mai usato (dead import)
+- 4 gap funzionali (G1-G4):
+  * G1: zero test specifici per extractScript/executeSandbox in isolamento
+  * G2: phase10.tsx nessun a11y (aria-label, role=status)
+  * G3: phase10.tsx runCall non ha error handling su r.json()
+  * G4: groundingStats manca failed/pending/sandboxOk metriche
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
