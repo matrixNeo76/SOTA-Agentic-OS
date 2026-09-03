@@ -2639,3 +2639,37 @@ Stage Summary:
 - G1: 17 unit test per decideIntervention/getOrCreateThreshold/affectHistory/affectStats (coverage specifica)
 - MODULO AFFECT MONITOR COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: OBJECTIVE-BUILDER-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Objective Builder (F12)
+
+Work Log:
+- Analizzati 3 file: agent-objective.ts (255 LOC), api/objective/route.ts (64), phase12.tsx (267)
+- Verificati consumer runtime: NESSUNO (createObjectiveTree non chiamato da executor/scheduler; dashboard usa solo objectiveStats)
+- Verificata coverage test: 2 test smoke in learn-domain-core (objectiveStats struttura + listTrees array)
+- Verificati fix preesistenti: B1 Plan Domain (try/catch su loadTree/createTree/evalNode), G5 Insights (vista grafo ObjectiveTreeVisualizer), adaptive polling
+- Verificato ARCHITECTURE.md: F12 marcato come "stub LLM" ma generateSubGoal ha ZAI SDK call + fallback deterministico
+- Verificato DB state: 0 ObjectiveTree, 0 ObjectiveNode (mai usato a runtime)
+- Compilato report in docs/OBJECTIVE-BUILDER-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: createObjectiveTree non integrato nell'executor (decomposizione automatica cosmetica)
+  * C2: generateSubGoal LLM call senza retry né size cap su output (rate limit failure + DB bloat)
+  * C3: POST /api/objective usa requireAuth invece di requireAdmin (privilege escalation su evaluate_node)
+- 6 bug medi (B1-B6):
+  * B1: objectiveStats 3 query in Promise.all + 2 sequenziali (3 round-trip invece di 1)
+  * B2: phase12.tsx refresh() senza try/catch (loadTree/createTree/evalNode hanno già B1 Plan Domain fix)
+  * B3: skipDescendants ricorsiva senza depth guard (stack overflow risk su cicli parentId)
+  * B4: generateTreeStructure non persiste progressivamente (crash mid-generation → tree drafted con 0 nodi) — rimandato, documentato come known limitation
+  * B5: evaluateNode non valida status enum a runtime (qualunque stringa persistita)
+  * B6: evidence JSON.stringify senza size cap (DB bloat risk)
+- 4 gap funzionali (G1-G4):
+  * G1: zero unit test per generateTreeStructure/evaluateNode/skipDescendants in isolamento
+  * G2: phase12.tsx nessun a11y (aria-label, role=status)
+  * G3: phase12.tsx createTree/evalNode/loadTree non hanno parse-safe su r.json()
+  * G4: objectiveStats manca passRate/avgNodesPerTree/avgMaxDepth/completionRate
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
