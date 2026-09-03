@@ -134,7 +134,24 @@ export async function generateTreeStructure(rootGoal: string): Promise<Objective
 
 /**
  * Genera un sotto-obiettivo testuale usando LLM con fallback deterministico.
+ *
+ * C2 fix (Objective Builder audit Fase A): retry logic + size cap su output.
+ * PRIMA: se la prima chiamata LLM falliva (rate limit 429, timeout), ritornava
+ * subito il fallback. Inoltre l'output LLM non aveva size cap → poteva ritornare
+ * 10KB anche se il system prompt chiedeva "max 80 chars" → DB bloat.
+ * ORA:
+ *  - Retry logic: max 2 retry (3 tentativi totali) con backoff 100ms * attempt
+ *  - Size cap: MAX_SUBGOAL_SIZE = 200 char, tronca con marker [truncated]
+ *  - Rispetta il system prompt "max 80 chars" troncando a 200 (margine difensivo)
  */
+const MAX_SUBGOAL_SIZE = 200
+const MAX_SUBGOAL_RETRIES = 2
+
+function truncateSubGoal(value: string): string {
+  if (value.length <= MAX_SUBGOAL_SIZE) return value
+  return value.slice(0, MAX_SUBGOAL_SIZE) + '...[truncated]'
+}
+
 async function generateSubGoal(parentGoal: string, branchIdx: number, depth: number): Promise<string> {
   const dimensions = [
     ['correttezza', 'completezza', 'efficienza'],
@@ -148,21 +165,39 @@ async function generateSubGoal(parentGoal: string, branchIdx: number, depth: num
   const dim = dimensions[tier][branchIdx % 3]
   const fallback = `Verifica ${dim} di: ${parentGoal.slice(0, 60)}`
 
-  // Try LLM, fall back to deterministic
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'You are an objective decomposition engine. Given a parent goal, generate a concise sub-goal (max 80 chars). Output ONLY the sub-goal text, nothing else.' },
-        { role: 'user', content: `Parent goal: "${parentGoal}"\nDimension: ${dim}\nDepth: ${depth}\nGenerate a specific, actionable sub-goal.` },
-      ],
-    })
-    const output = completion.choices[0]?.message?.content?.trim()
-    return output || fallback
-  } catch {
-    return fallback
+  // C2 — Retry loop: max MAX_SUBGOAL_RETRIES + 1 tentativi (3 totali)
+  const maxAttempts = MAX_SUBGOAL_RETRIES + 1
+  let lastError: string | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const ZAI = (await import('z-ai-web-dev-sdk')).default
+      const zai = await ZAI.create()
+      const completion = await zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are an objective decomposition engine. Given a parent goal, generate a concise sub-goal (max 80 chars). Output ONLY the sub-goal text, nothing else.' },
+          { role: 'user', content: `Parent goal: "${parentGoal}"\nDimension: ${dim}\nDepth: ${depth}\nGenerate a specific, actionable sub-goal.` },
+        ],
+      })
+      const output = completion.choices[0]?.message?.content?.trim()
+      if (output) {
+        // C2 — Size cap su output LLM (200 char + marker)
+        return truncateSubGoal(output)
+      }
+      lastError = 'Empty LLM output'
+    } catch (e: any) {
+      lastError = e.message
+      // Se non è l'ultimo tentativo, logga e riprova con backoff
+      if (attempt < maxAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[agent-objective] generateSubGoal attempt ${attempt}/${maxAttempts} failed: ${lastError}. Retrying...`)
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+      }
+    }
   }
+
+  // Tutti i tentativi falliti → fallback deterministico
+  return fallback
 }
 
 /**

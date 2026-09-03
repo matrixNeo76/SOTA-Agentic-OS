@@ -2673,3 +2673,45 @@ Stage Summary:
   * G4: objectiveStats manca passRate/avgNodesPerTree/avgMaxDepth/completionRate
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: OBJECTIVE-BUILDER-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & effettività)
+
+Work Log:
+- C2: generateSubGoal retry logic + size cap su output:
+  * PRIMA: se la prima chiamata LLM falliva (rate limit 429, timeout), ritornava subito il fallback. Output LLM non aveva size cap → poteva ritornare 10KB anche se system prompt chiedeva "max 80 chars"
+  * ORA: MAX_SUBGOAL_SIZE = 200 char, MAX_SUBGOAL_RETRIES = 2 (3 tentativi totali)
+  * Retry loop con backoff esponenziale: 100ms * attempt
+  * truncateSubGoal() helper: tronca con marker [truncated] se > 200 char
+  * console.warn ad ogni retry fallito per debug
+  * Se tutti i tentativi falliscono → fallback deterministico (come prima)
+- C3: POST /api/objective con requireAdmin (prima era requireAuth):
+  * GET (tree/list/stats) resta requireAuth (lettura permessa)
+  * POST (create_tree/evaluate_node) ora requireAdmin (mutative)
+  * Motivo: create_tree esegue BFS con N LLM calls + crea alberi nel DB
+  * Motivo: evaluate_node modifica stato nodi (pass/fail) + skipDescendants + checkTreeCompletion
+- C1: createObjectiveTree integrato in executePlan (Phase 1.5, pre-batch loop):
+  * PRIMA: createObjectiveTree era cosmetico (chiamato solo via API manuale), executor non decomposeva il planGoal in rubric tree
+  * ORA: prima del batch loop, crea un objective tree per il planGoal
+  * Non bloccante (fail-open): se createObjectiveTree fallisce (LLM error, DB error), il piano procede senza rubric tree
+  * onEvent 'objective_tree_created' per UI tracking (treeId, totalNodes, maxDepth)
+  * ExecutorResult interface estesa con objectiveTreeId opzionale
+  * Return di executePlan include objectiveTreeId se tree creato
+- Test: 20 nuovi test integration in tests/integration/objective-builder-faseA.test.ts:
+  * C2 generateSubGoal retry+cap: 6 test (C2 comment, truncateSubGoal helper, retry loop, backoff, size cap su nodi, fallback deterministico)
+  * C3 requireAdmin: 4 test (import, POST vs GET, codice check)
+  * C1 executor integration: 7 test (import, C1 comment, try/catch, objective_tree_created event, ExecutorResult field, return field, executePlan crea tree)
+  * Smoke: 3 test (lifecycle tree+stats, executePlan non blocca, route policy)
+
+Stage Summary:
+- 3 file modificati (agent-objective.ts, objective/route.ts, executor.ts) + 1 nuovo test file
+- 20 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 43/43 test learn-domain-core + plan-domain-core passanti
+- 0 regressioni: 337/337 test cross-modulo passanti (0 failure, anche transienti)
+- C2: generateSubGoal robusto (retry + size cap, no rate limit failure, no DB bloat)
+- C3: POST /api/objective requireAdmin (no privilege escalation su evaluate_node)
+- C1: createObjectiveTree integrato in executePlan (decomposizione automatica non più cosmetica)
+- Prossimo: Fase B (B1+B2+B3+B5+B6) robustezza

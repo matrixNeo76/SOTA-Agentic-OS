@@ -1,10 +1,22 @@
 /**
  * API: /api/objective (Fase 12 - AgentObjective)
+ *
+ * C3 fix (Objective Builder audit Fase A): auth policy allineata con altre API mutative.
+ * PRIMA: sia GET che POST usavano requireAuth → qualsiasi viewer autenticato poteva:
+ *  - innescare BFS con multiple LLM calls (cost reale) via create_tree
+ *  - marcare nodi come pass/fail via evaluate_node (manipolazione valutazione)
+ * ORA:
+ *  - GET (tree/list/stats) richiede requireAuth (lettura)
+ *  - POST (create_tree/evaluate_node) richiede requireAdmin (mutative)
+ *    perché:
+ *    * create_tree esegue BFS con N LLM calls + crea alberi nel DB
+ *    * evaluate_node modifica stato nodi (pass/fail) + skipDescendants + checkTreeCompletion
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createObjectiveTree, getObjectiveTree, evaluateNode, objectiveStats, listTrees } from '@/lib/kernel/agent-objective'
 import { publishAgentEvent } from '@/lib/ws-publish'
 import { requireAuth } from '@/lib/auth/require-auth'
+import { requireAdmin } from '@/lib/auth/require-admin'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
@@ -33,7 +45,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req)
+  // C3 — POST mutative richiede requireAdmin (prima era requireAuth)
+  const auth = await requireAdmin(req)
   if (!auth.ok) return auth.response
   const body = await req.json()
   const { action } = body

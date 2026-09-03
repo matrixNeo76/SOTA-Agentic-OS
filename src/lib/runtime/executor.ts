@@ -64,6 +64,7 @@ export interface ExecutorResult {
   }
   errors: Array<{ type: string; message: string; phase: string }>
   resumed: boolean // true se è stato un recovery
+  objectiveTreeId?: string // C1 fix Objective Builder: tree creato per questo piano
 }
 
 export interface ExecutorOptions {
@@ -829,6 +830,34 @@ export async function executePlan(params: {
     }
   }
 
+  // === Phase 1.5: Objective Tree decomposition (C1 fix Objective Builder) ===
+  // C1 fix (Objective Builder audit Fase A): integra createObjectiveTree in executePlan.
+  // PRIMA: createObjectiveTree era cosmetico (chiamato solo via API manuale).
+  // L'executor non decomposeva il planGoal in rubric tree → nessuna valutazione
+  // gerarchica Pass/Fail durante l'esecuzione.
+  // ORA: prima del batch loop, crea un objective tree per il planGoal.
+  // L'albero fornisce criteri di successo densi (BFS rubric) che potrebbero
+  // essere usati per valutare il risultato del piano (in futuro).
+  // Non bloccante (fail-open): se createObjectiveTree fallisce, il piano procede.
+  // Evita duplicati: salta se esiste già un tree con stesso rootGoal (cache implicita).
+  let objectiveTreeId: string | undefined
+  try {
+    const { createObjectiveTree } = await import('@/lib/kernel/agent-objective')
+    // C1 — crea albero una volta per piano (non per task)
+    // Il tree viene persistito e può essere recuperato via API per visualizzazione
+    const treeResult = await createObjectiveTree(plan.goal)
+    objectiveTreeId = treeResult.treeId
+    onEvent?.('objective_tree_created', {
+      planId,
+      treeId: treeResult.treeId,
+      totalNodes: treeResult.totalNodes,
+      maxDepth: treeResult.maxDepth,
+    })
+  } catch {
+    // Non bloccante: se createObjectiveTree fallisce (LLM error, DB error),
+    // il piano procede senza rubric tree (backward compat)
+  }
+
   // === Phase 2: Task execution per batch ===
   // WS1.5c — Dispatch parallelo dentro il batch (task indipendenti)
   // topologicalBatches garantisce che i task nello stesso batch non hanno dipendenze reciproche.
@@ -994,6 +1023,7 @@ export async function executePlan(params: {
     summary,
     errors,
     resumed,
+    objectiveTreeId, // C1 fix Objective Builder: tree creato in Phase 1.5
   }
 }
 
