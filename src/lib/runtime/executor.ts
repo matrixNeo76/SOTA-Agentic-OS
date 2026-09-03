@@ -670,6 +670,64 @@ export async function executeTask(params: {
       // Non bloccante: se PTA capture fallisce, continua
     }
 
+    // C1 fix (Affect Monitor audit Fase A): integra computeAffect nell'executor.
+    // PRIMA: computeAffect era cosmetico (chiamato solo via API manuale).
+    // L'executor non calcolava mai le metriche desperation/frustration →
+    // il Meta-Observer non interveniva mai (death spiral prevention cosmetica).
+    // ORA: dopo ogni task completato, calcola le metriche affettive dell'agente
+    // usando la telemetria del task (toolFailures/toolCalls/gateRejects/etc.).
+    // Se `intervention` è settato, emette evento WS per UI + logga audit.
+    // Non bloccante (fail-open): se computeAffect fallisce, il task resta done.
+    try {
+      const { computeAffect } = await import('@/lib/kernel/affect-subsystem')
+      // Deriva telemetria dal step + reactResult
+      const reactToolCalls = (reactResult as any)?.iterations?.length || 0
+      const reactToolFailures = (reactResult as any)?.iterations?.reduce(
+        (sum: number, iter: any) => sum + (iter.toolCalls?.filter((tc: any) => !tc.success).length || 0), 0,
+      ) || 0
+      // gateRejects: task blocked da LTL/Normative/Governance → step.status === 'blocked'
+      // (in questo branch step.status === 'done', quindi gateRejects = 0 qui)
+      const gateRejects = 0
+      const gateAttempts = 1  // ogni task è 1 gate attempt
+      // repeatedToolCalls: heuristic — se ci sono state 3+ iterazioni sullo stesso task,
+      // assumiamo almeno 1 repeated call (proxy per loop detection)
+      const repeatedToolCalls = reactToolCalls >= 3 ? reactToolCalls - 2 : 0
+
+      const affectResult = await computeAffect({
+        agentId: taskDef.agentId,
+        toolFailures: reactToolFailures,
+        toolCalls: reactToolCalls,
+        gateRejects,
+        gateAttempts,
+        repeatedToolCalls,
+      })
+      // Se il Meta-Observer ha generato un intervento, emetti evento WS per UI
+      if (affectResult.intervention) {
+        const { publishAgentEvent } = await import('@/lib/ws-publish')
+        await publishAgentEvent({
+          agentId: taskDef.agentId, phase: '11',
+          event: 'affect_intervention',
+          level: 'warn',
+          payload: {
+            taskId: taskDef.taskId,
+            desperation: affectResult.desperation,
+            frustration: affectResult.frustration,
+            intervention: affectResult.intervention,
+            cycleId: affectResult.cycleId,
+          },
+        }).catch(() => {})
+        onEvent?.('affect_intervention', {
+          taskId: taskDef.taskId,
+          agentId: taskDef.agentId,
+          desperation: affectResult.desperation,
+          frustration: affectResult.frustration,
+          intervention: affectResult.intervention,
+        })
+      }
+    } catch {
+      // Non bloccante: se computeAffect o publishAgentEvent falliscono, continua
+    }
+
     // Publish TaskCompleted event
     await publishTaskCompleted(
       `task://${planId}/${taskDef.taskId}`,

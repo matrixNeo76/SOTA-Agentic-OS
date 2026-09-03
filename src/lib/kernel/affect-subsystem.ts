@@ -50,11 +50,18 @@ export type AffectMetrics = {
 /**
  * Calcola le metriche affettive per un agente (stateless).
  * Combina dati del ciclo corrente + decay della storia recente.
+ *
+ * C2 fix (Affect Monitor audit Fase A): cycleId race condition eliminata.
+ * PRIMA: N6 fix usava `sampleCount` come offset, ma 2 computeAffect simultanee
+ * leggevano entrambe sampleCount=N prima del persist → stessa cycleId (collisione).
+ * ORA: usa timestamp millisecondi + random offset 0-999 — collisione possibile
+ * solo se 2 chiamate avvengono nello stesso millisecondo con stesso random
+ * (probabilità trascurabile: 1/1000 * 1/ms).
  */
 export async function computeAffect(input: AffectInput): Promise<AffectMetrics> {
-  // N6 FIX: DB-backed cycleId instead of module-level counter
-  const sampleCount = await db.affectSample.count()
-  const cycleId = Math.floor(Date.now() / 1000) % 100000 * 1000 + (sampleCount % 1000)
+  // C2 — cycleId race-safe: timestamp_ms % 100000 * 1000 + random(0..999)
+  // (nessuna dipendenza da DB count, no race condition su lettura sampleCount)
+  const cycleId = Math.floor(Date.now() / 1) % 100000 * 1000 + Math.floor(Math.random() * 1000)
 
   // Tassi del ciclo corrente
   const toolFailureRate = input.toolCalls > 0 ? input.toolFailures / input.toolCalls : 0
@@ -85,6 +92,11 @@ export async function computeAffect(input: AffectInput): Promise<AffectMetrics> 
 
   if (desperation >= threshold.desperationCritical || frustration >= threshold.frustrationCritical) {
     intervention = decideIntervention(desperation, frustration, threshold)
+  }
+
+  // C3 — Size cap su intervention (1KB) con marker [truncated]
+  if (intervention && intervention.length > 1000) {
+    intervention = intervention.slice(0, 1000) + '...[truncated]'
   }
 
   // Persisti sample

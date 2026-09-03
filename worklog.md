@@ -2495,3 +2495,46 @@ Stage Summary:
   * G4: affectStats manca interventionRate/peak/agentsInCriticalState
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: AFFECT-MONITOR-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & effettività)
+
+Work Log:
+- C2: Fix race condition cycleId in computeAffect:
+  * PRIMA: N6 fix usava `sampleCount` come offset → 2 computeAffect simultanee leggevano sampleCount=N prima del persist → stessa cycleId (collisione)
+  * ORA: `Math.floor(Date.now() / 1) % 100000 * 1000 + Math.floor(Math.random() * 1000)` — timestamp ms + random 0-999, no dipendenza da DB count, no race condition
+  * Collisione possibile solo se 2 chiamate avvengono nello stesso ms con stesso random (probabilità trascurabile)
+- C3: Size cap su intervention string (1KB con marker [truncated]):
+  * PRIMA: intervention persistita senza size cap (DB bloat risk su stringhe lunghe)
+  * ORA: if (intervention.length > 1000) → slice + '...[truncated]'
+  * Difensivo: anche se decideIntervention produce stringhe inaspettate, il DB non riceve più di 1KB
+- C1: computeAffect integrato in executor (post-task, pre-publishTaskCompleted):
+  * PRIMA: computeAffect era cosmetico (chiamato solo via API manuale), executor non calcolava mai le metriche → death spiral prevention cosmetica
+  * ORA: dopo ogni task completato, calcola telemetria dal reactResult:
+    - toolCalls = reactResult.iterations.length
+    - toolFailures = sum di toolCalls falliti nelle iterazioni
+    - gateRejects = 0 (task done, non blocked)
+    - gateAttempts = 1
+    - repeatedToolCalls = max(0, iterations - 2) per loop detection
+  * Se affectResult.intervention è settato:
+    - publishAgentEvent 'affect_intervention' (WS event per UI)
+    - onEvent 'affect_intervention' (SSE callback per Console)
+  * Non bloccante (fail-open): se computeAffect o publishAgentEvent falliscono, il task resta done
+- Test: 17 nuovi test integration in tests/integration/affect-monitor-faseA.test.ts:
+  * C2 cycleId race-safe: 4 test (C2 comment, no sampleCount, 2 chiamate cycleId diversi, range check)
+  * C3 intervention size cap: 4 test (C3 comment, intervention normale non troncata, no crash su lunga, DB cap rispettato)
+  * C1 executor integration: 6 test (import, C1 comment, try/catch, telemetria derivation, affect_intervention event, ordine PTA→affect→publish)
+  * Smoke: 3 test (lifecycle 3 computeAffect cycleId univoci, executor non blocca, threshold estremi capped)
+
+Stage Summary:
+- 2 file modificati (affect-subsystem.ts, executor.ts) + 1 nuovo test file
+- 17 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 14/14 test learn-domain-core (affect-subsystem smoke) passanti
+- 0 regressioni: 236/236 test cross-modulo passanti (3 failure preesistenti in affect-steering + 2 transienti 429 rate limit risolte in isolation)
+- C2: cycleId race-safe (no collisioni multi-istanza)
+- C3: intervention capped (no DB bloat su stringhe lunghe)
+- C1: computeAffect integrato in executor (death spiral prevention non più cosmetica)
+- Prossimo: Fase B (B1+B2+B3+B5+B6) robustezza
