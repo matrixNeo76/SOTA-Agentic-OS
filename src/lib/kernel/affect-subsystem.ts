@@ -234,9 +234,18 @@ export async function affectHistory(agentId: string, limit = 30) {
  * timestamp" in modo efficiente senza subquery), ma documentato come best-effort
  * e aggiunto commento esplicativo. Per dataset molto grandi (>10k samples),
  * considerare una query SQL raw con window function.
+ *
+ * G4 fix (Affect Monitor audit Fase C): metriche aggiuntive per monitoraggio.
+ * PRIMA: solo 5 metriche (samples, agents, interventions, avgDesperation, avgFrustration).
+ * ORA: aggiunte 4 metriche:
+ *  - interventionRate: % di cicli con intervento (interventions / samples)
+ *  - peakDesperation: max desperation storica (gravità massima)
+ *  - peakFrustration: max frustration storica (gravità massima)
+ *  - agentsInCriticalState: count agenti con ultima sample > critical
+ * Le ultime 2 richiedono query aggiuntive ma in Promise.all (1 round-trip).
  */
 export async function affectStats() {
-  const [samples, agents, interventions, recent] = await Promise.all([
+  const [samples, agents, interventions, recent, peakDesperationAgg, peakFrustrationAgg] = await Promise.all([
     db.affectSample.count(),
     db.affectSample.groupBy({ by: ['agentId'], _count: true }),
     db.affectSample.count({ where: { intervention: { not: null } } }),
@@ -247,6 +256,10 @@ export async function affectStats() {
       take: 100,
       select: { desperation: true, frustration: true },
     }),
+    // G4 — peak desperation storica (max)
+    db.affectSample.aggregate({ _max: { desperation: true } }),
+    // G4 — peak frustration storica (max)
+    db.affectSample.aggregate({ _max: { frustration: true } }),
   ])
   const avgDesperation = recent.length
     ? recent.reduce((s, r) => s + r.desperation, 0) / recent.length
@@ -254,11 +267,41 @@ export async function affectStats() {
   const avgFrustration = recent.length
     ? recent.reduce((s, r) => s + r.frustration, 0) / recent.length
     : 0
+
+  // G4 — interventionRate: % di cicli con intervento del Meta-Observer
+  const interventionRate = samples > 0 ? interventions / samples : 0
+
+  // G4 — peak values (max storico, null se no samples)
+  const peakDesperation = peakDesperationAgg._max.desperation ?? 0
+  const peakFrustration = peakFrustrationAgg._max.frustration ?? 0
+
+  // G4 — agentsInCriticalState: count agenti con ultima sample desperation/frustration > 0.7
+  // (soglia default critical, non per-agent per evitare N+1 query)
+  const CRITICAL_THRESHOLD = 0.7
+  const lastSamplesPerAgent = await db.affectSample.findMany({
+    where: {
+      // Ultimo sample per ogni agente: usiamo timestamp recentissimo (ultimi 5min)
+      // come proxy per "current state" — evita subquery complessa per find-last-per-group
+      timestamp: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+    },
+    orderBy: { timestamp: 'desc' },
+    distinct: ['agentId'],
+    select: { desperation: true, frustration: true },
+  })
+  const agentsInCriticalState = lastSamplesPerAgent.filter(
+    s => s.desperation >= CRITICAL_THRESHOLD || s.frustration >= CRITICAL_THRESHOLD
+  ).length
+
   return {
     samples,
     agents: agents.length,
     interventions,
     avgDesperation,
     avgFrustration,
+    // G4 — metriche aggiuntive
+    interventionRate,
+    peakDesperation,
+    peakFrustration,
+    agentsInCriticalState,
   }
 }

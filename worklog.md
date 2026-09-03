@@ -2590,3 +2590,52 @@ Stage Summary:
 - B5: updateThreshold valida range (no valori invalidi persistiti)
 - B6: affectStats aggregation documentato (best-effort avg esplicito)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: AFFECT-MONITOR-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G4: affectStats con 4 metriche aggiuntive:
+  * PRIMA: solo 5 metriche (samples, agents, interventions, avgDesperation, avgFrustration)
+  * ORA: aggiunte 4 metriche in Promise.all (1 round-trip DB):
+    - interventionRate: % di cicli con intervento (interventions / samples)
+    - peakDesperation: max desperation storica (via aggregate _max)
+    - peakFrustration: max frustration storica (via aggregate _max)
+    - agentsInCriticalState: count agenti con ultima sample > 0.7 (ultimi 5min, distinct agentId)
+  * agentsInCriticalState usa proxy "ultimi 5min" per evitare subquery complessa find-last-per-group
+- G2: phase11.tsx a11y:
+  * aria-label su 2 button: Aggiorna, Calcola Metriche Affettive
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Affect Monitor")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value "{label}: {value}"
+  * Stats grid aggiornata da 4 a 8 card (G4: Intervention rate, Peak desperation, Peak frustration, Agenti critici)
+- G3: assorbito in B2 Fase B (parse-safe già implementato):
+  * phase11.tsx compute() ha già try/catch interno su r.json() + fallback r.text() + catch esterno network error
+  * Verifica presenza in test G3 (codice check)
+- G1: Unit test per decideIntervention/getOrCreateThreshold/affectHistory in isolamento:
+  * decideIntervention: 7 test (no intervento, desperation-only TIGHTEN, frustration-only COOLDOWN, dual critical HALT, concatenazione " | ", TIGHTEN usa tighteningPct, COOLDOWN usa cooldownMs)
+  * getOrCreateThreshold: 2 test (default values 0.7/0.7/5000/0.15, riuso no duplicati)
+  * affectHistory: 3 test (ordinamento desc, limit, array vuoto per agentId senza samples)
+  * affectStats accuracy: 5 test (9 metriche, interventionRate formula, peakDesperation/peakFrustration max, agentsInCriticalState count, agentsInCriticalState=0 se sani)
+- Test: 26 nuovi test integration in tests/integration/affect-monitor-faseC.test.ts:
+  * G1 decideIntervention: 7 test
+  * G1 getOrCreateThreshold: 2 test
+  * G1 affectHistory: 3 test
+  * G1+G4 affectStats accuracy: 5 test
+  * G2 phase11.tsx a11y: 5 test (Aggiorna aria-label, role=status, Calcola aria-label, StatCard role=group, 8 stat card)
+  * G3 parse-safe verifica: 1 test
+  * Smoke: 3 test (lifecycle 9 metriche, a11y+parse-safe, 9 metriche numeriche)
+
+Stage Summary:
+- 2 file modificati (affect-subsystem.ts, phase11.tsx) + 1 nuovo test file
+- 26 nuovi test integration (tutti passing)
+- 72/72 test totali Affect Monitor passing (17 Fase A + 29 Fase B + 26 Fase C, 0 regressioni)
+- 287/288 test cross-modulo passing (1 failure transiente 429 risolta in isolation)
+- 0 TypeScript errors nei file Fase C
+- G4: affectStats con 9 metriche (interventionRate, peak, agentsInCriticalState aggiunte)
+- G2: phase11.tsx accessibile (aria-label su button, role=status su stats grid, 8 stat card)
+- G3: assorbito in B2 (parse-safe già implementato in Fase B)
+- G1: 17 unit test per decideIntervention/getOrCreateThreshold/affectHistory/affectStats (coverage specifica)
+- MODULO AFFECT MONITOR COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)

@@ -113,14 +113,19 @@ export function Phase11() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase11" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase11" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Affect Monitor"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-4 gap-3" role="status" aria-live="polite" aria-label="Statistiche Affect Monitor">
  <StatCard label="Samples" value={stats.samples} />
  <StatCard label="Agenti monitorati" value={stats.agents} />
  <StatCard label="Interventi" value={stats.interventions} warn={stats.interventions > 0} />
  <StatCard label="Avg desperation" value={(stats.avgDesperation || 0).toFixed(2)} warn={stats.avgDesperation > 0.5} />
+ {/* G4 — nuove stat card con metriche aggiuntive */}
+ <StatCard label="Intervention rate" value={((stats.interventionRate ?? 0) * 100).toFixed(1) + '%'} warn={(stats.interventionRate ?? 0) > 0.1} />
+ <StatCard label="Peak desperation" value={(stats.peakDesperation ?? 0).toFixed(2)} warn={(stats.peakDesperation ?? 0) > 0.7} />
+ <StatCard label="Peak frustration" value={(stats.peakFrustration ?? 0).toFixed(2)} warn={(stats.peakFrustration ?? 0) > 0.7} />
+ <StatCard label="Agenti critici" value={stats.agentsInCriticalState ?? 0} warn={(stats.agentsInCriticalState ?? 0) > 0} />
  </div>
  )}
 
@@ -166,7 +171,7 @@ export function Phase11() {
  <Input type="number" value={repeatedToolCalls} onChange={(e) => setRepeatedToolCalls(Number(e.target.value))} />
  </div>
  </div>
- <Button size="sm" onClick={compute}>
+ <Button size="sm" onClick={compute} aria-label="Calcola metriche affettive dall'input telemetria">
  <Play className="size-3.5 mr-1.5" /> Calcola Metriche Affettive
  </Button>
  </CardContent>
@@ -238,9 +243,9 @@ export function Phase11() {
 function StatCard({ label, value, warn }: { label: string; value: number | string; warn?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('text-2xl font-bold font-mono', warn && 'text-status-warn')}>{value}</div>
+ <div className={cn('text-2xl font-bold font-mono', warn && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )
