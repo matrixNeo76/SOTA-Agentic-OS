@@ -3004,3 +3004,42 @@ Stage Summary:
 - G1: 14 unit test per syncBelief conflitto/getBeliefLineage/listSyncEvents/getQuorumVotes (coverage specifica)
 - MODULO SWARM COHERENCE COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: MODEL-ROUTER-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Model Router (F14)
+
+Work Log:
+- Analizzati 3 file: time-router.ts (325 LOC), api/router/route.ts (95), phase14.tsx (243)
+- Verificati consumer runtime: acts.ts:466 getRoutedModel chiama route() ma result NON è applicato al react-loop (routing cosmetico)
+- Verificata coverage test: 5 test in learn-domain-core (extractFeatures, routerStats, DEFAULT_MODELS, listRoutingDecisions)
+- Verificati fix preesistenti dal Learn Domain Fase 1 audit:
+  * N1 (requireAdmin su update_config + AgentLog) ✅
+  * N3 (ensemble/critic documentato come future work, single LLM call) ✅
+  * N4 (LLM error non persistito, usa null + llmError flag) ✅
+  * N5 (inputHash dedup cache implementato) ✅
+  * N8 (phase14 JSON.parse try/catch su ensembleModels) ✅
+  * N10 (adaptive polling Page Visibility API) ✅
+- Verificato react-loop.ts: zai.chat.completions.create non riceve model: routedModel.modelId
+- Compilato report in docs/MODEL-ROUTER-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: route() result non applicato al react-loop (routing cosmetico — modelId non passato a zai.chat.completions.create)
+  * C2: finalOutput/inputFeatures/ensembleModels senza size cap (DB bloat risk)
+  * C3: updateConfig non valida range (marginThreshold/diversityThreshold/minConfidence in [0,1])
+- 6 bug medi (B1-B6):
+  * B1: phase14 refresh() senza try/catch su fetch
+  * B2: phase14 route() e features fetch senza try/catch né parse-safe
+  * B3: routerStats 4 query in Promise.all + 1 sequenziale (recent per topModel)
+  * B4: route() non ha retry logic su LLM failure (fallback immediato)
+  * B5: FoundationModel DB table mai usata (DEFAULT_MODELS hardcoded, N15 non fixato)
+  * B6: extractFeatures regex su prompt senza size cap (ReDoS risk su 1MB+)
+- 4 gap funzionali (G1-G4):
+  * G1: zero unit test per scoreModels/route/getOrCreateConfig/updateConfig/simulateModelOutput
+  * G2: phase14.tsx nessun a11y (aria-label, role=status)
+  * G3: phase14.tsx route()/features non hanno parse-safe su r.json()
+  * G4: routerStats manca ensembleRate/avgConfidence/avgMargin
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
