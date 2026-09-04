@@ -21,6 +21,8 @@ import { ModulePage, EmptyState } from '@/components/module-pages/module-page'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { UserPlus } from 'lucide-react'
+import { CreateAgentDialog } from '@/components/agentic/create-agent-dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -31,6 +33,7 @@ export function AgentsOrgView() {
   const [skillData, setSkillData] = useState<any>(null)
   const [proposalData, setProposalData] = useState<any>(null)
   const [lifecycleData, setLifecycleData] = useState<any>(null)
+  const [showCreateAgent, setShowCreateAgent] = useState(false)
   const [synthData, setSynthData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -111,10 +114,16 @@ export function AgentsOrgView() {
       loading={loading}
       onRefresh={fetchData}
       actions={
-        <Button size="sm" variant="outline" onClick={bootstrap} disabled={bootstrapping}>
-          {bootstrapping ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <GitBranch className="w-4 h-4 mr-1" />}
-          {bootstrapping ? 'Bootstrapping…' : 'Bootstrap Mesh'}
-        </Button>
+        <>
+          <Button size="sm" variant="default" onClick={() => setShowCreateAgent(true)}>
+            <UserPlus className="w-4 h-4 mr-1" /> Create Agent
+          </Button>
+          <Button size="sm" variant="outline" onClick={bootstrap} disabled={bootstrapping}>
+            {bootstrapping ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <GitBranch className="w-4 h-4 mr-1" />}
+            {bootstrapping ? 'Bootstrapping…' : 'Bootstrap Mesh'}
+          </Button>
+          <CreateAgentDialog open={showCreateAgent} onOpenChange={setShowCreateAgent} onCreated={() => fetchData()} />
+        </>
       }
       stats={[
         { label: 'Agents', value: meshData?.stats?.totalAgents ?? 0, icon: 'Users' },

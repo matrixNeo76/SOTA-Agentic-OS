@@ -65,6 +65,9 @@ export function AgentConsole() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // UX Architecture: per-run model/tool selection state
+  const [modelId, setModelId] = useState<string | undefined>(undefined)
+  const [allowedTools, setAllowedTools] = useState<string[] | undefined>(undefined)
 
   const { executing, liveLog, send, stopExecution } = useConsoleStream({
     onUserMessage: msg => setMessages(prev => [...prev, msg]),
@@ -92,9 +95,9 @@ export function AgentConsole() {
 
   useEffect(() => { fetch('/api/skills').then(r => r.json()).then(d => { if (d.skills) setSkills(d.skills.map((s: any) => ({ id: s.id, name: s.name, description: s.description, category: s.category, promptTemplate: '', outputFormat: s.outputFormat, usageCount: s.usageCount }))) }).catch(() => {}) }, [])
 
-  const handleSend = useCallback((t: string) => { send(t, false); setInput('') }, [send])
-  const handlePlanOnly = useCallback((t: string) => { send(t, true); setInput('') }, [send])
-  const handleSuggestion = useCallback((s: string) => { send(s, false) }, [send])
+  const handleSend = useCallback((t: string) => { send(t, false, { modelId, allowedTools }); setInput('') }, [send, modelId, allowedTools])
+  const handlePlanOnly = useCallback((t: string) => { send(t, true, { modelId, allowedTools }); setInput('') }, [send, modelId, allowedTools])
+  const handleSuggestion = useCallback((s: string) => { send(s, false, { modelId, allowedTools }) }, [send, modelId, allowedTools])
 
   // C6.9 — Retry con contesto: pass the previous error message as context
   const handleRetry = useCallback((msg: Message) => {
@@ -153,7 +156,7 @@ export function AgentConsole() {
         </div>
       )}
       <MessageList messages={messages} liveLog={liveLog} executing={executing} onSuggestion={handleSuggestion} onRetry={handleRetry} onEdit={handleEdit} />
-      <ConsoleInput input={input} setInput={setInput} executing={executing} onSend={handleSend} onStop={stopExecution} onPlanOnly={handlePlanOnly} skills={skills} />
+      <ConsoleInput input={input} setInput={setInput} executing={executing} onSend={handleSend} onStop={stopExecution} onPlanOnly={handlePlanOnly} skills={skills} modelId={modelId} setModelId={setModelId} allowedTools={allowedTools} setAllowedTools={setAllowedTools} />
     </div>
   )
 }
