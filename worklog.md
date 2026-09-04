@@ -3361,3 +3361,38 @@ Stage Summary:
 - G4: 8 unit test per SSRF protection (assertSafeUrl, isPrivateIP con IPv4/IPv6 edge cases)
 - MODULO TOOL MANAGER COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: UX-ARCHITECTURE
+Agent: main
+Task: UX Architecture — Create Agent Wizard + Console Tool/Model picker
+
+Work Log:
+- Created docs/UX-ARCHITECTURE.md: design document with 3 usage modes (Quick Task, Guided Pipeline, Agent Swarm), 4 critical gaps analysis, wireframes
+- Created src/components/agentic/create-agent-dialog.tsx: full Dialog component for agent creation
+  * Fields: name (required), description (required), version, role dropdown (6 roles), model dropdown (6 models from /api/router), capabilities (add/remove tags), skills multi-select (from /api/skill-registry), parent agent dropdown (from /api/agent-lifecycle)
+  * POST /api/agent-lifecycle {action:'register'} on submit
+  * Fetches models, skills, agents on dialog open (parallel)
+  * Toast on success, error handling on failure
+  * Form validation (name >= 2 chars, description required)
+- Modified src/lib/validation/schemas.ts: extended consoleTaskSchema with optional modelId, allowedTools, agentUri
+- Modified src/app/api/console/stream/route.ts: destructures modelId/allowedTools/agentUri, passes to startExecution
+- Modified src/lib/runtime/executor.ts: 
+  * startExecution accepts modelId/allowedTools/agentUri (optional)
+  * executePlan accepts modelId/allowedTools, passes to executeTask
+  * executeTask accepts modelId/allowedTools, uses perRunModelId in executeReActLoop (overrides TimeRouter)
+  * Full thread-through: Console → API → startExecution → executePlan → executeTask → executeReActLoop → zai.chat.completions.create({model: modelId})
+- Modified src/components/console/use-console-stream.ts: send() accepts optional {modelId, allowedTools}, includes in POST body
+- Modified src/components/console/console-input.tsx: 
+  * New props: modelId, setModelId, allowedTools, setAllowedTools
+  * Model picker button (Cpu icon) with popover showing DEFAULT_MODELS + "Auto" option
+  * Tool picker button (Wrench icon) with popover showing installed tools + "All" option
+  * Fetches models from /api/router?action=models and tools from /api/tools on mount
+
+Stage Summary:
+- 1 new file (create-agent-dialog.tsx) + 5 modified files (schemas.ts, stream/route.ts, executor.ts, use-console-stream.ts, console-input.tsx) + 1 doc (UX-ARCHITECTURE.md)
+- 0 TypeScript errors
+- 0 regressioni: 5/5 runtime-executor tests passanti
+- Create Agent Wizard: ready to integrate in Agents & Org UI
+- Console Tool/Model picker: ready to integrate in AgentConsole
+- End-to-end flow: Console → API → executor → react-loop → LLM call with user-selected model

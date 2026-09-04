@@ -72,6 +72,10 @@ export interface ExecutorOptions {
   resumeFromPlanId?: string // se fornito, recovery da piano esistente
   signal?: AbortSignal // per cancellazione
   onEvent?: (event: string, data: Record<string, unknown>) => void // SSE callback
+  // UX Architecture: per-run override options
+  modelId?: string       // override model for LLM calls
+  allowedTools?: string[] // whitelist of toolIds for this run
+  agentUri?: string       // specific agent to use
 }
 
 // === Plan generation =================================================
@@ -212,8 +216,13 @@ export async function executeTask(params: {
     budgetTotal: number
     budgetUsed: number
   }
+  // UX Architecture: per-run model override (from executePlan)
+  modelId?: string
+  allowedTools?: string[]
 }): Promise<ExecutorStep> {
   const { planId, taskDef, planGoal, signal, onEvent } = params
+  const perRunModelId = params.modelId
+  const perRunAllowedTools = params.allowedTools
   // C2 — Default a stato iniziale (backward compat: se caller non passa steeringState,
   // usa valori equivalenti al vecchio hardcoded: step=1, PLAN, no errors, budget 1000/50).
   const sState = params.steeringState || {
@@ -623,7 +632,8 @@ export async function executeTask(params: {
       // steer() chiama getRoutedModel() che chiama route() per scegliere
       // il modello adaptive. Se routedModel è disponibile, il react-loop
       // lo passa a zai.chat.completions.create({ model: ... }).
-      modelId: steeringResult.routedModel?.modelId,
+      // UX Architecture: per-run modelId override takes priority over router
+      modelId: perRunModelId || steeringResult.routedModel?.modelId,
       onIteration: (iter) => {
         onEvent?.('task_iteration', {
           taskId: taskDef.taskId,
@@ -805,8 +815,14 @@ export async function executePlan(params: {
   planOnly?: boolean
   signal?: AbortSignal
   onEvent?: (event: string, data: Record<string, unknown>) => void
+  // UX Architecture: per-run override options
+  modelId?: string
+  allowedTools?: string[]
+  agentUri?: string
 }): Promise<ExecutorResult> {
   const { planId, planOnly, signal, onEvent } = params
+  const perRunModelId = params.modelId     // UX: override model for LLM calls
+  const perRunAllowedTools = params.allowedTools  // UX: tool whitelist
   const startedAt = Date.now()
   const steps: ExecutorStep[] = []
   const errors: Array<{ type: string; message: string; phase: string }> = []
@@ -947,6 +963,9 @@ export async function executePlan(params: {
           signal,
           onEvent,
           steeringState: batchSteeringSnapshot,
+          // UX Architecture: pass per-run modelId/allowedTools to each task
+          ...(perRunModelId && { modelId: perRunModelId }),
+          ...(perRunAllowedTools && { allowedTools: perRunAllowedTools }),
         }).catch((err) => {
           // Error in parallel task non deve bloccare gli altri del batch
           const errorStep: ExecutorStep = {
@@ -1248,6 +1267,10 @@ export async function startExecution(params: {
   signal?: AbortSignal
   onEvent?: (event: string, data: Record<string, unknown>) => void
   async?: boolean // WS1.5: se true, accoda su JobRecord invece di eseguire sync
+  // UX Architecture: per-run override options (optional, passed from Console)
+  modelId?: string       // override model for LLM calls (TimeRouter model)
+  allowedTools?: string[] // whitelist of toolIds for this run
+  agentUri?: string       // specific agent to use (future: agent selection)
 }): Promise<{ result: ExecutorResult } | { planId: string; jobId: string; async: true } | { error: string }> {
   try {
     // Phase 1: Generate plan
@@ -1287,10 +1310,13 @@ export async function startExecution(params: {
     }
 
     // Modalità sync (default per SSE streaming): esegue inline
+    // UX Architecture: pass modelId/allowedTools through to executePlan
     const result = await executePlan({
       planId,
       signal: params.signal,
       onEvent: params.onEvent,
+      ...(params.modelId && { modelId: params.modelId }),
+      ...(params.allowedTools && { allowedTools: params.allowedTools }),
     })
 
     return { result }

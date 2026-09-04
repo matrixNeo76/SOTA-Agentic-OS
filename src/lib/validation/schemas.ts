@@ -21,6 +21,9 @@ export const logoutSchema = z.object({
 export const consoleTaskSchema = z.object({
   task: z.string().min(1).max(5000),
   mode: z.enum(['full', 'plan-only']).optional().default('full'),
+  modelId: z.string().optional(),
+  allowedTools: z.array(z.string()).optional(),
+  agentUri: z.string().optional(),
 })
 
 // === Plan ===

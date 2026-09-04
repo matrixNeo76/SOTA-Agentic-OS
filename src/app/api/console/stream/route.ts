@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const { task, mode } = parsed.data
+  const { task, mode, modelId, allowedTools, agentUri } = parsed.data
   const planOnly = mode === 'plan-only'
 
   if (!task || typeof task !== 'string') {
@@ -72,6 +72,10 @@ export async function POST(req: NextRequest) {
           planOnly,
           signal: abortController.signal,
           onEvent: send,
+          // UX Architecture: pass optional modelId/allowedTools/agentUri through
+          ...(modelId && { modelId }),
+          ...(allowedTools && { allowedTools }),
+          ...(agentUri && { agentUri }),
         })
 
         if ('error' in result) {

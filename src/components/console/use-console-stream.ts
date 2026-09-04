@@ -27,7 +27,7 @@ export function useConsoleStream(callbacks: StreamCallbacks) {
     setLiveLog(prev => prev.length < 50 ? [...prev, line] : prev)
   }, [events, executing])
 
-  const send = useCallback(async (taskText: string, planOnly = false) => {
+  const send = useCallback(async (taskText: string, planOnly = false, opts?: { modelId?: string; allowedTools?: string[] }) => {
     const trimmed = taskText.trim()
     if (!trimmed || executingRef.current) return
     executingRef.current = true
@@ -44,7 +44,12 @@ export function useConsoleStream(callbacks: StreamCallbacks) {
     abortRef.current = abortController
 
     try {
-      const r = await fetch('/api/console/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task: trimmed, mode: planOnly ? 'plan-only' : 'full' }), signal: abortController.signal })
+      // UX Architecture: pass modelId/allowedTools to API if provided
+      const body: Record<string, unknown> = { task: trimmed, mode: planOnly ? 'plan-only' : 'full' }
+      if (opts?.modelId) body.modelId = opts.modelId
+      if (opts?.allowedTools && opts.allowedTools.length > 0) body.allowedTools = opts.allowedTools
+
+      const r = await fetch('/api/console/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: abortController.signal })
       if (!r.ok) { const text = await r.text(); throw new Error(`HTTP ${r.status}: ${text.slice(0, 200)}`) }
       const reader = r.body?.getReader()
       if (!reader) throw new Error('Stream non disponibile')
