@@ -82,7 +82,16 @@ export function Phase12() {
  try {
  const r = await fetch(`/api/objective?action=tree&treeId=${treeId}`)
  if (!r.ok) { toast.error(`Load tree failed: HTTP ${r.status}`); return }
- const d = await r.json()
+ // G3 fix (Objective Builder audit Fase C): parse-safe su r.json().
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase12] loadTree: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  setSelectedTree(d)
  } catch (e: any) {
  toast.error(`Load tree failed: ${e.message}`)
@@ -97,7 +106,16 @@ export function Phase12() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'create_tree', rootGoal }),
  })
- const d = await r.json()
+ // G3 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase12] createTree: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) { toast.error(`Create tree failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Albero creato: ${d.totalNodes} nodi, profondità ${d.maxDepth}`)
@@ -116,7 +134,16 @@ export function Phase12() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'evaluate_node', nodeId, status }),
  })
- const d = await r.json()
+ // G3 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase12] evalNode: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) { toast.error(`Evaluate failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Nodo: ${status}`)
@@ -130,15 +157,20 @@ export function Phase12() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase12" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase12" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Objective Builder"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-5 gap-3" role="status" aria-live="polite" aria-label="Statistiche Objective Builder">
  <StatCard label="Alberi" value={stats.trees} />
  <StatCard label="Nodi" value={stats.nodes} />
  <StatCard label="Completati" value={stats.completedTrees} highlight />
  <StatCard label="Pass" value={stats.passNodes} />
  <StatCard label="Fail" value={stats.failNodes} warn={stats.failNodes > 0} />
+ {/* G4 — nuove stat card con metriche aggiuntive */}
+ <StatCard label="Pass rate" value={((stats.passRate ?? 0) * 100).toFixed(1) + '%'} highlight={(stats.passRate ?? 0) > 0.8} />
+ <StatCard label="Avg nodi/albero" value={(stats.avgNodesPerTree ?? 0).toFixed(1)} />
+ <StatCard label="Avg depth" value={(stats.avgMaxDepth ?? 0).toFixed(1)} />
+ <StatCard label="Completion" value={((stats.completionRate ?? 0) * 100).toFixed(1) + '%'} highlight={(stats.completionRate ?? 0) > 0.5} />
  </div>
  )}
 
@@ -162,7 +194,7 @@ export function Phase12() {
  <Label className="text-xs">Obiettivo macro</Label>
  <Input value={rootGoal} onChange={(e) => setRootGoal(e.target.value)} />
  </div>
- <Button size="sm" onClick={createTree} disabled={!rootGoal.trim()}>
+ <Button size="sm" onClick={createTree} disabled={!rootGoal.trim()} aria-label="Crea albero obiettivi BFS dalla decomposizione">
  <Plus className="size-3.5 mr-1.5" /> Crea Albero BFS
  </Button>
  </CardContent>
@@ -270,9 +302,9 @@ export function Phase12() {
 function StatCard({ label, value, highlight, warn }: { label: string; value: number | string; highlight?: boolean; warn?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')}>{value}</div>
+ <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )

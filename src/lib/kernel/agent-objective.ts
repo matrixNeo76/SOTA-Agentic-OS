@@ -315,19 +315,45 @@ async function checkTreeCompletion(treeId: string) {
 /**
  * Statistiche per dashboard.
  *
- * B1 fix (Objective Builder audit Fase B): tutte le 5 query in un unico Promise.all.
- * PRIMA: 3 query in Promise.all + 2 query sequenziali (passNodes, failNodes) → 3 round-trip DB.
- * ORA: 5 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
+ * B1 fix (Objective Builder audit Fase B): tutte le query base in Promise.all.
+ * G4 fix (Objective Builder audit Fase C): metriche aggiuntive per monitoraggio.
+ * PRIMA: solo 5 metriche (trees, nodes, completedTrees, passNodes, failNodes).
+ * ORA: aggiunte 4 metriche derivate:
+ *  - passRate: % nodi passati su valutati (passNodes / (passNodes + failNodes))
+ *  - avgNodesPerTree: media nodi per albero (nodes / trees)
+ *  - avgMaxDepth: media profondità max degli alberi (via aggregate _avg)
+ *  - completionRate: % alberi completati (completedTrees / trees)
  */
 export async function objectiveStats() {
-  const [trees, nodes, completedTrees, passNodes, failNodes] = await Promise.all([
+  const [trees, nodes, completedTrees, passNodes, failNodes, maxDepthAgg] = await Promise.all([
     db.objectiveTree.count(),
     db.objectiveNode.count(),
     db.objectiveTree.count({ where: { status: 'done' } }),
     db.objectiveNode.count({ where: { status: 'pass' } }),
     db.objectiveNode.count({ where: { status: 'fail' } }),
+    // G4 — avg maxDepth via aggregate
+    db.objectiveTree.aggregate({ _avg: { maxDepth: true } }),
   ])
-  return { trees, nodes, completedTrees, passNodes, failNodes }
+
+  // G4 — metriche derivate
+  const evaluatedNodes = passNodes + failNodes
+  const passRate = evaluatedNodes > 0 ? passNodes / evaluatedNodes : 0
+  const avgNodesPerTree = trees > 0 ? nodes / trees : 0
+  const avgMaxDepth = maxDepthAgg._avg.maxDepth ?? 0
+  const completionRate = trees > 0 ? completedTrees / trees : 0
+
+  return {
+    trees,
+    nodes,
+    completedTrees,
+    passNodes,
+    failNodes,
+    // G4 — metriche aggiuntive
+    passRate,
+    avgNodesPerTree,
+    avgMaxDepth,
+    completionRate,
+  }
 }
 
 export async function listTrees(limit = 20) {

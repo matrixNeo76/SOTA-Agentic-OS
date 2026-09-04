@@ -57,7 +57,9 @@ describe('Fase B — B1: objectiveStats con 5 query in Promise.all', () => {
       path.join(process.cwd(), 'src/lib/kernel/agent-objective.ts'),
       'utf-8',
     )
-    expect(content).toMatch(/B1 fix[\s\S]*tutte le 5 query in un unico Promise\.all/)
+    // B1: tutte le query in un unico Promise.all (G4 ha aggiunto 1 aggregate, ma il pattern resta)
+    expect(content).toMatch(/B1 fix[\s\S]*Promise\.all/)
+    expect(content).toMatch(/tutte le query base in Promise\.all|tutte le 5 query in un unico Promise\.all/)
   })
 
   it('objectiveStats non ha più query sequenziali dopo il Promise.all', async () => {

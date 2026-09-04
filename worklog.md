@@ -2764,3 +2764,58 @@ Stage Summary:
 - B5: evaluateNode status validato a runtime (no status arbitrari)
 - B6: evidence capped (no DB bloat)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: OBJECTIVE-BUILDER-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G4: objectiveStats con 4 metriche aggiuntive:
+  * PRIMA: solo 5 metriche (trees, nodes, completedTrees, passNodes, failNodes)
+  * ORA: aggiunte 4 metriche derivate in Promise.all (1 round-trip DB):
+    - passRate: passNodes / (passNodes + failNodes) → % nodi passati su valutati
+    - avgNodesPerTree: nodes / trees → media nodi per albero
+    - avgMaxDepth: via aggregate _avg maxDepth → media profondità alberi
+    - completionRate: completedTrees / trees → % alberi completati
+  * Tutte le 6 query in Promise.all (5 count + 1 aggregate)
+- G2: phase12.tsx a11y:
+  * aria-label su 2 button: Aggiorna, Crea Albero BFS
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Objective Builder")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value
+  * Stats grid aggiornata da 5 a 9 card (G4: Pass rate, Avg nodi/albero, Avg depth, Completion)
+- G3: phase12.tsx parse-safe su r.json() in loadTree, createTree, evalNode:
+  * PRIMA: r.json() poteva throware su risposta non JSON (500 con body HTML), catch esterno mostrava "Unexpected token <"
+  * ORA: try/catch interno su r.json() + fallback a r.text() per logging
+  * toast.error "Risposta non valida dal server (status N)" user-friendly
+  * console.error specifico per funzione: [phase12] loadTree/createTree/evalNode: response not JSON
+  * 3 occorrenze di r.text() fallback + 3 toast.error su risposta non JSON
+- G1: Unit test per generateTreeStructure/evaluateNode/skipDescendants/getObjectiveTree in isolamento:
+  * generateTreeStructure: 5 test (root depth/weight/tier, figli peso dimezzato, contextTier per depth, MAX_DEPTH=5, WEIGHT_THRESHOLD=0.1)
+  * createObjectiveTree lifecycle: 3 test (status expanded, parentId gerarchico, totalNodes match)
+  * evaluateNode + skipDescendants: 4 test (pass aggiorna status+evidence, fail trigger skip, skipped no skip, checkTreeCompletion done)
+  * getObjectiveTree: 3 test (ordinamento depth asc, null per non esistente, struttura tree+nodes)
+  * objectiveStats accuracy: 6 test (9 metriche, passRate formula, avgNodesPerTree formula, completionRate formula, avgMaxDepth numerico, G4 comment)
+- Test: 35 nuovi test integration in tests/integration/objective-builder-faseC.test.ts:
+  * G1 generateTreeStructure: 5 test
+  * G1 createObjectiveTree lifecycle: 3 test
+  * G1 evaluateNode+skipDescendants: 4 test
+  * G1 getObjectiveTree: 3 test
+  * G4 objectiveStats: 6 test
+  * G2 phase12.tsx a11y: 5 test
+  * G3 phase12.tsx parse-safe: 6 test (G3 comment, loadTree, createTree, evalNode, 3 r.text fallback, 3 toast.error)
+  * Smoke: 3 test (lifecycle 9 metriche, a11y+parse-safe, 9 metriche numeriche)
+- Fix Fase B test B1: aggiornato regex per accomodare G4 (5→6 query, pattern resta Promise.all)
+
+Stage Summary:
+- 2 file modificati (agent-objective.ts, phase12.tsx) + 1 nuovo test file + 1 fix a Fase B test
+- 35 nuovi test integration (tutti passing)
+- 79/79 test totali Objective Builder passing (20 Fase A + 24 Fase B + 35 Fase C, 0 regressioni)
+- 125/127 test cross-modulo passing (2 failure transienti rate limit LLM risolte in isolation)
+- 0 TypeScript errors nei file Fase C
+- G4: objectiveStats con 9 metriche (passRate, avgNodesPerTree, avgMaxDepth, completionRate aggiunte)
+- G2: phase12.tsx accessibile (aria-label su button, role=status su stats grid, 9 stat card)
+- G3: phase12.tsx parse-safe (try/catch interno su r.json() in 3 funzioni + fallback r.text())
+- G1: 15 unit test per generateTreeStructure/createObjectiveTree/evaluateNode/getObjectiveTree (coverage specifica)
+- MODULO OBJECTIVE BUILDER COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
