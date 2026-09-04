@@ -2905,3 +2905,50 @@ Stage Summary:
 - C1: recordBelief integrato in executor (divergenza epistemica non più cosmetica)
 - C2: proposeQuorumAction+voteQuorum ai join point (quorum semantico non più cosmetico)
 - Prossimo: Fase B (B1+B2+B3+B4+B5) robustezza
+
+---
+Task ID: SWARM-COHERENCE-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B4+B5 (robustezza)
+
+Work Log:
+- B1: voteQuorum tie handling (accept==reject==requiredQuorum → rejected):
+  * PRIMA: il primo che raggiungeva requiredQuorum vinceva, anche se poi l'altro lato pareggiava
+  * ORA: se accept==reject==requiredQuorum → verdict 'rejected' (tie va a safety, come normative calculus C8 fix)
+  * Logica: check tie prima degli altri branch (if accept>=req AND reject>=req AND accept===reject → rejected)
+- B3: recordBelief valida beliefType enum a runtime:
+  * PRIMA: beliefType era solo type union TypeScript, qualunque stringa persistita (route validava, ma funzione no)
+  * ORA: VALID_BELIEF_TYPES = ['summary', 'evidence', 'plan', 'observation'] + isValidBeliefType type guard
+  * Throw esplicito "Invalid beliefType: X. Allowed values: summary, evidence, plan, observation"
+- B4: voteQuorum valida vote enum a runtime:
+  * PRIMA: vote era solo type union TypeScript (route validava, ma funzione no)
+  * ORA: VALID_VOTES = ['accept', 'reject'] + isValidVote type guard
+  * Throw esplicito "Invalid vote: X. Allowed values: accept, reject"
+- B5: syncBelief valida sourceAgentId !== targetAgentId (no self-sync):
+  * PRIMA: source===target replicava il belief nello stesso agente → duplicato inutile
+  * ORA: return conflict con reason "Self-sync not allowed: source and target are the same agent (X)"
+  * Non crea belief duplicato (return immediato prima della replica)
+- B2: phase13.tsx refresh() con toast.error (non solo console.error):
+  * PRIMA: catch silente con solo console.error (utente non vedeva feedback)
+  * ORA: toast.error "Caricamento Swarm Coherence fallito" + console.error per debug
+  * Il catch NON azzera stato (preserva dati già caricati, evita UI vuota)
+- Test: 25 nuovi test integration in tests/integration/swarm-coherence-faseB.test.ts:
+  * B1 tie handling: 4 test (B1 comment, tie → rejected, no tie accept → accepted, no tie reject → rejected)
+  * B3 beliefType validation: 5 test (B3 comment, summary ok, evidence ok, unknown throws, empty throws, numeric throws)
+  * B4 vote validation: 5 test (B4 comment, accept ok, reject ok, abstain throws, empty throws, numeric throws)
+  * B5 self-sync prevention: 4 test (B5 comment, self-sync → conflict, cross-sync ok, no duplicato)
+  * B2 phase13 toast.error: 2 test (toast.error presente, no state clear on error)
+  * Smoke: 3 test (B1+B4 tie+validation, B3+B5 record+sync, B2 toast.error)
+
+Stage Summary:
+- 2 file modificati (esr-quorum.ts, phase13.tsx) + 1 nuovo test file
+- 25 nuovi test integration (tutti passing)
+- 44/44 test totali Swarm Coherence passing (19 Fase A + 25 Fase B, 0 regressioni)
+- 181/181 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B1: voteQuorum tie → rejected (safety, come C8 normative)
+- B2: phase13.tsx refresh robusto (toast.error, preserva stato)
+- B3: recordBelief beliefType validato a runtime
+- B4: voteQuorum vote validato a runtime
+- B5: syncBelief previene self-sync (no belief duplicati)
+- Prossimo: Fase C (G1+G2+G3+G4/B6) UX & completamento

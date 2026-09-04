@@ -52,8 +52,22 @@ export type BeliefInput = {
  * la marca come superseded e crea una nuova versione.
  *
  * C3: content troncato a 10KB con marker [truncated].
+ * B3: validazione runtime di beliefType enum.
  */
+const VALID_BELIEF_TYPES: readonly string[] = ['summary', 'evidence', 'plan', 'observation']
+
+function isValidBeliefType(value: unknown): value is BeliefInput['beliefType'] {
+  return typeof value === 'string' && (VALID_BELIEF_TYPES as readonly string[]).includes(value)
+}
+
 export async function recordBelief(input: BeliefInput): Promise<{ beliefId: string; supersededId?: string }> {
+  // B3 — Validazione runtime: beliefType deve essere uno dei valori ammessi
+  if (!isValidBeliefType(input.beliefType)) {
+    throw new Error(
+      `Invalid beliefType: "${input.beliefType}". Allowed values: ${VALID_BELIEF_TYPES.join(', ')}`
+    )
+  }
+
   const emb = embed(input.content)
   const serialized = serialize(emb)
 
@@ -139,12 +153,22 @@ export async function listBeliefs(agentId?: string, limit = 30) {
  * Sincronizza una convinzione da un agente sorgente a uno target.
  * Verifica la coerenza: se il target ha una convinzione simile ma divergente,
  * marca come conflitto.
+ *
+ * B5: validazione sourceAgentId !== targetAgentId (no self-sync).
  */
 export async function syncBelief(
   sourceAgentId: string,
   targetAgentId: string,
   beliefId: string
 ): Promise<{ syncStatus: 'synced' | 'conflict'; reason?: string }> {
+  // B5 — Self-sync prevention: source e target devono essere agenti diversi
+  if (sourceAgentId === targetAgentId) {
+    return {
+      syncStatus: 'conflict',
+      reason: `Self-sync not allowed: source and target are the same agent (${sourceAgentId})`,
+    }
+  }
+
   const sourceBelief = await db.belief.findUnique({ where: { id: beliefId } })
   if (!sourceBelief) {
     return { syncStatus: 'conflict', reason: 'Source belief not found' }
@@ -248,7 +272,15 @@ export async function proposeQuorumAction(
  *
  * C3 FIX: duplicate vote prevention — check if voterAgentId already voted.
  * C4 FIX: race condition — use atomic increment inside transaction.
+ * B1 FIX: tie handling — accept==reject==requiredQuorum → verdict 'rejected' (tie va a safety).
+ * B4 FIX: validazione runtime di vote enum.
  */
+const VALID_VOTES: readonly string[] = ['accept', 'reject']
+
+function isValidVote(value: unknown): value is 'accept' | 'reject' {
+  return typeof value === 'string' && (VALID_VOTES as readonly string[]).includes(value)
+}
+
 export async function voteQuorum(
   decisionId: string,
   voterAgentId: string,
@@ -256,6 +288,13 @@ export async function voteQuorum(
   reason?: string,
   confidence = 1.0
 ): Promise<{ verdict: 'pending' | 'accepted' | 'rejected'; acceptCount: number; rejectCount: number }> {
+  // B4 — Validazione runtime: vote deve essere 'accept' o 'reject'
+  if (!isValidVote(vote)) {
+    throw new Error(
+      `Invalid vote: "${vote}". Allowed values: ${VALID_VOTES.join(', ')}`
+    )
+  }
+
   // C3: check for duplicate vote
   const existingVote = await db.quorumVote.findFirst({
     where: { workflowJoinId: decisionId, voterAgentId },
@@ -291,7 +330,11 @@ export async function voteQuorum(
   const newReject = decision.rejectCount + (vote === 'reject' ? 1 : 0)
 
   let verdict: 'pending' | 'accepted' | 'rejected' = 'pending'
-  if (newAccept >= decision.requiredQuorum) {
+  // B1 fix: tie handling — se accept == reject == requiredQuorum, tie va a safety (rejected)
+  if (newAccept >= decision.requiredQuorum && newReject >= decision.requiredQuorum && newAccept === newReject) {
+    // B1: tie → rejected (safety, come normative calculus C8 fix)
+    verdict = 'rejected'
+  } else if (newAccept >= decision.requiredQuorum) {
     verdict = 'accepted'
   } else if (newReject >= decision.requiredQuorum) {
     verdict = 'rejected'

@@ -67,6 +67,11 @@ export function Phase13() {
  setDecisions(qR.decisions || [])
  setStats(statsR)
  } catch (e: any) {
+ // B2 fix (Swarm Coherence audit Fase B): toast.error user-friendly + preserva stato
+ // PRIMA: solo console.error (silente per l'utente)
+ // ORA: toast.error "Caricamento Swarm Coherence fallito" + console.error per debug
+ toast.error('Caricamento Swarm Coherence fallito')
+ // eslint-disable-next-line no-console
  console.error('[phase13] refresh failed:', e?.message)
  }
  }
