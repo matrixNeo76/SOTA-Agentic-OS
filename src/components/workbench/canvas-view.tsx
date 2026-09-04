@@ -6,17 +6,20 @@ import {
   ObjectiveTreeVisualizer,
   LeanWorkflowVisualizer,
 } from '@/components/agentic/dag-visualizers'
+import { PipelineBuilder } from '@/components/workbench/pipeline-builder'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import {
   Workflow, Target, FunctionSquare, RefreshCw, Loader2,
   AlertCircle, ChevronDown, CheckCircle2, XCircle, Clock, Loader,
+  GitBranch,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CanvasViewSkeleton } from './skeletons'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 // === Types ===
-type DagType = 'dynamo' | 'objective' | 'lean'
+type DagType = 'dynamo' | 'objective' | 'lean' | 'builder'
 
 type Plan = {
   id: string
@@ -65,6 +68,7 @@ type VerifiedWorkflow = {
 }
 
 const DAG_TYPES: Array<{ id: DagType; label: string; icon: typeof Workflow; description: string }> = [
+  { id: 'builder', label: 'Pipeline Builder', icon: GitBranch, description: 'Crea piani manualmente senza LLM' },
   { id: 'dynamo', label: 'DynAMO Plan', icon: Workflow, description: 'Grafo dipendenze task multi-agente' },
   { id: 'objective', label: 'Objective Tree', icon: Target, description: 'Albero rubrica BFS goal decomposition' },
   { id: 'lean', label: 'Lean Workflow', icon: FunctionSquare, description: 'Workflow contratti Lean4 verificati' },
@@ -351,7 +355,7 @@ export function CanvasView() {
           onSelectWorkflow={setSelectedWorkflowId}
         />
 
-        {/* Status filter (only for dynamo and objective) */}
+        {/* Status filter (only for dynamo, objective, lean — not builder) */}
         {(dagType === 'dynamo' || dagType === 'objective' || dagType === 'lean') && (
           <div className="inline-flex rounded-md border bg-muted/30 p-0.5 ml-auto">
             {STATUS_FILTERS.map((s) => (
@@ -379,7 +383,11 @@ export function CanvasView() {
 
       {/* Canvas area */}
       <div className="flex-1 min-h-0 mt-3 overflow-hidden">
-        {loading ? (
+        {dagType === 'builder' ? (
+          <ScrollArea className="h-full pr-2">
+            <PipelineBuilder />
+          </ScrollArea>
+        ) : loading ? (
           <CanvasViewSkeleton />
         ) : dagType === 'dynamo' ? (
           filteredPlan && filteredPlan.tasks.length > 0 ? (
