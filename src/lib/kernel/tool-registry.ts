@@ -112,6 +112,12 @@ export async function revokeTool(toolId: string, reason: string): Promise<void> 
 
 /**
  * Modifica un permesso di un tool.
+ *
+ * C2 fix (Tool Manager audit Fase A): upsert invece di findFirst+create.
+ * PRIMA: findFirst + create/update separati → race condition: 2 admin concorrenti
+ * potevano entrambi leggere existing=null e entrambi creare → duplicato.
+ * ORA: upsert con where unique (toolId, scope) — atomic, no race condition.
+ * Richiede @@unique([toolId, scope]) nel schema Prisma (C3 fix).
  */
 export async function setPermission(
   toolId: string,
@@ -123,30 +129,24 @@ export async function setPermission(
   const tool = await db.tool.findUnique({ where: { toolId } })
   if (!tool) throw new Error(`Tool ${toolId} non trovato`)
 
-  // Upsert: cerca permesso esistente, altrimenti crea
-  const existing = await db.toolPermission.findFirst({
-    where: { toolId: tool.id, scope },
+  // C2 — upsert atomico (no race condition)
+  await db.toolPermission.upsert({
+    where: {
+      toolId_scope: { toolId: tool.id, scope },
+    },
+    update: {
+      granted,
+      grantedBy: granted ? grantedBy : undefined,
+      constraint: constraint ? JSON.stringify(constraint) : undefined,
+    },
+    create: {
+      toolId: tool.id,
+      scope,
+      granted,
+      grantedBy: granted ? grantedBy : null,
+      constraint: constraint ? JSON.stringify(constraint) : null,
+    },
   })
-  if (existing) {
-    await db.toolPermission.update({
-      where: { id: existing.id },
-      data: {
-        granted,
-        grantedBy: granted ? grantedBy : existing.grantedBy,
-        constraint: constraint ? JSON.stringify(constraint) : existing.constraint,
-      },
-    })
-  } else {
-    await db.toolPermission.create({
-      data: {
-        toolId: tool.id,
-        scope,
-        granted,
-        grantedBy: granted ? grantedBy : null,
-        constraint: constraint ? JSON.stringify(constraint) : null,
-      },
-    })
-  }
 }
 
 /**
@@ -180,27 +180,29 @@ export async function checkToolPermission(toolId: string, scope: string): Promis
 
 /**
  * Lista tutti i tool installati con i relativi permessi.
+ *
+ * C1 fix (Tool Manager audit Fase A): include permissions (no N+1).
+ * PRIMA: 1 query per i tool + N query per le permissions di ogni tool → N+1 round-trip.
+ * Con 50 tool installati: 51 round-trip DB.
+ * ORA: 1 query con include: { permissions: true } → 1 round-trip DB (O(1)).
+ * Richiede @relation ToolPermission→Tool nel schema Prisma (C3 fix).
  */
 export async function listTools(includeRevoked = false) {
   const tools = await db.tool.findMany({
     where: includeRevoked ? {} : { active: true },
     orderBy: { installedAt: 'desc' },
+    include: { permissions: true },  // C1: batch load (no N+1)
   })
-  const result: Array<Record<string, unknown>> = []
-  for (const t of tools) {
-    const perms = await db.toolPermission.findMany({ where: { toolId: t.id } })
-    result.push({
-      ...t,
-      permissions: perms.map((p) => ({
-        scope: p.scope,
-        granted: p.granted,
-        constraint: p.constraint ? JSON.parse(p.constraint) : null,
-      })),
-      grantedCount: perms.filter((p) => p.granted).length,
-      totalCount: perms.length,
-    })
-  }
-  return result
+  return tools.map((t) => ({
+    ...t,
+    permissions: t.permissions.map((p) => ({
+      scope: p.scope,
+      granted: p.granted,
+      constraint: p.constraint ? JSON.parse(p.constraint) : null,
+    })),
+    grantedCount: t.permissions.filter((p) => p.granted).length,
+    totalCount: t.permissions.length,
+  }))
 }
 
 /**

@@ -3230,3 +3230,42 @@ Stage Summary:
   * G4: zero test per SSRF protection (assertSafeUrl, isPrivateIP edge cases)
 - Piano: Fase A (1gg CRITICA, include Prisma migration) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: TOOL-MANAGER-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & data integrity, include Prisma migration)
+
+Work Log:
+- C3: Prisma schema migration — @relation + @@unique + onDelete Cascade:
+  * Tool model: aggiunto `permissions ToolPermission[]` (relation back-reference)
+  * ToolPermission model: aggiunto `tool Tool @relation(fields: [toolId], references: [id], onDelete: Cascade)`
+  * ToolPermission model: aggiunto `@@unique([toolId, scope])` (C2 + C3 combined)
+  * prisma db push + prisma generate eseguiti con successo
+  * Cleanup preventivo: DB vuoto (0 Tool, 0 ToolPermission), nessun orfano/duplicato da pulire
+- C2: setPermission upsert invece di findFirst+create:
+  * PRIMA: findFirst + create/update separati → race condition: 2 admin concorrenti potevano entrambi leggere existing=null e creare duplicato
+  * ORA: `db.toolPermission.upsert({ where: { toolId_scope: { toolId, scope } }, ... })` — atomic, no race
+  * Richiede @@unique([toolId, scope]) nel schema (C3 fix applicato)
+- C1: listTools include permissions (no N+1):
+  * PRIMA: 1 query findMany per i tool + N query findMany per le permissions di ogni tool → N+1 round-trip (50 tool = 51 query)
+  * ORA: `db.tool.findMany({ include: { permissions: true } })` → 1 round-trip DB (O(1))
+  * Richiede @relation ToolPermission→Tool nel schema (C3 fix applicato)
+  * Mapping post-query: permissions.map() per parse constraint JSON + calcolo grantedCount/totalCount
+- Test: 15 nuovi test integration in tests/integration/tool-manager-faseA.test.ts:
+  * C3 schema: 4 test (relation nel schema, @@unique nel schema, permissions[] back-reference, cascade delete)
+  * C2 upsert: 5 test (C2 comment, upsert usage, create permission, update permission, no duplicato)
+  * C1 include: 4 test (C1 comment, no for loop N+1, listTools ritorna permissions, includeRevoked filter)
+  * Smoke: 2 test (full lifecycle install→setPermission→listTools→checkPermission, cascade delete)
+
+Stage Summary:
+- 2 file modificati (schema.prisma, tool-registry.ts) + 1 nuovo test file
+- Prisma migration applicata (db push + generate)
+- 15 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 40/40 test preesistenti (tool-registry + phase3-toolmanager-core) passanti
+- 0 regressioni: 60/60 test cross-modulo passanti
+- C3: ToolPermission.toolId ha FK + onDelete Cascade + @@unique (referential integrity + no duplicati)
+- C2: setPermission upsert atomico (no race condition su admin concorrenti)
+- C1: listTools O(1) round-trip invece di O(N+1) (performance bottleneck risolto)
+- Prossimo: Fase B (B1+B2+B3+B4+B5) robustezza
