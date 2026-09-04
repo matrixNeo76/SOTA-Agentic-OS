@@ -3043,3 +3043,45 @@ Stage Summary:
   * G4: routerStats manca ensembleRate/avgConfidence/avgMargin
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: MODEL-ROUTER-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & effettività)
+
+Work Log:
+- C2: Size cap su finalOutput (50KB), inputFeatures (10KB), ensembleModels (2KB) con marker [truncated]:
+  * MAX_FINAL_OUTPUT_SIZE = 50_000 (output LLM)
+  * MAX_INPUT_FEATURES_SIZE = 10_000 (JSON feature estratte)
+  * MAX_ENSEMBLE_MODELS_SIZE = 2_000 (JSON array modelli ensemble)
+  * truncateWithMarker() helper generico
+  * Applicato in route() prima di persistere: cappedOutput, cappedFeatures, cappedEnsemble
+- C3: updateConfig valida range dei valori:
+  * marginThreshold/diversityThreshold/minConfidence: deve essere number in [0, 1]
+  * enableEnsemble/enableCritic: deve essere boolean
+  * Throw esplicito su valori fuori range (no cost explosion da config invalido)
+  * Boundary values (0 e 1) ammessi
+- C1: route() result applicato al react-loop (routing non più cosmetico):
+  * react-loop.ts: aggiunto modelId?: string a ReActOptions interface
+  * react-loop.ts: 2 LLM call sites usano ...(options.modelId && { model: options.modelId })
+    (ReAct loop THINK call + fallback LLM call)
+  * executor.ts: passa modelId: steeringResult.routedModel?.modelId a executeReActLoop()
+  * acts.ts: getRoutedModel() già ritorna modelId dal route() result (preesistente)
+  * Flow completo: steer() → getRoutedModel() → route() → { modelId } → executeReActLoop() → zai.chat.completions.create({ model: modelId })
+  * Backward compat: se modelId è undefined (route fallito), usa modello default ZAI SDK
+- Test: 20 nuovi test integration in tests/integration/model-router-faseA.test.ts:
+  * C2 size cap: 3 test (costanti, truncateWithMarker applicato, finalOutput capped nel DB)
+  * C3 range validation: 9 test (C3 comment, marginThreshold >1/<0, diversityThreshold >1, minConfidence >1, enableEnsemble string, enableCritic numeric, valori validi ok, boundary 0/1 ok)
+  * C1 executor/react-loop integration: 5 test (modelId in ReActOptions, options.modelId in zai call, executor passa modelId, acts.ts getRoutedModel ritorna modelId, route() ritorna primaryModel)
+  * Smoke: 3 test (C1+C2 lifecycle, C3 validation+valid, C1 react-loop+executor codice check)
+
+Stage Summary:
+- 3 file modificati (time-router.ts, react-loop.ts, executor.ts) + 1 nuovo test file
+- 20 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 19/19 test learn-domain-core + runtime-executor passanti
+- 0 regressioni: 182/182 test cross-modulo passanti (0 failure)
+- C2: payload capped (no DB bloat su finalOutput/inputFeatures/ensembleModels)
+- C3: updateConfig valida range (no cost explosion da config invalido)
+- C1: route() result applicato al react-loop (adaptive routing non più cosmetico)
+- Prossimo: Fase B (B1+B2+B3+B4+B6) robustezza

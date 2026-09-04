@@ -67,6 +67,11 @@ export interface ReActOptions {
   // (registra che il dato tainted è fluito in questo step).
   // Il taintId viene anche passato a dispatchTool per checkSink.
   taintId?: string
+  // C1 fix (Model Router audit Fase A) — Model ID dal TimeRouter.
+  // Se presente, viene passato a zai.chat.completions.create({ model: ... })
+  // per usare il modello scelto dal routing adaptive (code/reasoning/math/logic).
+  // Se assente, usa il modello default dello ZAI SDK (backward compat).
+  modelId?: string
 }
 
 const MAX_ITERATIONS = 10
@@ -147,10 +152,12 @@ Segui l'indirizzo cognitivo sopra indicato per questa iterazione.`
       if (options.signal?.aborted) break
 
       // === THINK: LLM call ===
+      // C1 fix (Model Router audit Fase A): passa model dal TimeRouter se disponibile
       const completion = await zai.chat.completions.create({
         messages: messages as any,
         ...(tools.length > 0 && { tools: tools as any }),
         max_tokens: 500,
+        ...(options.modelId && { model: options.modelId }),
       })
 
       const choice = completion.choices?.[0]
@@ -306,7 +313,11 @@ async function executeFallback(
       },
     ]
 
-    const completion = await zai.chat.completions.create({ messages })
+    // C1 fix (Model Router audit Fase A): passa model dal TimeRouter se disponibile
+    const completion = await zai.chat.completions.create({
+      messages,
+      ...(options.modelId && { model: options.modelId }),
+    })
     const output = completion.choices?.[0]?.message?.content || ''
 
     const inputTokens = Math.ceil(messages.map((m) => m.content).join('').length / 4)

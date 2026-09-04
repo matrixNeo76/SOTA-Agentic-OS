@@ -619,6 +619,11 @@ export async function executeTask(params: {
       signal,
       steeringPhrase: steeringResult.phrase,
       taintId, // G2: passa taintId per propagateTaint nel ReAct loop
+      // C1 fix (Model Router audit Fase A): passa modelId dal TimeRouter.
+      // steer() chiama getRoutedModel() che chiama route() per scegliere
+      // il modello adaptive. Se routedModel è disponibile, il react-loop
+      // lo passa a zai.chat.completions.create({ model: ... }).
+      modelId: steeringResult.routedModel?.modelId,
       onIteration: (iter) => {
         onEvent?.('task_iteration', {
           taskId: taskDef.taskId,

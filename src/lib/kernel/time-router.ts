@@ -14,6 +14,24 @@
 import { db } from '@/lib/db'
 import { createHash } from 'crypto'
 
+// =====================================================
+// C2 fix (Model Router audit Fase A): size cap su payload persistito.
+// PRIMA: finalOutput/inputFeatures/ensembleModels persistiti senza size cap.
+// Un LLM output di 100KB veniva salvato interamente nel DB → bloat.
+// ORA: costanti di size cap con marker [truncated]:
+//  - MAX_FINAL_OUTPUT_SIZE: 50KB (output LLM)
+//  - MAX_INPUT_FEATURES_SIZE: 10KB (JSON feature estratte)
+//  - MAX_ENSEMBLE_MODELS_SIZE: 2KB (JSON array modelli ensemble)
+// =====================================================
+const MAX_FINAL_OUTPUT_SIZE = 50_000
+const MAX_INPUT_FEATURES_SIZE = 10_000
+const MAX_ENSEMBLE_MODELS_SIZE = 2_000
+
+function truncateWithMarker(value: string, maxSize: number): string {
+  if (value.length <= maxSize) return value
+  return value.slice(0, maxSize) + '...[truncated]'
+}
+
 export type FoundationModelSpec = {
   modelId: string
   name: string
@@ -219,20 +237,25 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
   // N4 FIX: se LLM fallisce, usa fallback deterministico MA non persistere l'errore
   const outputForCaller = finalOutput || simulateModelOutput(primary.modelId, prompt)
 
+  // C2 — Size cap su payload prima di persistere
+  const cappedOutput = truncateWithMarker(outputForCaller, MAX_FINAL_OUTPUT_SIZE)
+  const cappedFeatures = truncateWithMarker(JSON.stringify(features), MAX_INPUT_FEATURES_SIZE)
+  const cappedEnsemble = ensembleModels ? truncateWithMarker(JSON.stringify(ensembleModels), MAX_ENSEMBLE_MODELS_SIZE) : null
+
   // Persisti decisione
   const decision = await db.routingDecision.create({
     data: {
       agentId,
       inputHash,
-      inputFeatures: JSON.stringify(features),
+      inputFeatures: cappedFeatures,  // C2: capped
       primaryModel: primary.modelId,
       confidence,
       margin,
       diversity,
       routedTo,
-      ensembleModels: ensembleModels ? JSON.stringify(ensembleModels) : null,
+      ensembleModels: cappedEnsemble,  // C2: capped
       // N4: persisti output pulito, non error message
-      finalOutput: outputForCaller,
+      finalOutput: cappedOutput,  // C2: capped
     },
   })
 
@@ -275,6 +298,14 @@ async function getOrCreateConfig() {
   return config
 }
 
+/**
+ * C3 fix (Model Router audit Fase A): validazione range dei valori.
+ * PRIMA: nessuna validazione — potevano essere persistiti valori fuori range:
+ *  - marginThreshold > 1.0 (invalido, fuori range 0..1)
+ *  - minConfidence negativo
+ *  - enableEnsemble stringa invece di boolean
+ * ORA: throw esplicito su valori fuori range.
+ */
 export async function updateConfig(updates: {
   marginThreshold?: number
   diversityThreshold?: number
@@ -282,6 +313,30 @@ export async function updateConfig(updates: {
   enableEnsemble?: boolean
   enableCritic?: boolean
 }) {
+  // C3 — Validazione range per threshold values (devono essere in [0, 1])
+  if (updates.marginThreshold !== undefined) {
+    if (typeof updates.marginThreshold !== 'number' || updates.marginThreshold < 0 || updates.marginThreshold > 1) {
+      throw new Error(`marginThreshold must be a number in [0, 1], got: ${updates.marginThreshold}`)
+    }
+  }
+  if (updates.diversityThreshold !== undefined) {
+    if (typeof updates.diversityThreshold !== 'number' || updates.diversityThreshold < 0 || updates.diversityThreshold > 1) {
+      throw new Error(`diversityThreshold must be a number in [0, 1], got: ${updates.diversityThreshold}`)
+    }
+  }
+  if (updates.minConfidence !== undefined) {
+    if (typeof updates.minConfidence !== 'number' || updates.minConfidence < 0 || updates.minConfidence > 1) {
+      throw new Error(`minConfidence must be a number in [0, 1], got: ${updates.minConfidence}`)
+    }
+  }
+  // C3 — Validazione tipo per boolean flags
+  if (updates.enableEnsemble !== undefined && typeof updates.enableEnsemble !== 'boolean') {
+    throw new Error(`enableEnsemble must be a boolean, got: ${typeof updates.enableEnsemble}`)
+  }
+  if (updates.enableCritic !== undefined && typeof updates.enableCritic !== 'boolean') {
+    throw new Error(`enableCritic must be a boolean, got: ${typeof updates.enableCritic}`)
+  }
+
   const existing = await db.routerConfig.findFirst()
   if (existing) {
     return db.routerConfig.update({ where: { id: existing.id }, data: updates })
