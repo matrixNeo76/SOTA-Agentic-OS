@@ -3183,3 +3183,50 @@ Stage Summary:
 - G1: 14 unit test per route lifecycle/getOrCreateConfig/updateConfig/simulateModelOutput (coverage specifica)
 - MODULO MODEL ROUTER COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: TOOL-MANAGER-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Tool Manager (F3/F18, Fase 2)
+
+Work Log:
+- Analizzati 6 file: tool-registry.ts (245 LOC), builtin-tools.ts (474), tool-dispatcher.ts (373), api/tools/route.ts (148), api/admin/tools/route.ts (143), tool-manager.tsx (444)
+- Verificati consumer runtime: executor.ts (dispatchTool), react-loop.ts (tool dispatch), taint.ts (checkSink), mcp-client/client.ts (callExternalTool)
+- Verificata coverage test: 3 file (1224 LOC total): tool-registry.test.ts (22 LOC stub) + phase3-toolmanager-core.test.ts (579) + phase3-toolmanager-fase2.test.ts (623)
+- Verificati fix preesistenti dal PHASE3-TOOLMANAGER-FASE1-AUDIT.md:
+  * C1 (ToolPermission.toolId standard) ✅
+  * C2 (scope-based check, transport/endpoint/apiKey) ✅
+  * C3 (requireAdmin su POST mutative) ✅
+  * C4 (SSRF protection assertSafeUrl) ✅
+  * B1 (isPathAllowed path-separator-aware) ✅
+  * B4 (admin/tools try/catch) ✅
+  * B5 (tool-manager action functions try/catch) ✅
+  * B8 (installTool batch createMany) ✅
+  * G1 (3 test file) ✅ parziale
+  * G2 (aria-label) ✅ parziale
+  * G4 (dynamic import) ✅
+  * B2 (apiKey plaintext) ⚠️ documented tech debt
+  * B7 (installedBy default 'admin') ⚠️ partial
+- Verificato G2 LTL audit: taint checkSink integrato in tool-dispatcher ✅
+- Identificati nuovi bug non coperti dal Fase 1: listTools N+1, setPermission race condition, ToolPermission no FK
+- Compilato report in docs/TOOL-MANAGER-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: listTools() N+1 query (50+ tool = 51 round-trip DB, performance bottleneck)
+  * C2: setPermission race condition (no @@unique(toolId, scope), duplicati su admin concorrenti)
+  * C3: ToolPermission.toolId no foreign key (orphan permissions su tool delete, security bypass potenziale)
+- 6 bug medi (B1-B6):
+  * B1: tool-manager.tsx refresh() senza try/catch (B5 fixò action functions ma non refresh)
+  * B2: dispatchTool no retry su tool execution failure
+  * B3: tool-manager.tsx action functions no parse-safe su r.json()
+  * B4: getToolStats manca permissionRate/activeRate/revokedRate/externalTools
+  * B5: getToolStats 4 query in Promise.all + 1 sequenziale (2 round-trip invece di 1)
+  * B6: getDefaultScopes hardcoded (no AgentPolicy integration)
+- 4 gap funzionali (G1-G4):
+  * G1: tool-registry.test.ts solo 22 LOC (stub), mancano unit test focalizzati
+  * G2: tool-manager.tsx a11y parziale (manca role=status su stats grid)
+  * G3: parse-safe verification (assorbito in B3)
+  * G4: zero test per SSRF protection (assertSafeUrl, isPrivateIP edge cases)
+- Piano: Fase A (1gg CRITICA, include Prisma migration) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
