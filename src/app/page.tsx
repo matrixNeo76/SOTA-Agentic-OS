@@ -12,6 +12,7 @@ import { useStore } from '@/lib/store'
 import { useUrlSync } from '@/hooks/use-url-sync'
 import { OnboardingTour } from '@/components/onboarding/onboarding-tour'
 import { OnboardingTourV2 } from '@/components/onboarding/onboarding-tour-v2'
+import { FirstRunWizard } from '@/components/onboarding/first-run-wizard'
 import { Toaster } from 'sonner'
 import {
   ResizableHandle,
@@ -78,6 +79,14 @@ function HomeContent() {
       <CommandPalette />
       <OnboardingTour />
       <OnboardingTourV2 />
+      <FirstRunWizard onTemplateSelect={(prompt) => {
+        // Switch to Console view and pre-fill the input
+        const { setActiveView, setActivePhase } = useStore.getState()
+        setActiveView('phase')
+        setActivePhase('console')
+        // The prompt will be picked up by the Console input via a custom event
+        window.dispatchEvent(new CustomEvent('sota-template-select', { detail: prompt }))
+      }} />
       <Toaster richColors position="top-right" />
     </div>
   )

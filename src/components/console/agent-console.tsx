@@ -95,6 +95,16 @@ export function AgentConsole() {
 
   useEffect(() => { fetch('/api/skills').then(r => r.json()).then(d => { if (d.skills) setSkills(d.skills.map((s: any) => ({ id: s.id, name: s.name, description: s.description, category: s.category, promptTemplate: '', outputFormat: s.outputFormat, usageCount: s.usageCount }))) }).catch(() => {}) }, [])
 
+  // UX Architecture: listen for first-run wizard template selection
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const prompt = (e as CustomEvent<string>).detail
+      if (prompt) setInput(prompt)
+    }
+    window.addEventListener('sota-template-select', handler)
+    return () => window.removeEventListener('sota-template-select', handler)
+  }, [])
+
   const handleSend = useCallback((t: string) => { send(t, false, { modelId, allowedTools }); setInput('') }, [send, modelId, allowedTools])
   const handlePlanOnly = useCallback((t: string) => { send(t, true, { modelId, allowedTools }); setInput('') }, [send, modelId, allowedTools])
   const handleSuggestion = useCallback((s: string) => { send(s, false, { modelId, allowedTools }) }, [send, modelId, allowedTools])
