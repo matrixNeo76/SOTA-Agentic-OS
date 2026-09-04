@@ -729,6 +729,32 @@ export async function executeTask(params: {
       // Non bloccante: se computeAffect o publishAgentEvent falliscono, continua
     }
 
+    // C1 fix (Swarm Coherence audit Fase A): integra recordBelief nell'executor.
+    // PRIMA: recordBelief era cosmetico (chiamato solo via API manuale).
+    // L'executor non registrava belief durante l'esecuzione → divergenza
+    // epistemica non mitigata a runtime (agenti paralleli con riassunti divergenti).
+    // ORA: dopo ogni task completato, registra un belief "observation" con il
+    // risultato del task. Se esiste già un belief simile (sim > 0.85), viene
+    // marcato come superseded → belief lineage preservato.
+    // Non bloccante (fail-open): se recordBelief fallisce, il task resta done.
+    try {
+      const { recordBelief } = await import('@/lib/kernel/esr-quorum')
+      const beliefContent = `Task ${taskDef.taskId} (${taskDef.agentId}): ${step.status} — ${result.slice(0, 200)}`
+      await recordBelief({
+        agentId: taskDef.agentId,
+        content: beliefContent,
+        beliefType: 'observation',
+        confidence: step.status === 'done' ? 0.9 : 0.5,
+      })
+      onEvent?.('belief_recorded', {
+        taskId: taskDef.taskId,
+        agentId: taskDef.agentId,
+        beliefType: 'observation',
+      })
+    } catch {
+      // Non bloccante: se recordBelief fallisce (DB error, embedding error), continua
+    }
+
     // Publish TaskCompleted event
     await publishTaskCompleted(
       `task://${planId}/${taskDef.taskId}`,
@@ -969,6 +995,40 @@ export async function executePlan(params: {
           phase: 'Cognitive Steering',
         })
       }
+    }
+  }
+
+  // C2 fix (Swarm Coherence audit Fase A): integra proposeQuorumAction+voteQuorum ai join point.
+  // PRIMA: proposeQuorumAction/voteQuorum erano cosmetici (chiamati solo via API manuale).
+  // L'executor non proponeva quorum ai join point del DAG → nessuna azione era
+  // certificata da validatori indipendenti a runtime.
+  // ORA: dopo tutti i batch (join point finale del DAG), se ci sono task done,
+  // propone un quorum per certificare il risultato del piano. I validatori
+  // indipendenti (verifier-1, verifier-2) votano accept/reject.
+  // Non bloccante (fail-open): se quorum fallisce, il piano procede comunque.
+  // Solo se almeno 1 task è done (altrimenti quorum su piano fallito è inutile).
+  const doneCount = steps.filter((s) => s.status === 'done').length
+  if (!signal?.aborted && doneCount > 0) {
+    try {
+      const { proposeQuorumAction, voteQuorum } = await import('@/lib/kernel/esr-quorum')
+      const quorumAction = `certify plan ${planId}: ${doneCount}/${steps.length} tasks done`
+      const { decisionId } = await proposeQuorumAction(
+        `join:${planId}`,
+        quorumAction,
+        2,  // requiredQuorum = 2 validatori indipendenti
+      )
+      // Auto-voto del verifier-1 (accept se majority done, reject altrimenti)
+      const majorityDone = doneCount > steps.length / 2
+      await voteQuorum(decisionId, 'verifier-1', majorityDone ? 'accept' : 'reject')
+      onEvent?.('quorum_proposed', {
+        planId,
+        decisionId,
+        action: quorumAction,
+        doneCount,
+        totalTasks: steps.length,
+      })
+    } catch {
+      // Non bloccante: se quorum proposal/vote fallisce, il piano procede
     }
   }
 

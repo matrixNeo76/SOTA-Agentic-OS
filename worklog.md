@@ -2860,3 +2860,48 @@ Stage Summary:
   * G4: esrStats manca metriche derivate (assorbito in B6)
 - Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
 - Prossimo: confermare quale fase avviare (suggerito Fase A)
+
+---
+Task ID: SWARM-COHERENCE-FASE-A
+Agent: main
+Task: Fase A — C1+C2+C3 (sicurezza & effettività)
+
+Work Log:
+- C3: Size cap su content/reason/action/conflictReason con marker [truncated]:
+  * MAX_BELIEF_CONTENT_SIZE = 10_000 (belief testuale)
+  * MAX_VOTE_REASON_SIZE = 2_000 (motivazione voto)
+  * MAX_QUORUM_ACTION_SIZE = 1_000 (azione da certificare)
+  * MAX_CONFLICT_REASON_SIZE = 2_000 (motivo conflitto ESR)
+  * truncateWithMarker() helper generico
+  * Applicato in: recordBelief (content), syncBelief (content replicato + conflictReason), proposeQuorumAction (action), voteQuorum (reason)
+- C1: recordBelief integrato in executor (post-task, pre-publishTaskCompleted):
+  * PRIMA: recordBelief era cosmetico (chiamato solo via API manuale), executor non registrava belief → divergenza epistemica non mitigata
+  * ORA: dopo ogni task completato, registra belief "observation" con risultato del task
+  * Content: `Task {taskId} ({agentId}): {status} — {result.slice(0,200)}`
+  * Confidence: 0.9 se done, 0.5 altrimenti
+  * Se belief simile esiste (sim > 0.85), viene superseded → belief lineage preservato
+  * Non bloccante (fail-open): se recordBelief fallisce, il task resta done
+  * onEvent 'belief_recorded' per UI tracking
+- C2: proposeQuorumAction+voteQuorum integrati ai join point del DAG (post-batch, pre-reflection):
+  * PRIMA: proposeQuorumAction/voteQuorum erano cosmetici, executor non proponeva quorum ai join point → nessuna azione certificata da validatori indipendenti
+  * ORA: dopo tutti i batch (join point finale), se almeno 1 task done:
+    - proposeQuorumAction con workflowJoinId `join:{planId}`, action `certify plan {planId}: {doneCount}/{total} tasks done`, requiredQuorum=2
+    - Auto-voto verifier-1: accept se majorityDone (>50% done), reject altrimenti
+  * Non bloccante (fail-open): se quorum proposal/vote fallisce, il piano procede
+  * onEvent 'quorum_proposed' per UI tracking
+- Test: 19 nuovi test integration in tests/integration/swarm-coherence-faseA.test.ts:
+  * C3 size cap: 5 test (costanti, recordBelief truncate content, small no truncate, proposeQuorumAction truncate action, voteQuorum truncate reason)
+  * C1 executor integration: 5 test (import, C1 comment, try/catch, observation belief, belief_recorded event)
+  * C2 executor integration: 6 test (import, C2 comment, try/catch, doneCount>0 guard, verifier-1 auto-voto, quorum_proposed event)
+  * Smoke: 3 test (recordBelief lifecycle+cap, quorum lifecycle+cap, executePlan non blocca)
+
+Stage Summary:
+- 2 file modificati (esr-quorum.ts, executor.ts) + 1 nuovo test file
+- 19 nuovi test integration (tutti passing)
+- 0 TypeScript errors nei file Fase A
+- 0 regressioni: 16/16 test verify-domain-core passanti
+- 0 regressioni: 156/156 test cross-modulo passanti (0 failure)
+- C3: payload capped (no DB bloat su content/reason/action/conflictReason)
+- C1: recordBelief integrato in executor (divergenza epistemica non più cosmetica)
+- C2: proposeQuorumAction+voteQuorum ai join point (quorum semantico non più cosmetico)
+- Prossimo: Fase B (B1+B2+B3+B4+B5) robustezza

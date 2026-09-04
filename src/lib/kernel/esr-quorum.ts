@@ -15,6 +15,26 @@ import { db } from '@/lib/db'
 import { embed, serialize, deserialize, cosine } from '@/lib/embeddings'
 
 // =====================================================
+// C3 fix (Swarm Coherence audit Fase A): size cap su payload persistito.
+// PRIMA: content/reason/action/conflictReason persistiti senza size cap.
+// Un caller malevolo o buggy poteva passare content di 1MB → DB bloat.
+// ORA: costanti di size cap con marker [truncated]:
+//  - MAX_BELIEF_CONTENT_SIZE: 10KB (belief testuale)
+//  - MAX_VOTE_REASON_SIZE: 2KB (motivazione voto)
+//  - MAX_QUORUM_ACTION_SIZE: 1KB (azione da certificare)
+//  - MAX_CONFLICT_REASON_SIZE: 2KB (motivo conflitto ESR)
+// =====================================================
+const MAX_BELIEF_CONTENT_SIZE = 10_000
+const MAX_VOTE_REASON_SIZE = 2_000
+const MAX_QUORUM_ACTION_SIZE = 1_000
+const MAX_CONFLICT_REASON_SIZE = 2_000
+
+function truncateWithMarker(value: string, maxSize: number): string {
+  if (value.length <= maxSize) return value
+  return value.slice(0, maxSize) + '...[truncated]'
+}
+
+// =====================================================
 // 1) Belief Lineage
 // =====================================================
 
@@ -30,10 +50,15 @@ export type BeliefInput = {
  * Registra una nuova convinzione di un agente.
  * Se esiste una convinzione precedente con stesso contentuto (alta similarità),
  * la marca come superseded e crea una nuova versione.
+ *
+ * C3: content troncato a 10KB con marker [truncated].
  */
 export async function recordBelief(input: BeliefInput): Promise<{ beliefId: string; supersededId?: string }> {
   const emb = embed(input.content)
   const serialized = serialize(emb)
+
+  // C3 — Size cap su content (10KB)
+  const truncatedContent = truncateWithMarker(input.content, MAX_BELIEF_CONTENT_SIZE)
 
   // Cerca convinzioni precedenti dello stesso agente e stesso tipo
   const previous = await db.belief.findMany({
@@ -61,7 +86,7 @@ export async function recordBelief(input: BeliefInput): Promise<{ beliefId: stri
   const belief = await db.belief.create({
     data: {
       agentId: input.agentId,
-      content: input.content,
+      content: truncatedContent,  // C3: capped
       beliefType: input.beliefType,
       embedding: serialized,
       lineageId: input.lineageId || supersededId,
@@ -150,10 +175,11 @@ export async function syncBelief(
   // Se non conflitto, replica la convinzione nel target
   if (!conflict) {
     // B5 FIX: use source version + 1 instead of always 1 (preserves version history)
+    // C3: content già capped nel recordBelief source, ma re-applica per safety
     await db.belief.create({
       data: {
         agentId: targetAgentId,
-        content: sourceBelief.content,
+        content: truncateWithMarker(sourceBelief.content, MAX_BELIEF_CONTENT_SIZE),
         beliefType: sourceBelief.beliefType,
         embedding: sourceBelief.embedding,
         lineageId: sourceBelief.id,
@@ -165,13 +191,18 @@ export async function syncBelief(
   }
 
   // Persisti evento di sync
+  // C3 — Size cap su conflictReason (2KB)
+  const truncatedConflictReason = conflictReason
+    ? truncateWithMarker(conflictReason, MAX_CONFLICT_REASON_SIZE)
+    : null
+
   await db.eSRSyncEvent.create({
     data: {
       sourceAgentId,
       targetAgentId,
       beliefId,
       syncStatus: conflict ? 'conflict' : 'synced',
-      conflictReason,
+      conflictReason: truncatedConflictReason,
     },
   })
 
@@ -191,16 +222,21 @@ export async function listSyncEvents(limit = 30) {
 
 /**
  * Crea una proposta di decisione da certificare con quorum.
+ *
+ * C3: action troncato a 1KB con marker [truncated].
  */
 export async function proposeQuorumAction(
   workflowJoinId: string,
   action: string,
   requiredQuorum = 2
 ): Promise<{ decisionId: string }> {
+  // C3 — Size cap su action (1KB)
+  const truncatedAction = truncateWithMarker(action, MAX_QUORUM_ACTION_SIZE)
+
   const decision = await db.quorumDecision.create({
     data: {
       workflowJoinId,
-      action,
+      action: truncatedAction,
       requiredQuorum,
     },
   })
@@ -233,13 +269,16 @@ export async function voteQuorum(
   if (!decision) throw new Error('Decision not found')
 
   // Register the vote
+  // C3 — Size cap su reason (2KB)
+  const truncatedReason = reason ? truncateWithMarker(reason, MAX_VOTE_REASON_SIZE) : null
+
   await db.quorumVote.create({
     data: {
       workflowJoinId: decisionId,
-      action: decision.action,
+      action: decision.action,  // già capped da proposeQuorumAction
       voterAgentId,
       vote,
-      reason,
+      reason: truncatedReason,
       confidence,
     },
   })
