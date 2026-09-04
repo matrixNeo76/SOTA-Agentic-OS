@@ -74,14 +74,26 @@ export type RoutingResult = {
 
 /**
  * Estrae feature strutturali dal prompt.
+ *
+ * B6 fix (Model Router audit Fase B): size cap su prompt prima di regex.
+ * PRIMA: le regex (hasCode/hasMath/hasLogic) venivano eseguite su prompt
+ * di dimensione arbitraria → ReDoS risk su prompt di 1MB+.
+ * ORA: MAX_PROMPT_SIZE = 100_000 (100KB), tronca prima di regex.
  */
+const MAX_PROMPT_SIZE = 100_000
+
 export function extractFeatures(prompt: string): InputFeatures {
-  const length = prompt.length
+  // B6 — Size cap: tronca prompt a 100KB prima di regex (ReDoS prevention)
+  const safePrompt = prompt.length > MAX_PROMPT_SIZE
+    ? prompt.slice(0, MAX_PROMPT_SIZE)
+    : prompt
+
+  const length = prompt.length  // length originale (per stats)
   const tokenEstimate = Math.ceil(length / 4)
 
-  const hasCode = /```|function\s*\(|return\s+|const\s+|let\s+|class\s+/.test(prompt)
-  const hasMath = /[∫∑√π≤≥≠∞±×÷]|[a-z]\^[0-9]|[a-z]_[0-9]|\b(equation|theorem|proof|integral)\b/i.test(prompt)
-  const hasLogic = /\b(if|then|else|forall|exists|implies|and|or|not)\b|→|↔|∀|∃|∧|∨|¬/.test(prompt)
+  const hasCode = /```|function\s*\(|return\s+|const\s+|let\s+|class\s+/.test(safePrompt)
+  const hasMath = /[∫∑√π≤≥≠∞±×÷]|[a-z]\^[0-9]|[a-z]_[0-9]|\b(equation|theorem|proof|integral)\b/i.test(safePrompt)
+  const hasLogic = /\b(if|then|else|forall|exists|implies|and|or|not)\b|→|↔|∀|∃|∧|∨|¬/.test(safePrompt)
 
   // Complessità: combina lunghezza, presenza di codice/matematica/logica
   let complexity = 0
@@ -216,25 +228,39 @@ export async function route(agentId: string, prompt: string): Promise<RoutingRes
   // chiamata LLM. Il routing decision è persistito per analytics, ma l'esecuzione
   // parallela di modelli ensemble è future work. Aggiungiamo warning se ensemble
   // è enabled ma non supportato in esecuzione.
+  //
+  // B4 fix (Model Router audit Fase B): retry logic su LLM failure.
+  // PRIMA: se la prima chiamata LLM falliva (rate limit 429, timeout), ritornava
+  // subito il fallback. ORA: max 2 retry (3 tentativi totali) con backoff 100ms.
   let finalOutput: string | null = null
   let llmError: string | null = null
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'You are an adaptive model router in SOTA Agentic OS. Process the prompt and provide a clear, actionable response.' },
-        { role: 'user', content: prompt },
-      ],
-    })
-    finalOutput = completion.choices[0]?.message?.content || 'No output from model.'
-  } catch (e: any) {
-    // N4 FIX: non persistere error message nel DB — usa null + flag di errore
-    llmError = e.message
-    finalOutput = null
+  const MAX_LLM_RETRIES = 2
+  const maxAttempts = MAX_LLM_RETRIES + 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const ZAI = (await import('z-ai-web-dev-sdk')).default
+      const zai = await ZAI.create()
+      const completion = await zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are an adaptive model router in SOTA Agentic OS. Process the prompt and provide a clear, actionable response.' },
+          { role: 'user', content: prompt },
+        ],
+      })
+      finalOutput = completion.choices[0]?.message?.content || 'No output from model.'
+      llmError = null
+      break // success, exit retry loop
+    } catch (e: any) {
+      llmError = e.message
+      if (attempt < maxAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[time-router] LLM attempt ${attempt}/${maxAttempts} failed: ${llmError}. Retrying...`)
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+      }
+    }
   }
 
-  // N4 FIX: se LLM fallisce, usa fallback deterministico MA non persistere l'errore
+  // N4 FIX: se LLM fallisce dopo tutti i retry, usa fallback deterministico MA non persistere l'errore
   const outputForCaller = finalOutput || simulateModelOutput(primary.modelId, prompt)
 
   // C2 — Size cap su payload prima di persistere
@@ -351,19 +377,25 @@ export async function listRoutingDecisions(limit = 30) {
   })
 }
 
+/**
+ * B3 fix (Model Router audit Fase B): tutte le query in Promise.all.
+ * PRIMA: 4 query in Promise.all + 1 sequenziale (recent per topModel) → 2 round-trip DB.
+ * ORA: 5 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
+ */
 export async function routerStats() {
-  const [decisions, ensemble, critic, primary] = await Promise.all([
+  const [decisions, ensemble, critic, primary, recent] = await Promise.all([
     db.routingDecision.count(),
     db.routingDecision.count({ where: { routedTo: 'ensemble' } }),
     db.routingDecision.count({ where: { routedTo: 'critic' } }),
     db.routingDecision.count({ where: { routedTo: 'primary' } }),
+    // B3 — recent per topModel calcolo (in Promise.all, non sequenziale)
+    db.routingDecision.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { primaryModel: true },
+    }),
   ])
   // Modello più frequentemente scelto come primary
-  const recent = await db.routingDecision.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-    select: { primaryModel: true },
-  })
   const modelCounts: Record<string, number> = {}
   for (const r of recent) {
     modelCounts[r.primaryModel] = (modelCounts[r.primaryModel] || 0) + 1

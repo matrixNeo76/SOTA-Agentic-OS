@@ -48,12 +48,19 @@ function sum(a, b) {
 Dimostra con un proof formale che la funzione è errata.`)
 
  const refresh = async () => {
+ // B1 fix (Model Router audit Fase B): try/catch su refresh().
+ try {
  const [decR, statsR] = await Promise.all([
  fetch('/api/router?action=decisions').then((r) => r.json()),
  fetch('/api/router?action=stats').then((r) => r.json()),
  ])
  setDecisions(decR.decisions || [])
  setStats(statsR)
+ } catch (err) {
+ toast.error('Caricamento Model Router fallito')
+ // eslint-disable-next-line no-console
+ console.error('[phase14] refresh failed:', err)
+ }
  }
 
  useEffect(() => {
@@ -63,26 +70,58 @@ Dimostra con un proof formale che la funzione è errata.`)
    if (!document.hidden) void refresh()
  }, 30_000)
  // Also compute features live as user types
+ // B2 fix: parse-safe su r.json() per features fetch
  const t = setTimeout(async () => {
+ try {
  const r = await fetch(`/api/router?action=features&prompt=${encodeURIComponent(prompt)}`)
- const d = await r.json()
- setFeatures(d.features)
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase14] features: response not JSON', r.status, text.slice(0, 200))
+ return
+ }
+ if (d) setFeatures(d.features)
+ } catch (e: any) {
+ // eslint-disable-next-line no-console
+ console.error('[phase14] features fetch failed:', e?.message)
+ }
  }, 400)
  return () => { clearTimeout(t); clearInterval(pollInterval) }
  }, [prompt])
 
  const route = async () => {
+ // B2 fix: parse-safe + error handling completo
+ try {
  const r = await fetch('/api/router', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'route', agentId, prompt }),
  })
- const d = await r.json()
+ // B2 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase14] route: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (d.ok) {
  const style = ROUTED_STYLE[d.routedTo] || ROUTED_STYLE.primary
  if (d.routedTo === 'primary') toast.success(`Routed to PRIMARY: ${d.primaryModel} (conf=${d.confidence.toFixed(2)})`)
  else toast.warning(`Routed to ${style.label}: ${d.ensembleModels?.join(', ')}`)
  refresh()
+ } else {
+ // B2 — toast.error su !d.ok (prima era silente)
+ toast.error(d.error || 'Errore routing')
+ }
+ } catch (e: any) {
+ toast.error(`Route failed: ${e.message}`)
+ // eslint-disable-next-line no-console
+ console.error('[phase14] route fetch failed:', e)
  }
  }
 

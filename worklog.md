@@ -3085,3 +3085,53 @@ Stage Summary:
 - C3: updateConfig valida range (no cost explosion da config invalido)
 - C1: route() result applicato al react-loop (adaptive routing non più cosmetico)
 - Prossimo: Fase B (B1+B2+B3+B4+B6) robustezza
+
+---
+Task ID: MODEL-ROUTER-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B4+B6 (robustezza)
+
+Work Log:
+- B3: routerStats con 5 query in Promise.all (1 round-trip DB):
+  * PRIMA: 4 query in Promise.all + 1 sequenziale (recent per topModel) → 2 round-trip
+  * ORA: 5 query in un unico Promise.all → 1 round-trip (parallelismo massimo)
+- B4: route() retry logic su LLM failure:
+  * PRIMA: se la prima chiamata LLM falliva (rate limit 429, timeout), ritornava subito il fallback
+  * ORA: MAX_LLM_RETRIES = 2 (3 tentativi totali) con backoff esponenziale 100ms * attempt
+  * console.warn ad ogni retry fallito per debug
+  * Se tutti i tentativi falliscono → fallback deterministico (come prima, N4 fix preserved)
+- B6: extractFeatures size cap su prompt:
+  * PRIMA: regex (hasCode/hasMath/hasLogic) su prompt di dimensione arbitraria → ReDoS risk su 1MB+
+  * ORA: MAX_PROMPT_SIZE = 100_000 (100KB), tronca prima di regex (safePrompt)
+  * length e tokenEstimate usano il prompt originale (per stats accurate)
+- B1: phase14.tsx refresh() con try/catch + toast.error:
+  * PRIMA: fetch fallito faceva throw unhandled rejection, rompeva il polling setInterval
+  * ORA: catch globale con toast.error "Caricamento Model Router fallito" + console.error
+  * Il catch NON azzera stato (preserva dati già caricati)
+- B2: phase14.tsx route()/features parse-safe su r.json():
+  * PRIMA: r.json() poteva throware su risposta non JSON, nessun toast.error su !d.ok (silente)
+  * ORA: try/catch interno su r.json() + fallback a r.text() per logging
+  * toast.error "Risposta non valida dal server (status N)" su risposta non JSON
+  * toast.error d.error || 'Errore routing' su !d.ok (prima era silente)
+  * catch esterno per network error
+  * 2 occorrenze di r.text() fallback (route + features)
+- Test: 25 nuovi test integration in tests/integration/model-router-faseB.test.ts:
+  * B3 routerStats Promise.all: 4 test (6 metriche, B3 comment, no query sequenziali, riflette nuove decisioni)
+  * B4 retry logic: 4 test (B4 comment, backoff, fallback non crasha, llmError null se successo)
+  * B6 extractFeatures size cap: 5 test (B6 comment, tronca > 100KB, piccolo non troncato, enorme non crasha, code markers rilevati)
+  * B1 phase14.tsx try/catch: 2 test (toast.error presente, no state clear)
+  * B2 phase14.tsx parse-safe: 6 test (B2 comment, route try/catch, features try/catch, toast.error non JSON, toast.error !d.ok, catch esterno, 2 r.text fallback)
+  * Smoke: 3 test (B3+B4 lifecycle+stats, B6 enorme non crasha, B1+B2 codice check)
+
+Stage Summary:
+- 2 file modificati (time-router.ts, phase14.tsx) + 1 nuovo test file
+- 25 nuovi test integration (tutti passing)
+- 45/45 test totali Model Router passing (20 Fase A + 25 Fase B, 0 regressioni)
+- 174/174 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B3: routerStats O(1) round-trip invece di O(2)
+- B4: route() retry logic (no rate limit failure immediato)
+- B6: extractFeatures safe (no ReDoS su prompt enormi)
+- B1: phase14.tsx refresh robusto (try/catch, preserva stato)
+- B2: phase14.tsx route/features parse-safe (try/catch interno + toast.error)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
