@@ -146,18 +146,43 @@ async function executeBuiltin(
     sandboxEnabled: true,
   }
 
-  try {
-    const result = await withTimeout(tool.execute(call.arguments, ctx), timeout)
-    await auditToolCall(call.name, options, result, Date.now() - startTime)
-    return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
-  } catch (err: any) {
-    const errorResult: ToolResult = {
-      success: false,
-      output: '',
-      error: err.message,
+  // B2 fix (Tool Manager audit Fase B): retry logic su builtin tool execution.
+  // PRIMA: se tool.execute() falliva (timeout, I/O error), ritornava subito errore.
+  // ORA: max 2 retry (3 tentativi totali) con backoff 100ms * attempt.
+  // Non ritenta su errori di permesso (già checkati sopra).
+  const MAX_EXEC_RETRIES = 2
+  const maxAttempts = MAX_EXEC_RETRIES + 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await withTimeout(tool.execute(call.arguments, ctx), timeout)
+      await auditToolCall(call.name, options, result, Date.now() - startTime)
+      return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
+    } catch (err: any) {
+      if (attempt < maxAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[tool-dispatcher] builtin '${call.name}' attempt ${attempt}/${maxAttempts} failed: ${err.message}. Retrying...`)
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+        continue
+      }
+      // Ultimo tentativo fallito → ritorna errore
+      const errorResult: ToolResult = {
+        success: false,
+        output: '',
+        error: err.message,
+      }
+      await auditToolCall(call.name, options, errorResult, Date.now() - startTime)
+      return { ...errorResult, toolName: call.name, durationMs: Date.now() - startTime }
     }
-    await auditToolCall(call.name, options, errorResult, Date.now() - startTime)
-    return { ...errorResult, toolName: call.name, durationMs: Date.now() - startTime }
+  }
+
+  // Unreachable (loop always returns), but TypeScript needs it
+  return {
+    toolName: call.name,
+    success: false,
+    output: '',
+    error: 'Unexpected: retry loop exhausted without return',
+    durationMs: Date.now() - startTime,
   }
 }
 
@@ -215,31 +240,69 @@ async function executeRegistered(
     }
   }
 
-  try {
-    let result: ToolResult
+  // B2 fix (Tool Manager audit Fase B): retry logic su registered tool execution.
+  // PRIMA: se executeHttpTool/executeMcpTool falliva (network error, timeout),
+  // ritornava subito errore. ORA: max 2 retry con backoff 100ms * attempt.
+  const MAX_EXT_RETRIES = 2
+  const maxExtAttempts = MAX_EXT_RETRIES + 1
 
-    if (transport === 'http') {
-      result = await executeHttpTool(endpoint, call.arguments, tool.apiKey || undefined, timeout)
-    } else if (transport === 'mcp') {
-      result = await executeMcpTool(endpoint, call.name, call.arguments, tool.apiKey || undefined, timeout)
-    } else {
-      result = {
+  for (let attempt = 1; attempt <= maxExtAttempts; attempt++) {
+    try {
+      let result: ToolResult
+
+      if (transport === 'http') {
+        result = await executeHttpTool(endpoint, call.arguments, tool.apiKey || undefined, timeout)
+      } else if (transport === 'mcp') {
+        result = await executeMcpTool(endpoint, call.name, call.arguments, tool.apiKey || undefined, timeout)
+      } else {
+        result = {
+          success: false,
+          output: '',
+          error: `Unknown transport: ${transport}. Use 'http' or 'mcp'.`,
+        }
+      }
+
+      // Se successo, ritorna subito
+      if (result.success) {
+        await auditToolCall(call.name, options, result, Date.now() - startTime)
+        return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
+      }
+
+      // Se fallito e non ultimo tentativo, ritenta
+      if (attempt < maxExtAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[tool-dispatcher] external '${call.name}' attempt ${attempt}/${maxExtAttempts} failed: ${result.error}. Retrying...`)
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+        continue
+      }
+
+      // Ultimo tentativo fallito → ritorna errore
+      await auditToolCall(call.name, options, result, Date.now() - startTime)
+      return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
+    } catch (err: any) {
+      if (attempt < maxExtAttempts) {
+        // eslint-disable-next-line no-console
+        console.warn(`[tool-dispatcher] external '${call.name}' attempt ${attempt}/${maxExtAttempts} threw: ${err.message}. Retrying...`)
+        await new Promise((r) => setTimeout(r, 100 * attempt))
+        continue
+      }
+      const errorResult: ToolResult = {
         success: false,
         output: '',
-        error: `Unknown transport: ${transport}. Use 'http' or 'mcp'.`,
+        error: err.message,
       }
+      await auditToolCall(call.name, options, errorResult, Date.now() - startTime)
+      return { ...errorResult, toolName: call.name, durationMs: Date.now() - startTime }
     }
+  }
 
-    await auditToolCall(call.name, options, result, Date.now() - startTime)
-    return { ...result, toolName: call.name, durationMs: Date.now() - startTime }
-  } catch (err: any) {
-    const errorResult: ToolResult = {
-      success: false,
-      output: '',
-      error: err.message,
-    }
-    await auditToolCall(call.name, options, errorResult, Date.now() - startTime)
-    return { ...errorResult, toolName: call.name, durationMs: Date.now() - startTime }
+  // Unreachable
+  return {
+    toolName: call.name,
+    success: false,
+    output: '',
+    error: 'Unexpected: retry loop exhausted',
+    durationMs: Date.now() - startTime,
   }
 }
 

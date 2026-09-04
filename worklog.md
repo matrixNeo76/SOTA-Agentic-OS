@@ -3269,3 +3269,48 @@ Stage Summary:
 - C2: setPermission upsert atomico (no race condition su admin concorrenti)
 - C1: listTools O(1) round-trip invece di O(N+1) (performance bottleneck risolto)
 - Prossimo: Fase B (B1+B2+B3+B4+B5) robustezza
+
+---
+Task ID: TOOL-MANAGER-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B4+B5 (robustezza)
+
+Work Log:
+- B4+B5: toolStats con 3 metriche derivate aggiuntive:
+  * PRIMA: solo 5 metriche raw (total, active, revoked, totalPerms, grantedPerms)
+  * ORA: aggiunte 3 metriche derivate in Promise.all (1 round-trip DB, 6 query totali):
+    - permissionRate: grantedPerms / totalPerms (% scopes concesse)
+    - activeRate: active / total (% tool attivi)
+    - externalTools: count tool con transport !== null (HTTP/MCP tools)
+- B1: tool-manager.tsx refresh() con try/catch — già presente dal Fase 1 B5 fix (verificato)
+- B3: tool-manager.tsx 4 action functions parse-safe su r.json():
+  * install, revoke, togglePermission, installBuiltin
+  * PRIMA: r.json() poteva throware su risposta non JSON (500 con body HTML)
+  * ORA: try/catch interno su r.json() + fallback a r.text() per logging
+  * toast.error "Risposta non valida dal server (status N)" user-friendly
+  * console.error specifico per funzione: [tool-manager] install/revoke/togglePermission/installBuiltin
+  * 4 occorrenze di r.text() fallback + 4 toast.error su risposta non JSON
+- B2: dispatchTool retry logic su tool execution failure:
+  * executeBuiltin: MAX_EXEC_RETRIES = 2 (3 tentativi totali) con backoff 100ms * attempt
+  * executeRegistered: MAX_EXT_RETRIES = 2 (3 tentativi totali) con backoff 100ms * attempt
+  * console.warn ad ogni retry fallito per debug (builtin + external)
+  * Non ritenta su errori di permesso (già checkati prima del retry loop)
+  * External retry: ritenta sia su result.success=false che su catch throw
+- Test: 20 nuovi test integration in tests/integration/tool-manager-faseB.test.ts:
+  * B4+B5 toolStats: 5 test (8 metriche, permissionRate formula, activeRate formula, externalTools, B4+B5 comment)
+  * B1 refresh try/catch: 1 test (codice check)
+  * B3 parse-safe: 6 test (B3 install, revoke, togglePermission, installBuiltin, 4 r.text fallback, 4 toast.error)
+  * B2 retry logic: 5 test (B2 builtin, B2 external, backoff 3 occorrenze, console.warn builtin, console.warn external)
+  * Smoke: 3 test (toolStats lifecycle, tool-manager try/catch+parse-safe, tool-dispatcher retry)
+
+Stage Summary:
+- 3 file modificati (tool-registry.ts, tool-dispatcher.ts, tool-manager.tsx) + 1 nuovo test file
+- 20 nuovi test integration (tutti passing)
+- 35/35 test totali Tool Manager passing (15 Fase A + 20 Fase B, 0 regressioni)
+- 80/80 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B4+B5: toolStats con 8 metriche (permissionRate, activeRate, externalTools aggiunte)
+- B1: refresh già robusto dal Fase 1 (verificato)
+- B3: tool-manager.tsx 4 action functions parse-safe (try/catch interno + fallback r.text())
+- B2: dispatchTool retry logic (builtin + external, max 2 retry con backoff)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento

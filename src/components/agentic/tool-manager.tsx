@@ -95,7 +95,15 @@ export function ToolManager() {
  publisher: newPublisher,
  }),
  })
- const d = await r.json()
+ // B3 fix: parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ console.error('[tool-manager] install: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (r.ok && d.ok) {
  toast.success(`Tool ${newName} installato · signature: ${d.signature.slice(0, 16)}…`)
  setNewToolId('custom-tool')
@@ -119,7 +127,15 @@ export function ToolManager() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'revoke', toolId, reason: 'revoked by admin' }),
  })
- const d = await r.json()
+ // B3 fix: parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ console.error('[tool-manager] revoke: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (r.ok && d.ok) {
  toast.success('Tool revocato')
  await refresh()
@@ -139,7 +155,15 @@ export function ToolManager() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'set_permission', toolId, scope, granted: !granted }),
  })
- const d = await r.json()
+ // B3 fix: parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ console.error('[tool-manager] togglePermission: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (r.ok && d.ok) {
  // Aggiorna localmente
  if (selectedTool && selectedTool.toolId === toolId) {
@@ -175,7 +199,15 @@ export function ToolManager() {
  publisher: tool.publisher,
  }),
  })
- const d = await r.json()
+ // B3 fix: parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ console.error('[tool-manager] installBuiltin: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (r.ok && d.ok) {
  toast.success(`${tool.name} installato`)
  await refresh()

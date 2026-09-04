@@ -207,16 +207,41 @@ export async function listTools(includeRevoked = false) {
 
 /**
  * Statistiche per dashboard.
+ *
+ * B5 fix (Tool Manager audit Fase B): tutte le query in Promise.all (già fatto, confermato).
+ * B4 fix (Tool Manager audit Fase B): metriche derivate aggiuntive.
+ * PRIMA: solo 5 metriche raw (total, active, revoked, totalPerms, grantedPerms).
+ * ORA: aggiunte 3 metriche derivate:
+ *  - permissionRate: grantedPerms / totalPerms (% scopes concesse)
+ *  - activeRate: active / total (% tool attivi)
+ *  - externalTools: count tool con transport !== null (HTTP/MCP tools)
  */
 export async function toolStats() {
-  const [total, active, revoked, totalPerms, grantedPerms] = await Promise.all([
+  const [total, active, revoked, totalPerms, grantedPerms, externalTools] = await Promise.all([
     db.tool.count(),
     db.tool.count({ where: { active: true } }),
     db.tool.count({ where: { active: false } }),
     db.toolPermission.count(),
     db.toolPermission.count({ where: { granted: true } }),
+    // B4 — external tools (transport !== null = HTTP or MCP)
+    db.tool.count({ where: { NOT: { transport: null } } }),
   ])
-  return { total, active, revoked, totalPerms, grantedPerms }
+
+  // B4 — metriche derivate
+  const permissionRate = totalPerms > 0 ? grantedPerms / totalPerms : 0
+  const activeRate = total > 0 ? active / total : 0
+
+  return {
+    total,
+    active,
+    revoked,
+    totalPerms,
+    grantedPerms,
+    // B4 — metriche derivate
+    permissionRate,
+    activeRate,
+    externalTools,
+  }
 }
 
 /**
