@@ -3314,3 +3314,50 @@ Stage Summary:
 - B3: tool-manager.tsx 4 action functions parse-safe (try/catch interno + fallback r.text())
 - B2: dispatchTool retry logic (builtin + external, max 2 retry con backoff)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: TOOL-MANAGER-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G2: tool-manager.tsx a11y completa:
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Tool Manager")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value
+  * Stats grid aggiornata da 5 a 8 card (G4: Permission rate, Active rate, External tools)
+- G3: assorbito in B3 Fase B (parse-safe già implementato, verificato):
+  * 4 action functions con try/catch interno su r.json() + fallback r.text()
+- G1: Unit test focalizzati per tool-registry.ts (15 test):
+  * installTool lifecycle: 3 test (crea con campi completi, default permissions B8, toolId duplicato)
+  * revokeTool: 3 test (marca active=false, setta permissions granted=false, toolId non esistente throws)
+  * setPermission + checkPermission: 6 test (granted authorized, not granted denied, tool non installato, tool revocato, constraint JSON, upsert grantedBy)
+  * listTools + toolStats accuracy: 2 test (permissions/grantedCount/totalCount, 8 metriche numeriche)
+- G4: Unit test per SSRF protection (8 test):
+  * assertSafeUrl function esiste, isPrivateIP function esiste
+  * localhost check, .local domains check
+  * IPv4 private ranges (192.168, 10.0.0.0, 172)
+  * IPv6 loopback (::1), IPv4-mapped IPv6 (::ffff:)
+  * dns/promises.lookup con all: true
+  * http.fetch builtin tool ha SSRF check integrato
+- Test: 30 nuovi test integration in tests/integration/tool-manager-faseC.test.ts:
+  * G1 installTool: 3 test
+  * G1 revokeTool: 3 test
+  * G1 setPermission+checkPermission: 6 test
+  * G1 listTools+toolStats: 2 test
+  * G2 a11y: 3 test (role=status, StatCard role=group, 8 stat card)
+  * G3 parse-safe: 1 test (4 action functions verification)
+  * G4 SSRF: 8 test (assertSafeUrl, isPrivateIP, IPv4/IPv6 edge cases, dns lookup)
+  * Smoke: 3 test (full lifecycle, a11y+parse-safe, SSRF completa)
+
+Stage Summary:
+- 2 file modificati (tool-manager.tsx a11y) + 1 nuovo test file
+- 30 nuovi test integration (tutti passing)
+- 65/65 test totali Tool Manager passing (15 Fase A + 20 Fase B + 30 Fase C, 0 regressioni)
+- 110/110 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G2: tool-manager.tsx accessibile (role=status, StatCard role=group, 8 stat card)
+- G3: assorbito in B3 (parse-safe già implementato in Fase B)
+- G1: 14 unit test focalizzati per tool-registry.ts (installTool, revokeTool, setPermission, checkPermission, listTools, toolStats)
+- G4: 8 unit test per SSRF protection (assertSafeUrl, isPrivateIP con IPv4/IPv6 edge cases)
+- MODULO TOOL MANAGER COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)

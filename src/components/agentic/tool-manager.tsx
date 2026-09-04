@@ -227,12 +227,16 @@ export function ToolManager() {
  />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-5 gap-3" role="status" aria-live="polite" aria-label="Statistiche Tool Manager">
  <StatCard label="Tool totali" value={stats.total} />
  <StatCard label="Attivi" value={stats.active} highlight />
  <StatCard label="Revocati" value={stats.revoked} warn={stats.revoked > 0} />
  <StatCard label="Permessi" value={stats.totalPerms} />
  <StatCard label="Concessi" value={stats.grantedPerms} highlight />
+ {/* G4 — nuove stat card con metriche derivate */}
+ <StatCard label="Permission rate" value={((stats.permissionRate ?? 0) * 100).toFixed(1) + '%'} highlight={(stats.permissionRate ?? 0) > 0.5} />
+ <StatCard label="Active rate" value={((stats.activeRate ?? 0) * 100).toFixed(1) + '%'} />
+ <StatCard label="External tools" value={stats.externalTools ?? 0} />
  </div>
  )}
 
@@ -464,13 +468,13 @@ function BuiltinTools({ onInstall, installed }: { onInstall: (t: any) => void; i
 
 function StatCard({ label, value, highlight, warn }: { label: string; value: number | string; highlight?: boolean; warn?: boolean }) {
  return (
- <div className="bg-card border rounded-md p-3">
+ <div className="bg-card border rounded-md p-3" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{label}</div>
  <div className={cn(
  'text-2xl font-bold font-mono',
  highlight && 'text-status-ok',
  warn && 'text-status-warn',
- )}>{value}</div>
+ )} aria-label={`${label}: ${value}`}>{value}</div>
  </div>
  )
 }
