@@ -215,13 +215,45 @@ export async function getObjectiveTree(treeId: string) {
 
 /**
  * Valuta un singolo nodo (Pass/Fail).
+ *
+ * B5 fix (Objective Builder audit Fase B): validazione runtime di `status`.
+ * PRIMA: `status: 'pass' | 'fail' | 'skipped'` era solo type union TypeScript,
+ * ma a runtime qualunque stringa veniva persistita come `status` nel DB.
+ * ORA: throw esplicito su valori non ammessi.
+ *
+ * B6 fix (Objective Builder audit Fase B): size cap su evidence JSON.
+ * PRIMA: `evidence` veniva JSON.stringify senza size cap → DB bloat risk.
+ * ORA: MAX_EVIDENCE_SIZE = 10_000, tronca con marker [truncated].
  */
+const VALID_NODE_STATUSES: readonly string[] = ['pass', 'fail', 'skipped']
+const MAX_EVIDENCE_SIZE = 10_000
+
+function isValidNodeStatus(value: unknown): value is 'pass' | 'fail' | 'skipped' {
+  return typeof value === 'string' && (VALID_NODE_STATUSES as readonly string[]).includes(value)
+}
+
 export async function evaluateNode(nodeId: string, status: 'pass' | 'fail' | 'skipped', evidence?: unknown) {
+  // B5 — Validazione runtime: status deve essere uno dei valori ammessi
+  if (!isValidNodeStatus(status)) {
+    throw new Error(
+      `Invalid node status: "${status}". Allowed values: ${VALID_NODE_STATUSES.join(', ')}`
+    )
+  }
+
+  // B6 — Size cap su evidence JSON-stringified (10KB + marker)
+  let evidenceJson: string | null = null
+  if (evidence !== undefined && evidence !== null) {
+    const raw = JSON.stringify(evidence)
+    evidenceJson = raw.length > MAX_EVIDENCE_SIZE
+      ? raw.slice(0, MAX_EVIDENCE_SIZE) + '...[truncated]'
+      : raw
+  }
+
   const updated = await db.objectiveNode.update({
     where: { id: nodeId },
     data: {
       status,
-      evidence: evidence ? JSON.stringify(evidence) : null,
+      evidence: evidenceJson,
       evaluatedAt: new Date(),
     },
   })
@@ -239,8 +271,20 @@ export async function evaluateNode(nodeId: string, status: 'pass' | 'fail' | 'sk
 
 /**
  * Salta tutti i discendenti di un nodo fallito.
+ *
+ * B3 fix (Objective Builder audit Fase B): depth guard + cycle detection.
+ * PRIMA: ricorsione senza limiti → se parentId ciclici (A→B→A), stack overflow.
+ * ORA: MAX_DESCENDANT_DEPTH = 10 + visited set per cycle detection (defensive).
  */
-async function skipDescendants(nodeId: string) {
+const MAX_DESCENDANT_DEPTH = 10
+
+async function skipDescendants(nodeId: string, visited: Set<string> = new Set(), depth: number = 0) {
+  // B3 — Depth guard: non scendere oltre 10 livelli (defensive)
+  if (depth >= MAX_DESCENDANT_DEPTH) return
+  // B3 — Cycle detection: se abbiamo già visitato questo nodo, esci
+  if (visited.has(nodeId)) return
+  visited.add(nodeId)
+
   const children = await db.objectiveNode.findMany({ where: { parentId: nodeId } })
   for (const child of children) {
     if (child.status === 'pending') {
@@ -249,7 +293,7 @@ async function skipDescendants(nodeId: string) {
         data: { status: 'skipped', evaluatedAt: new Date() },
       })
     }
-    await skipDescendants(child.id)
+    await skipDescendants(child.id, visited, depth + 1)
   }
 }
 
@@ -270,15 +314,19 @@ async function checkTreeCompletion(treeId: string) {
 
 /**
  * Statistiche per dashboard.
+ *
+ * B1 fix (Objective Builder audit Fase B): tutte le 5 query in un unico Promise.all.
+ * PRIMA: 3 query in Promise.all + 2 query sequenziali (passNodes, failNodes) → 3 round-trip DB.
+ * ORA: 5 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
  */
 export async function objectiveStats() {
-  const [trees, nodes, completedTrees] = await Promise.all([
+  const [trees, nodes, completedTrees, passNodes, failNodes] = await Promise.all([
     db.objectiveTree.count(),
     db.objectiveNode.count(),
     db.objectiveTree.count({ where: { status: 'done' } }),
+    db.objectiveNode.count({ where: { status: 'pass' } }),
+    db.objectiveNode.count({ where: { status: 'fail' } }),
   ])
-  const passNodes = await db.objectiveNode.count({ where: { status: 'pass' } })
-  const failNodes = await db.objectiveNode.count({ where: { status: 'fail' } })
   return { trees, nodes, completedTrees, passNodes, failNodes }
 }
 

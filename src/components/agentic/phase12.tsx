@@ -48,12 +48,24 @@ export function Phase12() {
  const [rootGoal, setRootGoal] = useState('Ottimizza il processo di deploy del microservizio auth')
 
  const refresh = async () => {
+ // B2 fix (Objective Builder audit Fase B): try/catch su refresh().
+ // PRIMA: un fetch fallito (network error, server 500, body non JSON) faceva
+ // throw unhandled rejection che rompeva il polling setInterval e lasciava
+ // la UI in stato stale.
+ // ORA: catch globale con toast.error user-friendly, preserva stato precedente.
+ try {
  const [treesR, statsR] = await Promise.all([
  fetch('/api/objective?action=list').then((r) => r.json()),
  fetch('/api/objective?action=stats').then((r) => r.json()),
  ])
  setTrees(treesR.trees || [])
  setStats(statsR)
+ } catch (err) {
+ // B2 — Network error o JSON parse error: mostra toast e lascia lo stato precedente
+ toast.error('Caricamento Objective Builder fallito')
+ // eslint-disable-next-line no-console
+ console.error('[phase12] refresh failed:', err)
+ }
  }
 
  // eslint-disable-next-line react-hooks/set-state-in-effect

@@ -2715,3 +2715,52 @@ Stage Summary:
 - C3: POST /api/objective requireAdmin (no privilege escalation su evaluate_node)
 - C1: createObjectiveTree integrato in executePlan (decomposizione automatica non più cosmetica)
 - Prossimo: Fase B (B1+B2+B3+B5+B6) robustezza
+
+---
+Task ID: OBJECTIVE-BUILDER-FASE-B
+Agent: main
+Task: Fase B — B1+B2+B3+B5+B6 (robustezza)
+
+Work Log:
+- B1: objectiveStats con 5 query in Promise.all (1 round-trip DB):
+  * PRIMA: 3 query in Promise.all + 2 sequenziali (passNodes, failNodes) → 3 round-trip
+  * ORA: 5 query in un unico Promise.all → 1 round-trip (parallelismo massimo)
+- B3: skipDescendants depth guard + visited set (stack overflow prevention):
+  * PRIMA: ricorsione senza limiti → se parentId ciclici (A→B→A), stack overflow
+  * ORA: MAX_DESCENDANT_DEPTH = 10 (depth guard) + visited Set<string> (cycle detection)
+  * Parametri opzionali con default per backward compat (visited, depth)
+  * Defensive: non scende oltre 10 livelli, non visita due volte lo stesso nodo
+- B5: evaluateNode valida status enum a runtime:
+  * PRIMA: status era solo type union TypeScript, qualunque stringa persistita
+  * ORA: VALID_NODE_STATUSES = ['pass', 'fail', 'skipped'] + isValidNodeStatus type guard
+  * Throw esplicito "Invalid node status: X. Allowed values: pass, fail, skipped"
+  * Verifica che status nel DB rimane 'pending' quando invalido (no update eseguito)
+- B6: evidence size cap 10KB con marker [truncated]:
+  * PRIMA: evidence JSON.stringify senza size cap → DB bloat risk
+  * ORA: MAX_EVIDENCE_SIZE = 10_000, tronca con marker [truncated]
+  * Difensivo: anche se caller passa oggetto enorme, DB non riceve > 10KB
+  * Gestione null/undefined: evidence null/undefined → null nel DB (no JSON.stringify)
+- B2: phase12.tsx refresh() con try/catch globale:
+  * PRIMA: un fetch fallito faceva throw unhandled rejection, rompeva polling setInterval
+  * ORA: catch globale con toast.error "Caricamento Objective Builder fallito" + console.error
+  * Il catch NON azzera lo stato (preserva dati già caricati, evita UI vuota)
+- Test: 24 nuovi test integration in tests/integration/objective-builder-faseB.test.ts:
+  * B1 objectiveStats Promise.all: 4 test (5 metriche, B1 comment, no query sequenziali, riflette nuovi alberi)
+  * B3 skipDescendants safety: 4 test (B3 comment, depth guard, visited set, fail skippa discendenti no crash)
+  * B5 evaluateNode status validation: 5 test (B5 comment, pass ok, fail ok, unknown throws, empty throws, numeric throws)
+  * B6 evidence size cap: 5 test (B6 comment, small no truncate, huge truncate, undefined null, null null)
+  * B2 phase12.tsx try/catch: 2 test (codice check, no state clear on error)
+  * Smoke: 3 test (B1+B5 lifecycle, B5+B6 validation+cap, B2+B3 codice check)
+
+Stage Summary:
+- 2 file modificati (agent-objective.ts, phase12.tsx) + 1 nuovo test file
+- 24 nuovi test integration (tutti passing)
+- 44/44 test totali Objective Builder passing (20 Fase A + 24 Fase B, 0 regressioni)
+- 361/361 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase B
+- B1: objectiveStats O(1) round-trip invece di O(3)
+- B2: phase12.tsx refresh robusto (try/catch, preserva stato)
+- B3: skipDescendants safe (depth guard + cycle detection)
+- B5: evaluateNode status validato a runtime (no status arbitrari)
+- B6: evidence capped (no DB bloat)
+- Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
