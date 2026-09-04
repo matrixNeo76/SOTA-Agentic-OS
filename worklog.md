@@ -2819,3 +2819,44 @@ Stage Summary:
 - G1: 15 unit test per generateTreeStructure/createObjectiveTree/evaluateNode/getObjectiveTree (coverage specifica)
 - MODULO OBJECTIVE BUILDER COMPLETATO (Fasi A+B+C)
 - Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)
+
+---
+Task ID: SWARM-COHERENCE-AUDIT
+Agent: main
+Task: Audit & gap analysis sub-modulo Swarm Coherence (F13)
+
+Work Log:
+- Analizzati 3 file: esr-quorum.ts (308 LOC), api/esr/route.ts (174), phase13.tsx (393)
+- Verificati consumer runtime: NESSUNO (recordBelief/syncBelief/proposeQuorumAction/voteQuorum non chiamati da executor; dashboard usa solo esrStats)
+- Verificata coverage test: 11 test in verify-domain-core (recordBelief, listBeliefs, getBeliefLineage B4, esrStats, proposeQuorumAction, voteQuorum 4 scenari, C3 duplicate, listQuorumDecisions)
+- Verificati fix preesistenti dal Verify Domain Fase 1 audit:
+  * C1 (requireAdmin su POST /api/esr) ✅
+  * C3 (voteQuorum duplicate prevention) ✅
+  * C4 (voteQuorum atomic increment) ✅
+  * B1 (phase13 try/catch su 4 action functions) ✅
+  * B4 (getBeliefLineage depth limit 20) ✅
+  * B5 (syncBelief preserve version history) ✅
+  * B7 (adaptive polling) ✅
+  * B9 (auto-fill belief ID) ✅
+  * C6 (AgentLog + beliefType/vote/requiredQuorum validation nella route) ✅
+- Compilato report in docs/SWARM-COHERENCE-AUDIT.md
+
+Stage Summary:
+- 3 bug critici (C1-C3):
+  * C1: recordBelief/syncBelief non integrati nell'executor (divergenza epistemica cosmetica)
+  * C2: proposeQuorumAction/voteQuorum non integrati ai join point (quorum semantico cosmetico)
+  * C3: content/reason/action/conflictReason senza size cap (DB bloat risk)
+- 6 bug medi (B1-B6):
+  * B1: voteQuorum non gestisce tie (accept==reject==requiredQuorum → primo che raggiunge quorum vince)
+  * B2: phase13 refresh() catch silente (no toast.error, solo console.error)
+  * B3: recordBelief non valida beliefType enum a runtime (route valida, ma funzione no)
+  * B4: voteQuorum non valida vote enum a runtime (route valida, ma funzione no)
+  * B5: syncBelief non valida sourceAgentId !== targetAgentId (self-sync crea duplicato)
+  * B6: esrStats manca conflictRate/quorumCompletionRate/pendingQuorum/avgConfidence
+- 4 gap funzionali (G1-G4):
+  * G1: zero unit test per syncBelief conflitto/getBeliefLineage catena lunga/voteQuorum tie/listSyncEvents
+  * G2: phase13.tsx nessun a11y (aria-label, role=status)
+  * G3: phase13.tsx 4 action functions non hanno parse-safe su r.json()
+  * G4: esrStats manca metriche derivate (assorbito in B6)
+- Piano: Fase A (1gg CRITICA) + Fase B (0.5gg ALTA) + Fase C (1gg MEDIA) = 2.5gg
+- Prossimo: confermare quale fase avviare (suggerito Fase A)
