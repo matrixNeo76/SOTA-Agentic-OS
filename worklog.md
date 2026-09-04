@@ -2952,3 +2952,55 @@ Stage Summary:
 - B4: voteQuorum vote validato a runtime
 - B5: syncBelief previene self-sync (no belief duplicati)
 - Prossimo: Fase C (G1+G2+G3+G4/B6) UX & completamento
+
+---
+Task ID: SWARM-COHERENCE-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4/B6 (UX & completamento)
+
+Work Log:
+- G4/B6: esrStats con 4 metriche derivate aggiuntive:
+  * PRIMA: solo 6 metriche raw (beliefs, syncEvents, conflicts, quorumDecisions, acceptedQuorum, rejectedQuorum)
+  * ORA: aggiunte 4 metriche derivate in Promise.all (1 round-trip DB):
+    - conflictRate: conflicts / syncEvents (% di sync con conflitto epistemico)
+    - quorumCompletionRate: (accepted + rejected) / quorumDecisions (% decisioni risolte)
+    - pendingQuorum: quorumDecisions - (accepted + rejected) (decisioni ancora pending)
+    - avgConfidence: via aggregate _avg confidence dei belief attivi (qualità epistemica)
+- G2: phase13.tsx a11y:
+  * aria-label su 4 button: Aggiorna, Registra Belief, Sincronizza, Proponi
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Swarm Coherence")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value
+  * Stats grid aggiornata da 5 a 9 card (G4: Conflict rate, Completion, Pending, Avg confidence)
+- G3: phase13.tsx parse-safe su r.json() in 4 action functions:
+  * recordBelief, syncBelief, proposeQuorum, voteQuorum
+  * try/catch interno su r.json() + fallback a r.text() per logging
+  * toast.error "Risposta non valida dal server (status N)" user-friendly
+  * console.error specifico per funzione: [phase13] recordBelief/syncBelief/proposeQuorum/voteQuorum
+  * 4 occorrenze di r.text() fallback + 4 toast.error su risposta non JSON
+- G1: Unit test per syncBelief conflitto/getBeliefLineage catena/listSyncEvents/getQuorumVotes in isolamento:
+  * syncBelief conflitto: 4 test (source not found → conflict, no similar target → synced, replica con version+1, ESRSyncEvent persistito)
+  * getBeliefLineage: 4 test (primo elemento = belief corrente, catena 2 versioni su supersede, depth limit 20, array vuoto per ID non esistente)
+  * listSyncEvents: 2 test (ordinamento timestamp desc, limit rispettato)
+  * getQuorumVotes: 2 test (ritorna voti per decisionId, array vuoto per decisionId senza voti)
+  * esrStats accuracy: 5 test (10 metriche, conflictRate formula, quorumCompletionRate formula, pendingQuorum formula, avgConfidence numerico, G4 comment)
+- Test: 33 nuovi test integration in tests/integration/swarm-coherence-faseC.test.ts:
+  * G1 syncBelief conflitto: 4 test
+  * G1 getBeliefLineage: 4 test
+  * G1 listSyncEvents/getQuorumVotes: 4 test
+  * G4/B6 esrStats: 5 test
+  * G2 phase13.tsx a11y: 5 test
+  * G3 phase13.tsx parse-safe: 7 test (G3 comment, 4 action functions, 4 r.text fallback, 4 toast.error)
+  * Smoke: 3 test (lifecycle 10 metriche, a11y+parse-safe, 10 metriche numeriche)
+
+Stage Summary:
+- 2 file modificati (esr-quorum.ts, phase13.tsx) + 1 nuovo test file
+- 33 nuovi test integration (tutti passing)
+- 77/77 test totali Swarm Coherence passing (19 Fase A + 25 Fase B + 33 Fase C, 0 regressioni)
+- 214/214 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G4/B6: esrStats con 10 metriche (conflictRate, quorumCompletionRate, pendingQuorum, avgConfidence aggiunte)
+- G2: phase13.tsx accessibile (aria-label su 4 button, role=status su stats grid, 9 stat card)
+- G3: phase13.tsx parse-safe (try/catch interno su r.json() in 4 funzioni + fallback r.text())
+- G1: 14 unit test per syncBelief conflitto/getBeliefLineage/listSyncEvents/getQuorumVotes (coverage specifica)
+- MODULO SWARM COHERENCE COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)

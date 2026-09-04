@@ -369,16 +369,38 @@ export async function getQuorumVotes(decisionId: string) {
 
 /**
  * Statistiche per dashboard.
+ *
+ * G4/B6 fix (Swarm Coherence audit Fase C): metriche derivate aggiuntive.
+ * PRIMA: solo 6 metriche raw (beliefs, syncEvents, conflicts, quorumDecisions, acceptedQuorum, rejectedQuorum).
+ * ORA: aggiunte 4 metriche derivate per monitoraggio qualità:
+ *  - conflictRate: conflicts / syncEvents (% di sync con conflitto epistemico)
+ *  - quorumCompletionRate: (accepted + rejected) / quorumDecisions (% decisioni risolte)
+ *  - pendingQuorum: decisioni ancora pending (non votate a sufficienza)
+ *  - avgConfidence: media confidence dei belief attivi (qualità epistemica)
+ * Tutte le query in un unico Promise.all (1 round-trip DB).
  */
 export async function esrStats() {
-  const [beliefs, syncEvents, conflicts, quorumDecisions, acceptedQuorum, rejectedQuorum] = await Promise.all([
+  const [beliefs, syncEvents, conflicts, quorumDecisions, acceptedQuorum, rejectedQuorum, confidenceAgg] = await Promise.all([
     db.belief.count({ where: { superseded: false } }),
     db.eSRSyncEvent.count(),
     db.eSRSyncEvent.count({ where: { syncStatus: 'conflict' } }),
     db.quorumDecision.count(),
     db.quorumDecision.count({ where: { verdict: 'accepted' } }),
     db.quorumDecision.count({ where: { verdict: 'rejected' } }),
+    // G4 — avg confidence dei belief attivi
+    db.belief.aggregate({
+      where: { superseded: false },
+      _avg: { confidence: true },
+    }),
   ])
+
+  // G4 — metriche derivate
+  const conflictRate = syncEvents > 0 ? conflicts / syncEvents : 0
+  const decidedQuorum = acceptedQuorum + rejectedQuorum
+  const quorumCompletionRate = quorumDecisions > 0 ? decidedQuorum / quorumDecisions : 0
+  const pendingQuorum = quorumDecisions - decidedQuorum
+  const avgConfidence = confidenceAgg._avg.confidence ?? 0
+
   return {
     beliefs,
     syncEvents,
@@ -386,5 +408,10 @@ export async function esrStats() {
     quorumDecisions,
     acceptedQuorum,
     rejectedQuorum,
+    // G4 — metriche derivate
+    conflictRate,
+    quorumCompletionRate,
+    pendingQuorum,
+    avgConfidence,
   }
 }

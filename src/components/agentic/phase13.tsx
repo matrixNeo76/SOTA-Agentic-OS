@@ -94,7 +94,16 @@ export function Phase13() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'record_belief', agentId: bAgent, content: bContent, beliefType: bType }),
  })
- const d = await r.json()
+ // G3 fix (Swarm Coherence audit Fase C): parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase13] recordBelief: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) { toast.error(`Record belief failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  if (d.supersededId) toast.info('Convinzione precedente marcata come superseded')
@@ -114,7 +123,16 @@ export function Phase13() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'sync_belief', sourceAgentId: syncSource, targetAgentId: syncTarget, beliefId }),
  })
- const d = await r.json()
+ // G3 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase13] syncBelief: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) { toast.error(`Sync failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  if (d.syncStatus === 'conflict') toast.warning(`Conflitto ESR: ${d.reason}`)
@@ -131,7 +149,16 @@ export function Phase13() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'propose_quorum', workflowJoinId: qJoin, quorumAction: qAction, requiredQuorum: qRequired }),
  })
- const d = await r.json()
+ // G3 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase13] proposeQuorum: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) { toast.error(`Propose failed: ${d.error || `HTTP ${r.status}`}`); return }
  if (d.ok) {
  toast.success(`Quorum proposto (req=${qRequired})`)
@@ -147,7 +174,16 @@ export function Phase13() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ action: 'vote_quorum', decisionId, voterAgentId: voter, vote }),
  })
- const d = await r.json()
+ // G3 — parse-safe su r.json()
+ let d: any
+ try { d = await r.json() }
+ catch {
+ const text = await r.text().catch(() => '<no body>')
+ // eslint-disable-next-line no-console
+ console.error('[phase13] voteQuorum: response not JSON', r.status, text.slice(0, 200))
+ toast.error(`Risposta non valida dal server (status ${r.status})`)
+ return
+ }
  if (!r.ok) {
  if (d.code === 'DUPLICATE_VOTE') toast.warning(`Voto duplicato: ${d.error}`)
  else toast.error(`Vote failed: ${d.error || `HTTP ${r.status}`}`)
@@ -162,15 +198,20 @@ export function Phase13() {
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase13" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase13" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Swarm Coherence"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-5 gap-3" role="status" aria-live="polite" aria-label="Statistiche Swarm Coherence">
  <StatCard label="Beliefs" value={stats.beliefs} />
  <StatCard label="Sync events" value={stats.syncEvents} />
  <StatCard label="Conflitti" value={stats.conflicts} warn={stats.conflicts > 0} />
  <StatCard label="Quorum" value={stats.quorumDecisions} />
  <StatCard label="Accepted" value={stats.acceptedQuorum} highlight />
+ {/* G4 — nuove stat card con metriche derivate */}
+ <StatCard label="Conflict rate" value={((stats.conflictRate ?? 0) * 100).toFixed(1) + '%'} warn={(stats.conflictRate ?? 0) > 0.2} />
+ <StatCard label="Completion" value={((stats.quorumCompletionRate ?? 0) * 100).toFixed(1) + '%'} highlight={(stats.quorumCompletionRate ?? 0) > 0.5} />
+ <StatCard label="Pending" value={stats.pendingQuorum ?? 0} warn={(stats.pendingQuorum ?? 0) > 0} />
+ <StatCard label="Avg confidence" value={(stats.avgConfidence ?? 0).toFixed(2)} />
  </div>
  )}
 
@@ -210,7 +251,7 @@ export function Phase13() {
  <Label className="text-xs">Content</Label>
  <Input value={bContent} onChange={(e) => setBContent(e.target.value)} />
  </div>
- <Button size="sm" onClick={recordBelief}>
+ <Button size="sm" onClick={recordBelief} aria-label="Registra belief nell'epistemic registry">
  <Plus className="size-3.5 mr-1.5" /> Registra Belief
  </Button>
  </CardContent>
@@ -269,7 +310,7 @@ export function Phase13() {
  <Input value={syncBeliefId} onChange={(e) => setSyncBeliefId(e.target.value)} placeholder="auto: primo belief" />
  </div>
  </div>
- <Button size="sm" onClick={syncBelief}>
+ <Button size="sm" onClick={syncBelief} aria-label="Sincronizza belief tra agenti (ESR replication)">
  <GitBranch className="size-3.5 mr-1.5" /> Sincronizza
  </Button>
  </CardContent>
@@ -324,7 +365,7 @@ export function Phase13() {
  <Input type="number" value={qRequired} onChange={(e) => setQRequired(Number(e.target.value))} min={1} max={5} />
  </div>
  </div>
- <Button size="sm" onClick={proposeQuorum}>
+ <Button size="sm" onClick={proposeQuorum} aria-label="Proponi quorum semantico per certificazione">
  <Users className="size-3.5 mr-1.5" /> Proponi
  </Button>
  </CardContent>
@@ -389,9 +430,9 @@ export function Phase13() {
 function StatCard({ label, value, highlight, warn }: { label: string; value: number | string; highlight?: boolean; warn?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')}>{value}</div>
+ <div className={cn('text-2xl font-bold font-mono', highlight && 'text-status-ok', warn && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )
