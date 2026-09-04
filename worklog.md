@@ -3135,3 +3135,51 @@ Stage Summary:
 - B1: phase14.tsx refresh robusto (try/catch, preserva stato)
 - B2: phase14.tsx route/features parse-safe (try/catch interno + toast.error)
 - Prossimo: Fase C (G1+G2+G3+G4) UX & completamento
+
+---
+Task ID: MODEL-ROUTER-FASE-C
+Agent: main
+Task: Fase C — G1+G2+G3+G4 (UX & completamento)
+
+Work Log:
+- G4: routerStats con 3 metriche derivate aggiuntive:
+  * PRIMA: solo 6 metriche raw (decisions, ensemble, critic, primary, topModel, topModelPct)
+  * ORA: aggiunte 3 metriche derivate in Promise.all (1 round-trip DB):
+    - ensembleRate: (ensemble + critic) / decisions (% routing non-primary)
+    - avgConfidence: via aggregate _avg confidence (media qualità routing)
+    - avgMargin: via aggregate _avg margin (media separazione top-2)
+  * Tutte le 7 query in Promise.all (5 count/findMany + 2 aggregate)
+- G2: phase14.tsx a11y:
+  * aria-label su 2 button: Aggiorna, Route
+  * role=status + aria-live=polite su stats grid (aria-label="Statistiche Model Router")
+  * StatCard: role=group + aria-label="Statistica: {label}" + aria-label dinamico su value
+  * Stats grid aggiornata da 5 a 8 card (G4: Ensemble rate, Avg confidence, Avg margin)
+- G3: assorbito in B2 Fase B (parse-safe già implementato):
+  * phase14.tsx route() e features hanno già try/catch interno su r.json() + fallback r.text()
+  * Verifica presenza in test G3 (codice check)
+- G1: Unit test per route lifecycle + getOrCreateConfig + updateConfig + simulateModelOutput:
+  * route lifecycle: 8 test (code domain, math domain, logic domain, N5 dedup cache, N4 llmError, confidence/margin range, diversity range, routedTo enum)
+  * getOrCreateConfig: 1 test (default values 0.2/0.3/0.6/true/true)
+  * updateConfig: 3 test (upsert update existing, upsert create new, partial update non sovrascrive)
+  * simulateModelOutput: 2 test (function exists, fallback format con modelId+domain)
+- Test: 29 nuovi test integration in tests/integration/model-router-faseC.test.ts:
+  * G1 route lifecycle: 8 test
+  * G1 getOrCreateConfig/updateConfig: 4 test
+  * G1 simulateModelOutput: 2 test
+  * G4 routerStats: 5 test (9 metriche, ensembleRate formula, avgConfidence numerico, avgMargin numerico, G4 comment)
+  * G2 phase14.tsx a11y: 5 test (Aggiorna aria-label, role=status, Route aria-label, StatCard role=group, 8 stat card)
+  * G3 parse-safe verification: 2 test (route + features try/catch)
+  * Smoke: 3 test (lifecycle 9 metriche, a11y+parse-safe, 9 metriche numeriche)
+
+Stage Summary:
+- 2 file modificati (time-router.ts, phase14.tsx) + 1 nuovo test file
+- 29 nuovi test integration (tutti passing)
+- 74/74 test totali Model Router passing (20 Fase A + 25 Fase B + 29 Fase C, 0 regressioni)
+- 93/93 test cross-modulo passing (0 failure, 0 regressioni)
+- 0 TypeScript errors nei file Fase C
+- G4: routerStats con 9 metriche (ensembleRate, avgConfidence, avgMargin aggiunte)
+- G2: phase14.tsx accessibile (aria-label su button, role=status su stats grid, 8 stat card)
+- G3: assorbito in B2 (parse-safe già implementato in Fase B)
+- G1: 14 unit test per route lifecycle/getOrCreateConfig/updateConfig/simulateModelOutput (coverage specifica)
+- MODULO MODEL ROUTER COMPLETATO (Fasi A+B+C)
+- Tutti i 13 item dell'audit risolti (3 C + 6 B + 4 G)

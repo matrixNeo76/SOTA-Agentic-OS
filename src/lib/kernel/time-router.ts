@@ -379,11 +379,15 @@ export async function listRoutingDecisions(limit = 30) {
 
 /**
  * B3 fix (Model Router audit Fase B): tutte le query in Promise.all.
- * PRIMA: 4 query in Promise.all + 1 sequenziale (recent per topModel) → 2 round-trip DB.
- * ORA: 5 query in un unico Promise.all → 1 round-trip DB (parallelismo massimo).
+ * G4 fix (Model Router audit Fase C): metriche derivate aggiuntive.
+ * PRIMA: solo 6 metriche raw (decisions, ensemble, critic, primary, topModel, topModelPct).
+ * ORA: aggiunte 3 metriche derivate per monitoraggio qualità routing:
+ *  - ensembleRate: (ensemble + critic) / decisions (% routing non-primary)
+ *  - avgConfidence: media confidence delle decisions recenti (via aggregate)
+ *  - avgMargin: media margin delle decisions recenti (via aggregate)
  */
 export async function routerStats() {
-  const [decisions, ensemble, critic, primary, recent] = await Promise.all([
+  const [decisions, ensemble, critic, primary, recent, confidenceAgg, marginAgg] = await Promise.all([
     db.routingDecision.count(),
     db.routingDecision.count({ where: { routedTo: 'ensemble' } }),
     db.routingDecision.count({ where: { routedTo: 'critic' } }),
@@ -394,6 +398,10 @@ export async function routerStats() {
       take: 100,
       select: { primaryModel: true },
     }),
+    // G4 — avg confidence via aggregate
+    db.routingDecision.aggregate({ _avg: { confidence: true } }),
+    // G4 — avg margin via aggregate
+    db.routingDecision.aggregate({ _avg: { margin: true } }),
   ])
   // Modello più frequentemente scelto come primary
   const modelCounts: Record<string, number> = {}
@@ -401,6 +409,13 @@ export async function routerStats() {
     modelCounts[r.primaryModel] = (modelCounts[r.primaryModel] || 0) + 1
   }
   const topModel = Object.entries(modelCounts).sort((a, b) => b[1] - a[1])[0]
+
+  // G4 — metriche derivate
+  const nonPrimary = ensemble + critic
+  const ensembleRate = decisions > 0 ? nonPrimary / decisions : 0
+  const avgConfidence = confidenceAgg._avg.confidence ?? 0
+  const avgMargin = marginAgg._avg.margin ?? 0
+
   return {
     decisions,
     ensemble,
@@ -408,5 +423,9 @@ export async function routerStats() {
     primary,
     topModel: topModel ? topModel[0] : 'none',
     topModelPct: topModel && recent.length ? topModel[1] / recent.length : 0,
+    // G4 — metriche derivate
+    ensembleRate,
+    avgConfidence,
+    avgMargin,
   }
 }

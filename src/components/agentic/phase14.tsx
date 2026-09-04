@@ -127,15 +127,19 @@ Dimostra con un proof formale che la funzione è errata.`)
 
  return (
  <div className="p-4 md:p-6 space-y-4">
- <PhaseHeader phaseId="phase14" action={<Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
+ <PhaseHeader phaseId="phase14" action={<Button variant="outline" size="sm" onClick={refresh} aria-label="Aggiorna dati Model Router"><RefreshCw className="size-3.5 mr-1.5" />Aggiorna</Button>} />
 
  {stats && (
- <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+ <div className="grid grid-cols-2 md:grid-cols-5 gap-3" role="status" aria-live="polite" aria-label="Statistiche Model Router">
  <StatCard label="Decisioni" value={stats.decisions} />
  <StatCard label="Primary" value={stats.primary} highlight />
  <StatCard label="Ensemble" value={stats.ensemble} warn={stats.ensemble > 0} />
  <StatCard label="Critic" value={stats.critic} warn={stats.critic > 0} />
- <StatCard label="Top model" value={stats.topModel.slice(0, 12)} small />
+ <StatCard label="Top model" value={(stats.topModel || 'none').slice(0, 12)} small />
+ {/* G4 — nuove stat card con metriche derivate */}
+ <StatCard label="Ensemble rate" value={((stats.ensembleRate ?? 0) * 100).toFixed(1) + '%'} warn={(stats.ensembleRate ?? 0) > 0.3} />
+ <StatCard label="Avg confidence" value={(stats.avgConfidence ?? 0).toFixed(2)} />
+ <StatCard label="Avg margin" value={(stats.avgMargin ?? 0).toFixed(2)} />
  </div>
  )}
 
@@ -187,7 +191,7 @@ Dimostra con un proof formale che la funzione è errata.`)
  </div>
  )}
 
- <Button size="sm" onClick={route}>
+ <Button size="sm" onClick={route} aria-label="Route prompt al modello ottimale tramite adaptive routing">
  <Play className="size-3.5 mr-1.5" /> Route
  </Button>
  </CardContent>
@@ -264,9 +268,9 @@ Dimostra con un proof formale che la funzione è errata.`)
 function StatCard({ label, value, highlight, warn, small }: { label: string; value: number | string; highlight?: boolean; warn?: boolean; small?: boolean }) {
  return (
  <Card>
- <CardContent className="pt-4">
+ <CardContent className="pt-4" role="group" aria-label={`Statistica: ${label}`}>
  <div className="text-muted-foreground text-xs mb-1">{label}</div>
- <div className={cn('font-bold font-mono', small ? 'text-sm' : 'text-2xl', highlight && 'text-status-ok', warn && 'text-status-warn')}>{value}</div>
+ <div className={cn('font-bold font-mono', small ? 'text-sm' : 'text-2xl', highlight && 'text-status-ok', warn && 'text-status-warn')} aria-label={`${label}: ${value}`}>{value}</div>
  </CardContent>
  </Card>
  )
